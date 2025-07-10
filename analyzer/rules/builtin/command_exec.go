@@ -4,9 +4,9 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/codexsentinel/analyzer/context"
-	"github.com/codexsentinel/analyzer/result"
-	"github.com/codexsentinel/internal/matcher"
+	"github.com/Voskan/codexsentinel/analyzer/context"
+	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/internal/matcher"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 )

@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/codexsentinel/analyzer/ast"
-	"github.com/codexsentinel/analyzer/context"
-	"github.com/codexsentinel/analyzer/flow"
-	"github.com/codexsentinel/analyzer/result"
-	"github.com/codexsentinel/analyzer/rules"
-	"github.com/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/analyzer/ast"
+	"github.com/Voskan/codexsentinel/analyzer/context"
+	"github.com/Voskan/codexsentinel/analyzer/flow"
+	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/analyzer/rules"
+	"github.com/Voskan/codexsentinel/analyzer/ssa"
 )
 
 // Engine coordinates the entire static analysis process.

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/codexsentinel/analyzer/rules"
+	"github.com/Voskan/codexsentinel/analyzer/rules"
 	"github.com/go-yaml/yaml"
 )
 

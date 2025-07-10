@@ -76,7 +76,7 @@ func WriteSARIFReport(issues []report.Issue, path string) error {
 			Name:           "CodexSentinel",
 			FullName:       "CodexSentinel Static Analysis Tool",
 			Version:        "1.0.0",
-			InformationURI: "https://github.com/CodexSentinel",
+			InformationURI: "https://github.com/Voskan/codexsentinel",
 			Rules:          []sarifRule{},
 		},
 	}
