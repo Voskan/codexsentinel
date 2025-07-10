@@ -22,13 +22,13 @@
 ## 🛠️ Installation
 
 ```bash
-go install github.com/YOUR_ORG/codexsentinel/cmd/codex@latest
+go install github.com/Voskan/codexsentinel/cmd/codex@latest
 ```
 
 Or use the install script:
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/YOUR_ORG/codexsentinel/main/scripts/install.sh | sh
+curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/install.sh | sh
 ```
 
 ## 📦 Usage
