@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/CodexSentinel/codexsentinel/report"
+	"github.com/Voskan/codexsentinel/report"
 )
 
 // sarifReport defines the structure of a SARIF output file.

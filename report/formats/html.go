@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/CodexSentinel/codexsentinel/report"
-	reporttpl "github.com/CodexSentinel/codexsentinel/report/template"
+	"github.com/Voskan/codexsentinel/report"
+	reporttpl "github.com/Voskan/codexsentinel/report/template"
 )
 
 // WriteHTMLReport generates a static HTML report from the given issues and writes it to the provided path.

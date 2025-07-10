@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CodexSentinel/codexsentinel/report"
+	"github.com/Voskan/codexsentinel/report"
 )
 
 // WriteMarkdownReport generates a Markdown (.md) report from issues and writes it to a file.

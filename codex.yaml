@@ -1,142 +1,74 @@
-# CodexSentinel Configuration File
+# CodexSentinel Configuration
 
-# Analysis settings
-analysis:
-  enabled_rules:
-    - security
-    - metrics
-    - architecture
-    - dependencies
+version: 1
 
-  severity_threshold: medium
+# Project root directory (optional, default is current working directory)
+root: "."
 
-  ignore_patterns:
-    - "vendor/*"
-    - "testdata/*"
-    - "*.test.go"
-    - "build/*"
-    - "dist/*"
+# Target directory to scan
+target: "./"
 
-# Security analysis
-security:
-  enabled_checks:
-    - sql_injection
-    - command_injection
-    - xss
-    - path_traversal
-    - format_string
-    - hardcoded_credentials
+# Excluded paths or glob patterns
+exclude:
+  - "vendor/**"
+  - "**/testdata/**"
+  - "**/*.pb.go"
+  - "**/mocks/**"
 
-  custom_rules:
-    - path: "custom_rules.yaml"
+# Enabled built-in analyzers
+analyzers:
+  deadcode: true
+  globals: true
+  size: true
+  duplication: true
+  complexity: true
+  entropy: true
+  license: true
+  osv: true
+  imports: true
+  directcalls: true
+  godstruct: true
+  layers: true
+  taint: true
+  command_exec: true
 
-  taint_analysis:
-    enabled: true
-    sources:
-      - "os.Args"
-      - "http.Request.Body"
-      - "http.Request.URL.Query"
-    sinks:
-      - "database/sql.DB.Query"
-      - "database/sql.DB.QueryRow"
-      - "os/exec.Command"
+# Thresholds for warnings
+thresholds:
+  complexity: 15
+  duplication: 5 # Min duplicated lines
+  file_size_kb: 200
+  global_vars: 0
+  entropy_threshold: 4.5 # For secrets
 
-# Metrics analysis
-metrics:
-  complexity:
-    cyclomatic_threshold: 10
-    cognitive_threshold: 15
-    maintainability_threshold: 65
+# Rule files (custom static analysis rules in YAML format)
+rules:
+  - "rules/security.yml"
+  - "rules/conventions.yml"
 
-  duplication:
-    min_tokens: 50
-    similarity_threshold: 0.8
+# Output formats
+report:
+  output: "./reports"
+  formats:
+    - html
+    - json
+    - markdown
+    - sarif
 
-  size:
-    max_function_lines: 50
-    max_file_lines: 1000
-    max_struct_fields: 20
+# Severity overrides (optional)
+severity:
+  deadcode: "low"
+  globals: "medium"
+  command_exec: "high"
 
-# Architecture analysis
-architecture:
-  layer_violations:
-    enabled: true
-    layers:
-      - name: "presentation"
-        packages: ["cmd/*", "web/*", "api/*"]
-      - name: "business"
-        packages: ["service/*", "handler/*"]
-      - name: "data"
-        packages: ["repository/*", "dao/*", "model/*"]
+# Parallelism settings
+concurrency:
+  max_workers: 4
 
-  god_object_detection:
-    enabled: true
-    max_methods: 20
-    max_fields: 15
-    max_complexity: 50
+# Cache directory (optional)
+cache_dir: ".codex_cache"
 
-  dependency_analysis:
-    enabled: true
-    max_coupling: 10
-    max_depth: 5
+# Fail on issues of given severity or higher
+fail_on: "high"
 
-# Dependency analysis
-dependencies:
-  vulnerability_scanning:
-    enabled: true
-    osv_api_url: "https://api.osv.dev"
-    severity_threshold: "medium"
-
-  license_checking:
-    enabled: true
-    allowed_licenses:
-      - "MIT"
-      - "Apache-2.0"
-      - "BSD-3-Clause"
-      - "ISC"
-
-  entropy_analysis:
-    enabled: true
-    threshold: 7.5
-    min_length: 20
-
-# Reporting
-reporting:
-  output_format: html
-  output_file: "codex-report.html"
-  include_ignored: false
-  include_fixes: true
-
-  html_template:
-    title: "CodexSentinel Analysis Report"
-    theme: "dark"
-    include_charts: true
-
-  sarif:
-    include_rule_help: true
-    include_tool_info: true
-
-  markdown:
-    include_summary: true
-    include_details: true
-
-# Logging
-logging:
-  level: "info"
-  format: "text"
-  output: "stdout"
-  file: ""
-
-  quiet: false
-  verbose: false
-
-# Performance
-performance:
-  max_concurrent_analyzers: 4
-  timeout_seconds: 300
-  memory_limit_mb: 1024
-
-  cache:
-    enabled: true
-    directory: ".codex-cache"
-    max_size_mb: 100
+# Verbosity level: silent | error | warn | info | debug
+log_level: "info"

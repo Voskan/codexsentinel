@@ -1,0 +1,38 @@
+# Ignore generated files
+**/*.pb.go
+**/*.gen.go
+
+# Ignore vendor dependencies
+/vendor/
+
+# Ignore build artifacts
+/dist/
+/bin/
+/build/
+/out/
+
+# Ignore test fixtures and mock files
+**/testdata/
+/mocks/
+/fixtures/
+
+# Ignore documentation or asset folders
+/docs/
+/assets/
+/examples/
+
+# Ignore IDE/project settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore third-party templates or embedded resources
+/embed/
+/templates/
+/third_party/
+
+# Ignore cache and local tool artifacts
+.codex_cache/
+.codexsentinel.lock
+.coverage/

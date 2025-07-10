@@ -1,0 +1,50 @@
+id: go.insecure.xss.reflected_input
+title: Reflected Input in HTML Response
+severity: HIGH
+description: |
+  Unescaped user input is being written directly into the HTTP response,
+  which can lead to reflected Cross-Site Scripting (XSS) vulnerabilities.
+  Ensure that all user-controlled values are properly escaped before writing
+  to HTML output.
+
+match:
+  pattern: "w.Write([]byte({{input}}))"
+  filters:
+    - type: param
+      sources:
+        - http.Request.FormValue
+        - http.Request.URL.Query().Get
+        - http.Request.PostFormValue
+        - r.FormValue
+    - type: file_ext
+      include:
+        - ".go"
+    - type: package
+      allow:
+        - net/http
+
+examples:
+  - bad: |
+      func handler(w http.ResponseWriter, r *http.Request) {
+          input := r.FormValue("name")
+          w.Write([]byte(input)) // ❌ vulnerable to reflected XSS
+      }
+  - good: |
+      import "html/template"
+
+      func handler(w http.ResponseWriter, r *http.Request) {
+          input := r.FormValue("name")
+          safe := template.HTMLEscapeString(input)
+          w.Write([]byte(safe)) // ✅ properly escaped
+      }
+
+references:
+  - https://owasp.org/www-community/attacks/xss/
+  - https://pkg.go.dev/html/template#HTMLEscapeString
+  - https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html
+
+tags:
+  - xss
+  - security
+  - input-validation
+  - go
