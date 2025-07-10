@@ -42,7 +42,6 @@ logs/
 *.html
 *.json
 *.sarif
-*.md
 reports/
 
 # Temporary files
