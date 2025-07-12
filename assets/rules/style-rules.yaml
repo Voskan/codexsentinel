@@ -1,0 +1,63 @@
+id: go.style.unused_imports
+title: "Unused Imports"
+category: "style"
+severity: "INFO"
+description: |
+  Unused imports detected. These should be removed to improve
+  code clarity and reduce compilation time.
+
+match:
+  pattern: 'import.*"{{unused}}"'
+  filters:
+    - type: file_ext
+      include:
+        - ".go"
+
+suggestion: "Remove unused imports using 'goimports -w' or manually"
+references:
+  - https://golang.org/cmd/goimports/
+enabled: true
+
+---
+id: go.style.missing_documentation
+title: "Missing Package Documentation"
+category: "style"
+severity: "INFO"
+description: |
+  Package lacks documentation comment.
+  All packages should have a brief description.
+
+match:
+  pattern: "package {{name}}"
+  filters:
+    - type: file_ext
+      include:
+        - ".go"
+    - type: package
+      exclude:
+        - main
+
+suggestion: "Add package documentation comment"
+references:
+  - https://golang.org/doc/effective_go.html#commentary
+enabled: true
+
+---
+id: go.style.naming_convention
+title: "Naming Convention Violation"
+category: "style"
+severity: "LOW"
+description: |
+  Function or variable name doesn't follow Go naming conventions.
+
+match:
+  pattern: "func {{name}}("
+  filters:
+    - type: file_ext
+      include:
+        - ".go"
+
+suggestion: "Use camelCase for function names, PascalCase for exported functions"
+references:
+  - https://golang.org/doc/effective_go.html#mixed-caps
+enabled: true

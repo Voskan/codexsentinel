@@ -13,6 +13,7 @@ import (
 	customast "github.com/Voskan/codexsentinel/analyzer/ast"
 	"github.com/Voskan/codexsentinel/analyzer/flow"
 	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/analyzer/rules"
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
 	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
 	"github.com/Voskan/codexsentinel/deps"
@@ -95,6 +96,8 @@ func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*re
 
 // runASTAnalysis applies registered AST rules to parsed files.
 func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
+	var issues []*result.Issue
+	
 	fset := proj.Fset
 	if fset == nil {
 		fset = token.NewFileSet()
@@ -165,11 +168,51 @@ func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 		}
 	}
 
+	// Run YAML-based rules
+	yamlIssues, err := runYAMLRules(ctx, proj)
+	if err != nil {
+		return nil, fmt.Errorf("YAML rules analysis failed: %w", err)
+	}
+	issues = append(issues, yamlIssues...)
+
 	// Return collected issues
 	reportedIssues := proj.GetIssues()
-	issues := make([]*result.Issue, len(reportedIssues))
+	reportedIssuesSlice := make([]*result.Issue, len(reportedIssues))
 	for i, issue := range reportedIssues {
-		issues[i] = &issue
+		reportedIssuesSlice[i] = &issue
+	}
+	issues = append(issues, reportedIssuesSlice...)
+
+	return issues, nil
+}
+
+// runYAMLRules executes all registered YAML-based rules
+func runYAMLRules(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
+	var issues []*result.Issue
+
+	// Get all registered rules
+	allRules := rules.All()
+	
+	for _, rule := range allRules {
+		// Skip disabled rules
+		if !rule.Enabled {
+			continue
+		}
+
+		// Execute YAML rules that have an engine function
+		if rule.Engine != nil {
+			ruleIssues, err := rule.Engine(proj)
+			if err != nil {
+				// Log error but continue with other rules
+				fmt.Printf("Warning: YAML rule %s failed: %v\n", rule.ID, err)
+				continue
+			}
+
+			// Convert to pointer slice
+			for _, issue := range ruleIssues {
+				issues = append(issues, &issue)
+			}
+		}
 	}
 
 	return issues, nil

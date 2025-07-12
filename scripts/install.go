@@ -18,6 +18,18 @@ func main() {
 		exitWithError("failed to prepare install directory", err)
 	}
 
+	// Install osv-scanner
+	fmt.Println("🔧 Installing osv-scanner (dependency vulnerability scanner)...")
+	osvCmd := exec.Command("go", "install", "github.com/google/osv-scanner/cmd/osv-scanner@latest")
+	osvCmd.Env = os.Environ()
+	osvCmd.Stdout = os.Stdout
+	osvCmd.Stderr = os.Stderr
+	if err := osvCmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: failed to install osv-scanner: %v\n", err)
+	} else {
+		fmt.Println("✅ osv-scanner installed successfully.")
+	}
+
 	output := filepath.Join(installDir, binaryName("codex"))
 	cmd := exec.Command("go", "build", "-o", output, "./cmd/codex-cli")
 	cmd.Env = os.Environ()

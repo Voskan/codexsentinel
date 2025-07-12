@@ -6,9 +6,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"go/token"
+
 	"github.com/Voskan/codexsentinel/analyzer/engine"
 	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/analyzer/rules/yaml"
 	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/fsutil"
 	"github.com/Voskan/codexsentinel/internal/git"
 	"github.com/Voskan/codexsentinel/internal/ignore"
@@ -26,6 +30,7 @@ func NewScanCmd() *cobra.Command {
 		outPath    string
 		strict     bool
 		ignoreFile string
+		depsOnly   bool
 		exitCode   int
 	)
 
@@ -76,64 +81,98 @@ func NewScanCmd() *cobra.Command {
 				}
 			}
 
-			// Use fsutil for safe file walking
-			fileOpts := fsutil.WalkOptions{
-				RootDir:           targetPath,
-				AllowedExtensions: []string{".go"},
-				MaxFileSizeBytes:  10 * 1024 * 1024, // 10MB limit
-				FollowSymlinks:    false,
-				IncludeHiddenFiles: false,
-				ExcludedPaths:     []string{"vendor", "node_modules", ".git"},
-			}
+			var results []result.Issue
+			var err error
 
-			files, err := fsutil.Walk(fileOpts)
-			if err != nil {
-				logger.Warnf("Failed to walk files: %v", err)
-			} else {
-				logger.Infof("Found %d Go files to analyze", len(files))
-			}
-
-			// Load ignore rules if specified
-			var ignoreManager *ignore.Manager
-			if ignoreFile != "" {
-				ignoreManager = ignore.NewManager()
-				if err := ignoreManager.LoadFile(ignoreFile); err != nil {
-					logger.Warnf("Failed to load ignore file: %v", err)
-				} else {
-					logger.Infof("Loaded ignore rules from: %s", ignoreFile)
+			if depsOnly {
+				// Run only dependency analysis
+				logger.Infof("Running dependency analysis only")
+				results, err = runDependencyAnalysis(targetPath)
+				if err != nil {
+					return fmt.Errorf("dependency analysis failed: %w", err)
 				}
-			}
+			} else {
+				// Run full analysis
+				// Use fsutil for safe file walking
+				fileOpts := fsutil.WalkOptions{
+					RootDir:           targetPath,
+					AllowedExtensions: []string{".go"},
+					MaxFileSizeBytes:  10 * 1024 * 1024, // 10MB limit
+					FollowSymlinks:    false,
+					IncludeHiddenFiles: false,
+					ExcludedPaths:     []string{"vendor", "node_modules", ".git"},
+				}
 
-			// Load config
-			cfg, err := config.LoadDefaultPath()
-			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
+				files, err := fsutil.Walk(fileOpts)
+				if err != nil {
+					logger.Warnf("Failed to walk files: %v", err)
+				} else {
+					logger.Infof("Found %d Go files to analyze", len(files))
+				}
 
-			// Run analysis
-			results, err := engine.Run(ctx, targetPath, cfg)
-			if err != nil {
-				return fmt.Errorf("analysis failed: %w", err)
+				// Load ignore rules if specified
+				var ignoreManager *ignore.Manager
+				if ignoreFile != "" {
+					ignoreManager = ignore.NewManager()
+					if err := ignoreManager.LoadFile(ignoreFile); err != nil {
+						logger.Warnf("Failed to load ignore file: %v", err)
+					} else {
+						logger.Infof("Loaded ignore rules from: %s", ignoreFile)
+					}
+				}
+
+				// Load config
+				cfg, err := config.LoadDefaultPath()
+				if err != nil {
+					return fmt.Errorf("failed to load config: %w", err)
+				}
+
+				// Load YAML rules from assets/rules directory
+				yamlRulesDir := "assets/rules"
+				if _, err := os.Stat(yamlRulesDir); err == nil {
+					if err := yaml.LoadFromDir(yamlRulesDir); err != nil {
+						logger.Warnf("Failed to load YAML rules from %s: %v", yamlRulesDir, err)
+					} else {
+						logger.Infof("Loaded YAML rules from %s", yamlRulesDir)
+					}
+				}
+
+				// Load YAML rules from config rule paths
+				for _, rulePath := range cfg.Rules.RulePaths {
+					if _, err := os.Stat(rulePath); err == nil {
+						if err := yaml.LoadFromDir(rulePath); err != nil {
+							logger.Warnf("Failed to load YAML rules from %s: %v", rulePath, err)
+						} else {
+							logger.Infof("Loaded YAML rules from %s", rulePath)
+						}
+					}
+				}
+
+				// Run analysis
+				results, err = engine.Run(ctx, targetPath, cfg)
+				if err != nil {
+					return fmt.Errorf("analysis failed: %w", err)
+				}
+
+				// Filter out ignored issues
+				if ignoreManager != nil {
+					filteredResults := make([]result.Issue, 0)
+					ignoredCount := 0
+					for _, issue := range results {
+						if !ignoreManager.IsIgnored(issue.Location.File, issue.Location.Line, issue.ID) {
+							filteredResults = append(filteredResults, issue)
+						} else {
+							ignoredCount++
+						}
+					}
+					if ignoredCount > 0 {
+						logger.Infof("Ignored %d issues based on ignore rules", ignoredCount)
+					}
+					results = filteredResults
+				}
 			}
 
 			logger.Infof("Analysis completed, found %d issues", len(results))
-
-			// Filter out ignored issues
-			if ignoreManager != nil {
-				filteredResults := make([]result.Issue, 0)
-				ignoredCount := 0
-				for _, issue := range results {
-					if !ignoreManager.IsIgnored(issue.Location.File, issue.Location.Line, issue.ID) {
-						filteredResults = append(filteredResults, issue)
-					} else {
-						ignoredCount++
-					}
-				}
-				if ignoredCount > 0 {
-					logger.Infof("Ignored %d issues based on ignore rules", ignoredCount)
-				}
-				results = filteredResults
-			}
 
 			// Determine output path
 			reportDir := "scan_reports"
@@ -172,8 +211,74 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Path to write the output report to")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Exit with code 1 if issues are found")
 	cmd.Flags().StringVar(&ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file")
+	cmd.Flags().BoolVar(&depsOnly, "deps", false, "Run dependency analysis only")
 
 	return cmd
+}
+
+// runDependencyAnalysis performs dependency analysis and returns issues
+func runDependencyAnalysis(targetPath string) ([]result.Issue, error) {
+	var issues []result.Issue
+
+	// Find go.mod file
+	goModPath := filepath.Join(targetPath, "go.mod")
+	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("go.mod file not found in %s", targetPath)
+	}
+
+	// Default license lists
+	allowLicenses := []string{"MIT", "Apache-2.0", "BSD-3-Clause"}
+	denyLicenses := []string{"AGPL-3.0", "GPL-3.0", "BSL-1.1"}
+
+	// Run dependency analysis
+	reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
+	if err != nil {
+		return nil, fmt.Errorf("dependency analysis failed: %w", err)
+	}
+
+	// Convert dependency reports to issues
+	for _, report := range reports {
+		// License issues
+		if report.LicenseStatus == "DENIED" {
+			issues = append(issues, result.Issue{
+				ID:          "license-denied",
+				Title:       "Denied License Detected",
+				Description: fmt.Sprintf("Module %s uses denied license: %s", report.Module, report.License),
+				Severity:    result.SeverityHigh,
+				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
+				Category:    "license",
+				Suggestion:  "Consider using a different dependency with an allowed license",
+			})
+		}
+
+		// Vulnerability issues
+		for _, vuln := range report.Vulnerabilities {
+			issues = append(issues, result.Issue{
+				ID:          "dependency-vulnerability",
+				Title:       "Vulnerable Dependency",
+				Description: fmt.Sprintf("Module %s@%s has vulnerability: %s", report.Module, report.Version, vuln.ID),
+				Severity:    result.SeverityHigh,
+				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
+				Category:    "security",
+				Suggestion:  fmt.Sprintf("Update to a fixed version or apply security patches"),
+			})
+		}
+
+		// Entropy findings (potential secrets)
+		for _, entropy := range report.SuspiciousFiles {
+			issues = append(issues, result.Issue{
+				ID:          "high-entropy-string",
+				Title:       "High Entropy String Detected",
+				Description: fmt.Sprintf("Potential secret found in %s at line %d", entropy.File, entropy.Line),
+				Severity:    result.SeverityMedium,
+				Location:    result.NewLocationFromPos(token.Position{Filename: entropy.File, Line: entropy.Line}, "", ""),
+				Category:    "security",
+				Suggestion:  "Review and remove hardcoded secrets from the codebase",
+			})
+		}
+	}
+
+	return issues, nil
 }
 
 // defaultOutputPath returns the default filename for a given report format.

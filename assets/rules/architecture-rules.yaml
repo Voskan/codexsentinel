@@ -1,0 +1,80 @@
+id: go.architecture.direct_db_access
+title: "Direct Database Access in Business Layer"
+category: "architecture"
+severity: "MEDIUM"
+description: |
+  Direct database access detected in business/service layer.
+  This violates clean architecture principles by mixing concerns.
+
+match:
+  pattern: "database/sql.DB"
+  filters:
+    - type: package
+      allow:
+        - service/*
+        - handler/*
+        - business/*
+    - type: file_ext
+      include:
+        - ".go"
+    - type: call
+      sources:
+        - database/sql.DB.Query
+        - database/sql.DB.Exec
+        - database/sql.DB.QueryRow
+
+suggestion: "Use repository pattern to abstract database access"
+references:
+  - https://martinfowler.com/eaaCatalog/repository.html
+enabled: true
+
+---
+id: go.architecture.http_in_data_layer
+title: "HTTP Handler in Data Layer"
+category: "architecture"
+severity: "MEDIUM"
+description: |
+  HTTP handlers detected in data/repository layer.
+  This violates separation of concerns.
+
+match:
+  pattern: "http.HandlerFunc"
+  filters:
+    - type: package
+      allow:
+        - repository/*
+        - dao/*
+        - model/*
+    - type: call
+      sources:
+        - net/http.HandlerFunc
+        - net/http.HandleFunc
+
+suggestion: "Move HTTP handlers to presentation layer"
+references:
+  - https://en.wikipedia.org/wiki/Separation_of_concerns
+enabled: true
+
+---
+id: go.architecture.global_variables
+title: "Global Variables Detected"
+category: "architecture"
+severity: "LOW"
+description: |
+  Global variables detected. These can make code harder to test
+  and maintain due to shared state.
+
+match:
+  pattern: "var {{name}} ="
+  filters:
+    - type: file_ext
+      include:
+        - ".go"
+    - type: package
+      exclude:
+        - main
+
+suggestion: "Consider using dependency injection or local variables"
+references:
+  - https://en.wikipedia.org/wiki/Global_variable
+enabled: true

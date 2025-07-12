@@ -104,6 +104,19 @@ install_binary() {
   "$DEST" version || log "Run 'codex-cli version' to verify"
 }
 
+install_osv_scanner() {
+  log "Installing osv-scanner (dependency vulnerability scanner)..."
+  if ! command -v go &> /dev/null; then
+    fail "Go is not installed. Please install Go first: https://golang.org/dl/"
+  fi
+  GO111MODULE=on go install github.com/google/osv-scanner/cmd/osv-scanner@latest
+  if [ $? -eq 0 ]; then
+    log "✅ osv-scanner installed. Make sure \$GOPATH/bin or \$HOME/go/bin is in your PATH."
+  else
+    log "⚠️  osv-scanner installation failed. You may need to install it manually."
+  fi
+}
+
 setup_global_access() {
   log "Setting up global access..."
   
@@ -167,4 +180,6 @@ create_alias() {
   log "   - Restart your terminal or run 'source $SHELL_RC' to use immediately"
 }
 
+# Call osv-scanner install before main binary install
+install_osv_scanner
 install_binary

@@ -152,6 +152,8 @@ deps:
 	@echo "Downloading dependencies..."
 	go mod download
 	go mod tidy
+	@echo "Installing osv-scanner..."
+	GO111MODULE=on go install github.com/google/osv-scanner/cmd/osv-scanner@latest
 
 # Update dependencies
 .PHONY: deps-update
