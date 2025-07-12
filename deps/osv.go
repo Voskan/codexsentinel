@@ -27,11 +27,33 @@ type Vulnerability struct {
 func AuditVulnerabilities(goModPath string) ([]Vulnerability, error) {
 	cmd := exec.Command("osv-scanner", "--format", "json", "--lockfile", goModPath)
 	var stdout bytes.Buffer
+	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = nil
+	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to run osv-scanner: %w", err)
+	err := cmd.Run()
+	
+	// osv-scanner returns exit code 1 when vulnerabilities are found, which is not an error
+	// We need to check if the command actually failed or just found vulnerabilities
+	if err != nil {
+		// Check if it's a real error (not just found vulnerabilities)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Exit code 1 with output means vulnerabilities were found (not an error)
+			if exitErr.ExitCode() == 1 && stdout.Len() > 0 {
+				// This is expected behavior - vulnerabilities found
+			} else {
+				// Real error - command failed or no output
+				return nil, fmt.Errorf("failed to run osv-scanner: %w (stderr: %s)", err, stderr.String())
+			}
+		} else {
+			// Non-exit error (like command not found)
+			return nil, fmt.Errorf("failed to run osv-scanner: %w", err)
+		}
+	}
+
+	// If no output, no vulnerabilities found
+	if stdout.Len() == 0 {
+		return []Vulnerability{}, nil
 	}
 
 	var result osvResult
