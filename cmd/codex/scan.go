@@ -52,10 +52,27 @@ func NewScanCmd() *cobra.Command {
 			logger.Infof("Starting CodexSentinel analysis on path: %s", targetPath)
 
 			// Get Git metadata if available
-			if gitRoot, err := git.RepoRoot(); err == nil {
-				logger.Infof("Git repository root: %s", gitRoot)
-				if commit, err := git.LatestCommit(); err == nil {
-					logger.Infof("Latest commit: %s by %s", commit.Hash[:8], commit.Author)
+			var gitMetadata *report.GitMetadata
+			if gitMeta, err := git.GetGitMetadata(); err == nil {
+				logger.Infof("Git repository root: %s", gitMeta.RepoRoot)
+				if gitMeta.CommitHash != "" {
+					logger.Infof("Latest commit: %s by %s", gitMeta.CommitShort, gitMeta.Author)
+				}
+				if gitMeta.IsDirty {
+					logger.Warnf("Working directory has uncommitted changes")
+				}
+				
+				// Convert to report.GitMetadata
+				gitMetadata = &report.GitMetadata{
+					RepoRoot:    gitMeta.RepoRoot,
+					Branch:      gitMeta.Branch,
+					CommitHash:  gitMeta.CommitHash,
+					CommitShort: gitMeta.CommitShort,
+					Author:      gitMeta.Author,
+					Email:       gitMeta.Email,
+					Message:     gitMeta.Message,
+					Timestamp:   gitMeta.Timestamp,
+					IsDirty:     gitMeta.IsDirty,
 				}
 			}
 
@@ -132,7 +149,7 @@ func NewScanCmd() *cobra.Command {
 			}
 
 			// Generate report
-			if err := writeReport(results, format, outPath); err != nil {
+			if err := writeReport(results, format, outPath, gitMetadata); err != nil {
 				return fmt.Errorf("failed to write report: %w", err)
 			}
 
@@ -176,7 +193,7 @@ func defaultOutputPath(format string) string {
 }
 
 // writeReport writes the analysis results in the requested format to the given path.
-func writeReport(results []result.Issue, format, outPath string) error {
+func writeReport(results []result.Issue, format, outPath string, gitMetadata *report.GitMetadata) error {
 	dir := filepath.Dir(outPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
@@ -198,13 +215,13 @@ func writeReport(results []result.Issue, format, outPath string) error {
 
 	switch format {
 	case "html":
-		return formats.WriteHTMLReport(reportIssues, outPath)
+		return formats.WriteHTMLReport(reportIssues, outPath, gitMetadata)
 	case "markdown":
-		return formats.WriteMarkdownReport(reportIssues, outPath)
+		return formats.WriteMarkdownReport(reportIssues, outPath, gitMetadata)
 	case "json":
-		return formats.WriteJSONReport(reportIssues, outPath)
+		return formats.WriteJSONReport(reportIssues, outPath, gitMetadata)
 	case "sarif":
-		return formats.WriteSARIFReport(reportIssues, outPath)
+		return formats.WriteSARIFReport(reportIssues, outPath, gitMetadata)
 	default:
 		return fmt.Errorf("unsupported format: %s", format)
 	}

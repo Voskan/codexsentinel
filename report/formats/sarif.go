@@ -30,6 +30,7 @@ type sarifDriver struct {
 	Version        string      `json:"version"`
 	InformationURI string      `json:"informationUri"`
 	Rules          []sarifRule `json:"rules"`
+	Properties     map[string]interface{} `json:"properties,omitempty"`
 }
 
 type sarifRule struct {
@@ -70,7 +71,7 @@ type sarifRegion struct {
 }
 
 // WriteSARIFReport converts the internal issues into SARIF format and writes to file.
-func WriteSARIFReport(issues []report.Issue, path string) error {
+func WriteSARIFReport(issues []report.Issue, path string, gitMeta *report.GitMetadata) error {
 	tool := sarifTool{
 		Driver: sarifDriver{
 			Name:           "CodexSentinel",
@@ -120,13 +121,42 @@ func WriteSARIFReport(issues []report.Issue, path string) error {
 		tool.Driver.Rules = append(tool.Driver.Rules, rule)
 	}
 
+	// Add Git metadata to run properties if available
+	runProperties := map[string]interface{}{}
+	if gitMeta != nil {
+		if gitMeta.RepoRoot != "" {
+			runProperties["repository"] = gitMeta.RepoRoot
+		}
+		if gitMeta.Branch != "" {
+			runProperties["branch"] = gitMeta.Branch
+		}
+		if gitMeta.CommitHash != "" {
+			runProperties["commit"] = gitMeta.CommitHash
+		}
+		if gitMeta.Author != "" {
+			runProperties["author"] = gitMeta.Author
+		}
+		if gitMeta.IsDirty {
+			runProperties["dirty"] = true
+		}
+	}
+
+	run := sarifRun{
+		Tool: tool,
+		Results: results,
+	}
+	
+	// Add properties to run if Git metadata exists
+	if len(runProperties) > 0 {
+		// We need to extend sarifRun to include properties
+		// For now, we'll add Git info to the tool driver properties
+		tool.Driver.Properties = runProperties
+	}
+
 	report := sarifReport{
 		Version: "2.1.0",
 		Schema:  "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
-		Runs: []sarifRun{{
-			Tool:    tool,
-			Results: results,
-		}},
+		Runs:    []sarifRun{run},
 	}
 
 	data, err := json.MarshalIndent(report, "", "  ")

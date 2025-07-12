@@ -13,17 +13,19 @@ import (
 )
 
 // WriteHTMLReport generates a static HTML report from the given issues and writes it to the provided path.
-func WriteHTMLReport(issues []report.Issue, outPath string) error {
+func WriteHTMLReport(issues []report.Issue, outPath string, gitMeta *report.GitMetadata) error {
 	summary := computeSummary(issues)
 
 	data := struct {
 		Issues      []report.Issue
 		Summary     report.Summary
 		GeneratedAt string
+		Git         *report.GitMetadata
 	}{
 		Issues:      issues,
 		Summary:     summary,
 		GeneratedAt: time.Now().Format(time.RFC3339),
+		Git:         gitMeta,
 	}
 
 	tmpl, err := template.New("report").Parse(reporttpl.HTMLTemplate)

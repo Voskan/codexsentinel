@@ -30,6 +30,73 @@ type BlameInfo struct {
 	Line       int    // Line number (1-based)
 }
 
+// GitMetadata represents complete Git repository information.
+type GitMetadata struct {
+	RepoRoot    string    // Repository root path
+	Branch      string    // Current branch name
+	CommitHash  string    // Full commit hash
+	CommitShort string    // Short commit hash (first 8 chars)
+	Author      string    // Author name
+	Email       string    // Author email
+	Message     string    // Commit message
+	Timestamp   time.Time // Commit timestamp
+	IsDirty     bool      // Whether working directory has uncommitted changes
+}
+
+// GetGitMetadata returns complete Git repository metadata.
+func GetGitMetadata() (*GitMetadata, error) {
+	repoRoot, err := RepoRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	metadata := &GitMetadata{
+		RepoRoot: repoRoot,
+	}
+
+	// Get current branch
+	if branch, err := getCurrentBranch(); err == nil {
+		metadata.Branch = branch
+	}
+
+	// Get latest commit info
+	if commit, err := LatestCommit(); err == nil {
+		metadata.CommitHash = commit.Hash
+		if len(commit.Hash) >= 8 {
+			metadata.CommitShort = commit.Hash[:8]
+		}
+		metadata.Author = commit.Author
+		metadata.Email = commit.Email
+		metadata.Message = commit.Message
+		metadata.Timestamp = commit.Timestamp
+	}
+
+	// Check if working directory is dirty
+	if isDirty, err := checkIfDirty(); err == nil {
+		metadata.IsDirty = isDirty
+	}
+
+	return metadata, nil
+}
+
+// getCurrentBranch returns the current branch name.
+func getCurrentBranch() (string, error) {
+	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// checkIfDirty checks if the working directory has uncommitted changes.
+func checkIfDirty() (bool, error) {
+	out, err := exec.Command("git", "status", "--porcelain").Output()
+	if err != nil {
+		return false, err
+	}
+	return len(strings.TrimSpace(string(out))) > 0, nil
+}
+
 // RepoRoot returns the root directory of the current Git repository.
 func RepoRoot() (string, error) {
 	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()

@@ -48,6 +48,36 @@ const HTMLTemplate = `
             font-size: 1.1em;
         }
         
+        .git-info {
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .git-info h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        .git-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 10px;
+        }
+        
+        .git-details p {
+            margin: 5px 0;
+            font-size: 0.9em;
+            color: #34495e;
+        }
+        
+        .git-details strong {
+            color: #2c3e50;
+        }
+        
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -263,6 +293,20 @@ const HTMLTemplate = `
         <div class="header">
             <h1>🔒 CodexSentinel Security Report</h1>
             <p>Generated at: {{.GeneratedAt}}</p>
+            {{if .Git.RepoRoot}}
+            <div class="git-info">
+                <h3>📁 Repository Information</h3>
+                <div class="git-details">
+                    <p><strong>Repository:</strong> {{.Git.RepoRoot}}</p>
+                    {{if .Git.Branch}}<p><strong>Branch:</strong> {{.Git.Branch}}</p>{{end}}
+                    {{if .Git.CommitHash}}<p><strong>Commit:</strong> {{.Git.CommitShort}} ({{.Git.CommitHash}})</p>{{end}}
+                    {{if .Git.Author}}<p><strong>Author:</strong> {{.Git.Author}} &lt;{{.Git.Email}}&gt;</p>{{end}}
+                    {{if .Git.Message}}<p><strong>Message:</strong> {{.Git.Message}}</p>{{end}}
+                    {{if .Git.Timestamp}}<p><strong>Date:</strong> {{.Git.Timestamp.Format "2006-01-02 15:04:05"}}</p>{{end}}
+                    {{if .Git.IsDirty}}<p><strong>Status:</strong> <span style="color: #e74c3c;">⚠️ Working directory has uncommitted changes</span></p>{{end}}
+                </div>
+            </div>
+            {{end}}
         </div>
         
         <div class="stats-grid">

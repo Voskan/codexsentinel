@@ -54,20 +54,38 @@ type Summary struct {
 	License  int `json:"license"`
 }
 
+// GitMetadata represents Git repository information.
+type GitMetadata struct {
+	RepoRoot    string    `json:"repo_root,omitempty"`
+	Branch      string    `json:"branch,omitempty"`
+	CommitHash  string    `json:"commit_hash,omitempty"`
+	CommitShort string    `json:"commit_short,omitempty"`
+	Author      string    `json:"author,omitempty"`
+	Email       string    `json:"email,omitempty"`
+	Message     string    `json:"message,omitempty"`
+	Timestamp   time.Time `json:"timestamp,omitempty"`
+	IsDirty     bool      `json:"is_dirty,omitempty"`
+}
+
 // ReportData represents the full report structure.
 type ReportData struct {
-	Summary     Summary `json:"summary"`
-	Issues      []Issue `json:"issues"`
-	GeneratedAt string  `json:"generated_at"`
+	Summary     Summary     `json:"summary"`
+	Issues      []Issue     `json:"issues"`
+	GeneratedAt string      `json:"generated_at"`
+	Git         GitMetadata `json:"git,omitempty"`
 }
 
 // GenerateReport creates a report in the specified format (json, html).
-func GenerateReport(issues []Issue, format, outPath string) error {
+func GenerateReport(issues []Issue, format, outPath string, gitMeta *GitMetadata) error {
 	summary := computeSummary(issues)
 	data := ReportData{
 		Summary:     summary,
 		Issues:      issues,
 		GeneratedAt: time.Now().Format(time.RFC3339),
+	}
+	
+	if gitMeta != nil {
+		data.Git = *gitMeta
 	}
 
 	switch format {
