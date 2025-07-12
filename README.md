@@ -22,7 +22,7 @@
 ## 🛠️ Installation
 
 ```bash
-go install github.com/Voskan/codexsentinel/cmd/codex@latest
+go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
 ```
 
 Or use the install script:
@@ -33,19 +33,48 @@ curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/i
 
 ## 📦 Usage
 
+### Basic Scan
+
 ```bash
-codex scan ./...
+# Scan current directory
+codex scan .
+
+# Scan specific files
+codex scan ./main.go ./pkg/
+
+# Scan with custom output
+codex scan ./... --format html --output report.html
 ```
 
-**Optional flags:**
+### Advanced Usage
 
-| Flag            | Description                                       |
-| --------------- | ------------------------------------------------- |
-| `--config`      | Path to `.codex.yml` config file                  |
-| `--output`      | Output report file path                           |
-| `--format`      | Report format:`json`, `html`, `sarif`, `markdown` |
-| `--severity`    | Minimum severity to report (`low`-`critical`)     |
-| `--ignore-file` | Path to `.codexsentinel.ignore`                   |
+```bash
+# Scan with specific severity
+codex scan ./... --severity high
+
+# Use custom config
+codex scan ./... --config .codex.yml
+
+# Ignore specific files
+codex scan ./... --ignore-file .codexsentinel.ignore
+
+# Generate SARIF for CI/CD
+codex scan ./... --format sarif --output results.sarif
+```
+
+### Available Flags
+
+| Flag            | Description                                           | Default               |
+| --------------- | ----------------------------------------------------- | --------------------- |
+| `--config`      | Path to `.codex.yml` config file                      | -                     |
+| `--output`      | Output report file path                               | stdout                |
+| `--format`      | Report format: `json`, `html`, `sarif`, `markdown`    | json                  |
+| `--severity`    | Minimum severity: `low`, `medium`, `high`, `critical` | low                   |
+| `--ignore-file` | Path to `.codexsentinel.ignore`                       | .codexsentinel.ignore |
+| `--ast`         | Enable AST-based analysis                             | true                  |
+| `--ssa`         | Enable SSA-based analysis                             | true                  |
+| `--taint`       | Enable taint flow analysis                            | true                  |
+| `--no-builtin`  | Disable built-in rules                                | false                 |
 
 ## 📁 Project Structure
 
@@ -62,28 +91,105 @@ codexsentinel/
 └── assets/          # Rules, templates, CSS, etc.
 ```
 
-## 📚 Example
+## 📚 Examples
+
+### Security Vulnerabilities
+
+**SQL Injection:**
 
 ```go
-// insecure_sql.go
-query := "SELECT * FROM users WHERE id = " + id
-db.Query(query) // ❌ Vulnerable to SQL Injection
+// ❌ Vulnerable
+query := "SELECT * FROM users WHERE id = " + userInput
+db.Query(query)
+
+// ✅ Safe
+query := "SELECT * FROM users WHERE id = ?"
+db.Query(query, userInput)
 ```
 
+**Command Injection:**
+
+```go
+// ❌ Vulnerable
+cmd := exec.Command("sh", "-c", userInput)
+cmd.Run()
+
+// ✅ Safe
+cmd := exec.Command("echo", userInput)
+cmd.Run()
+```
+
+**XSS (Cross-Site Scripting):**
+
+```go
+// ❌ Vulnerable
+w.Write([]byte(userInput))
+
+// ✅ Safe
+w.Write([]byte(html.EscapeString(userInput)))
+```
+
+### Architecture Violations
+
+**Direct Layer Calls:**
+
+```go
+// ❌ Handler directly calling repository
+func (h *Handler) GetUser(id string) {
+    user := h.repo.GetUser(id) // Direct call to repo layer
+}
+
+// ✅ Handler calling service layer
+func (h *Handler) GetUser(id string) {
+    user := h.service.GetUser(id) // Proper layer separation
+}
+```
+
+### Running Analysis
+
 ```bash
-codex scan ./testdata/insecure_sql.go --format markdown
+# Scan for security issues
+codex scan ./... --severity high
+
+# Generate HTML report
+codex scan ./... --format html --output security-report.html
+
+# Check architecture compliance
+codex scan ./... --config .codex.yml
 ```
 
 ## 📘 Custom Rules
 
-Write custom YAML rules and place them under `assets/rules/`.
+Create custom YAML rules and place them under `assets/rules/`.
 
 ```yaml
 id: go.insecure.xss.reflected_input
+title: "XSS via Reflected Input"
+category: "security"
+severity: "high"
 pattern: "w.Write([]byte({{input}}))"
 filters:
   - type: param
-    sources: [r.FormValue]
+    sources: [r.FormValue, r.URL.Query]
+description: "Potential XSS vulnerability when writing user input directly to response"
+suggestion: "Use html.EscapeString() to sanitize user input"
+```
+
+### Rule Structure
+
+```yaml
+id: "unique.rule.identifier"
+title: "Human readable title"
+category: "security|style|performance"
+severity: "low|medium|high|critical"
+pattern: "Go AST pattern to match"
+filters:
+  - type: "param|call|import"
+    sources: ["list", "of", "sources"]
+description: "Detailed description of the issue"
+suggestion: "How to fix the issue"
+references:
+  - "https://owasp.org/..."
 ```
 
 Learn more in `assets/rules/`.
@@ -91,7 +197,59 @@ Learn more in `assets/rules/`.
 ## 🧪 Testing
 
 ```bash
+# Run all tests
 go test ./...
+
+# Run tests with coverage
+go test -cover ./...
+
+# Run specific test
+go test ./analyzer/...
+```
+
+## 🔄 CI/CD Integration
+
+### GitHub Actions
+
+```yaml
+name: Security Scan
+on: [push, pull_request]
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Install CodexSentinel
+        run: go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+
+      - name: Run Security Scan
+        run: codex scan ./... --format sarif --output results.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: results.sarif
+```
+
+### GitLab CI
+
+```yaml
+security-scan:
+  stage: test
+  image: golang:1.21
+  script:
+    - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+    - codex scan ./... --format sarif --output results.sarif
+  artifacts:
+    reports:
+      sarif: results.sarif
 ```
 
 ## 📄 License
@@ -108,22 +266,69 @@ MIT © [Voskan](https://github.com/Voskan) - see the [LICENSE](LICENSE) file for
 
 We welcome PRs and new rule contributions. Please follow our contribution guide and ensure all changes are covered by tests.
 
-## ✨ Example Report
+## ✨ Example Reports
 
-```yaml
----
-version: "0.1.0"
-timestamp: "2024-01-01T12:00:00Z"
-issues:
-  - id: "SEC001"
-    name: "SQL Injection"
-    description: "Potential SQL injection vulnerability detected"
-    severity: "high"
-    location:
-      file: "main.go"
-      line: 42
-      column: 10
-    category: "security"
-    rule_id: "go.insecure.sql_injection"
----
+### JSON Report
+
+```json
+{
+  "version": "0.1.0",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "issues": [
+    {
+      "id": "SEC001",
+      "title": "SQL Injection",
+      "description": "Potential SQL injection vulnerability detected",
+      "severity": "high",
+      "location": {
+        "file": "main.go",
+        "line": 42,
+        "column": 10
+      },
+      "category": "security",
+      "rule_id": "go.insecure.sql_injection",
+      "suggestion": "Use parameterized queries"
+    }
+  ]
+}
+```
+
+### SARIF Report (for CI/CD)
+
+```json
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodexSentinel",
+          "version": "1.0.0"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "go.insecure.sql_injection",
+          "level": "error",
+          "message": {
+            "text": "Potential SQL injection vulnerability"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "main.go"
+                },
+                "region": {
+                  "startLine": 42,
+                  "startColumn": 10
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
 ```
