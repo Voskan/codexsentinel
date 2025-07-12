@@ -4,6 +4,7 @@ package version
 import (
 	"fmt"
 	"runtime/debug"
+	"time"
 )
 
 // These variables are intended to be set via -ldflags at build time.
@@ -31,4 +32,45 @@ func Info() map[string]string {
 	}
 
 	return info
+}
+
+// GetBuildInfo returns detailed build information including module info.
+func GetBuildInfo() map[string]interface{} {
+	info := map[string]interface{}{
+		"version":    Version,
+		"commit":     Commit,
+		"build_date": BuildDate,
+		"go_version": "unknown",
+		"module":     "unknown",
+	}
+
+	if buildInfo, ok := debug.ReadBuildInfo(); ok {
+		info["go_version"] = buildInfo.GoVersion
+		if buildInfo.Main.Path != "" {
+			info["module"] = buildInfo.Main.Path
+		}
+	}
+
+	return info
+}
+
+// IsDevelopment returns true if this is a development build.
+func IsDevelopment() bool {
+	return Version == "dev" || Commit == "unknown"
+}
+
+// GetBuildTime returns the build time as a time.Time if available.
+func GetBuildTime() (time.Time, error) {
+	if BuildDate == "unknown" {
+		return time.Time{}, fmt.Errorf("build date not available")
+	}
+	return time.Parse(time.RFC3339, BuildDate)
+}
+
+// GetShortCommit returns the short version of the commit hash.
+func GetShortCommit() string {
+	if len(Commit) > 8 {
+		return Commit[:8]
+	}
+	return Commit
 }

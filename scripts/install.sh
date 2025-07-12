@@ -64,9 +64,17 @@ install_binary() {
     fail "Go is not installed. Please install Go first: https://golang.org/dl/"
   fi
   
-  # Install via go install
+  # Install via go install with proper version info
   log "Installing via go install..."
-  go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest || fail "Failed to install via go install"
+  
+  # Get version info for ldflags
+  VERSION_INFO=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+  BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+  
+  LDFLAGS="-X github.com/Voskan/codexsentinel/internal/version.Version=$VERSION_INFO -X github.com/Voskan/codexsentinel/internal/version.BuildDate=$BUILD_TIME -X github.com/Voskan/codexsentinel/internal/version.Commit=$GIT_COMMIT"
+  
+  go install -ldflags "$LDFLAGS" github.com/Voskan/codexsentinel/cmd/codex-cli@latest || fail "Failed to install via go install"
   
   # Find the installed binary
   if command -v codex-cli &> /dev/null; then
