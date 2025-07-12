@@ -83,6 +83,13 @@ func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*re
 	}
 	issues = append(issues, depIssues...)
 
+	// 5. Run metrics analysis (placeholder for future implementation)
+	// metricsIssues, err := runMetricsAnalysis(ctx, proj)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("metrics analysis failed: %w", err)
+	// }
+	// issues = append(issues, metricsIssues...)
+
 	return issues, nil
 }
 
@@ -292,6 +299,8 @@ func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) 
 
 	return issues, nil
 }
+
+
 
 // isDirectory checks if the given path is a directory
 func isDirectory(path string) bool {

@@ -7,5 +7,6 @@ import (
 )
 
 func main() {
-	codex.Execute(context.Background())
+	ctx := context.Background()
+	codex.Execute(ctx)
 } 

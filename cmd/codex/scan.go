@@ -9,6 +9,7 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer/engine"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/internal/ignore"
 	"github.com/Voskan/codexsentinel/report"
 	"github.com/Voskan/codexsentinel/report/formats"
 	"github.com/spf13/cobra"
@@ -21,6 +22,7 @@ func NewScanCmd() *cobra.Command {
 		format   string
 		outPath  string
 		strict   bool
+		ignoreFile string
 		exitCode int
 	)
 
@@ -37,6 +39,15 @@ func NewScanCmd() *cobra.Command {
 				targetPath = args[0]
 			}
 
+			// Load ignore rules if specified
+			var ignoreManager *ignore.Manager
+			if ignoreFile != "" {
+				ignoreManager = ignore.NewManager()
+				if err := ignoreManager.LoadFile(ignoreFile); err != nil {
+					return fmt.Errorf("failed to load ignore file: %w", err)
+				}
+			}
+
 			// Load config
 			cfg, err := config.LoadDefaultPath()
 			if err != nil {
@@ -47,6 +58,17 @@ func NewScanCmd() *cobra.Command {
 			results, err := engine.Run(ctx, targetPath, cfg)
 			if err != nil {
 				return fmt.Errorf("analysis failed: %w", err)
+			}
+
+			// Filter out ignored issues
+			if ignoreManager != nil {
+				filteredResults := make([]result.Issue, 0)
+				for _, issue := range results {
+					if !ignoreManager.IsIgnored(issue.Location.File, issue.Location.Line, issue.ID) {
+						filteredResults = append(filteredResults, issue)
+					}
+				}
+				results = filteredResults
 			}
 
 			// Determine output path
@@ -83,6 +105,7 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Path to write the output report to")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Exit with code 1 if issues are found")
+	cmd.Flags().StringVar(&ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file")
 
 	return cmd
 }
