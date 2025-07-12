@@ -89,9 +89,8 @@ const HTMLTemplate = `
         }
         
         .chart-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
+            display: flex;
+            justify-content: center;
             margin-top: 20px;
         }
         
@@ -100,6 +99,8 @@ const HTMLTemplate = `
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            max-width: 500px;
+            width: 100%;
         }
         
         .issues-section {
@@ -297,9 +298,6 @@ const HTMLTemplate = `
                 <div class="chart-wrapper">
                     <canvas id="severityChart"></canvas>
                 </div>
-                <div class="chart-wrapper">
-                    <canvas id="categoryChart"></canvas>
-                </div>
             </div>
         </div>
         
@@ -358,22 +356,6 @@ const HTMLTemplate = `
             }]
         };
         
-        const categoryData = {
-            labels: ['Security', 'Style', 'Metrics', 'License'],
-            datasets: [{
-                label: 'Issues by Category',
-                data: [{{.Summary.Security}}, {{.Summary.Style}}, {{.Summary.Metrics}}, {{.Summary.License}}],
-                backgroundColor: [
-                    '#e74c3c',
-                    '#3498db',
-                    '#f39c12', 
-                    '#9b59b6'
-                ],
-                borderWidth: 2,
-                borderColor: '#fff'
-            }]
-        };
-        
         // Create charts
         const severityCtx = document.getElementById('severityChart').getContext('2d');
         new Chart(severityCtx, {
@@ -393,29 +375,6 @@ const HTMLTemplate = `
             }
         });
         
-        const categoryCtx = document.getElementById('categoryChart').getContext('2d');
-        new Chart(categoryCtx, {
-            type: 'bar',
-            data: categoryData,
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    title: {
-                        display: true,
-                        text: 'Issues by Category'
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true
-                    }
-                }
-            }
-        });
-        
         // Filter functionality
         function filterIssues(severity) {
             const issues = document.querySelectorAll('.issue');
@@ -427,7 +386,8 @@ const HTMLTemplate = `
             
             // Filter issues
             issues.forEach(issue => {
-                if (severity === 'all' || issue.dataset.severity === severity) {
+                const issueSeverity = issue.dataset.severity.toLowerCase();
+                if (severity === 'all' || issueSeverity === severity) {
                     issue.style.display = 'block';
                 } else {
                     issue.style.display = 'none';

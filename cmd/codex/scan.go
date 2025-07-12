@@ -9,7 +9,10 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer/engine"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/internal/fsutil"
+	"github.com/Voskan/codexsentinel/internal/git"
 	"github.com/Voskan/codexsentinel/internal/ignore"
+	"github.com/Voskan/codexsentinel/internal/logx"
 	"github.com/Voskan/codexsentinel/report"
 	"github.com/Voskan/codexsentinel/report/formats"
 	"github.com/spf13/cobra"
@@ -39,12 +42,48 @@ func NewScanCmd() *cobra.Command {
 				targetPath = args[0]
 			}
 
+			// Initialize logger
+			if err := logx.Init(true); err != nil {
+				return fmt.Errorf("failed to initialize logger: %w", err)
+			}
+			defer logx.Sync()
+
+			logger := logx.L()
+			logger.Infof("Starting CodexSentinel analysis on path: %s", targetPath)
+
+			// Get Git metadata if available
+			if gitRoot, err := git.RepoRoot(); err == nil {
+				logger.Infof("Git repository root: %s", gitRoot)
+				if commit, err := git.LatestCommit(); err == nil {
+					logger.Infof("Latest commit: %s by %s", commit.Hash[:8], commit.Author)
+				}
+			}
+
+			// Use fsutil for safe file walking
+			fileOpts := fsutil.WalkOptions{
+				RootDir:           targetPath,
+				AllowedExtensions: []string{".go"},
+				MaxFileSizeBytes:  10 * 1024 * 1024, // 10MB limit
+				FollowSymlinks:    false,
+				IncludeHiddenFiles: false,
+				ExcludedPaths:     []string{"vendor", "node_modules", ".git"},
+			}
+
+			files, err := fsutil.Walk(fileOpts)
+			if err != nil {
+				logger.Warnf("Failed to walk files: %v", err)
+			} else {
+				logger.Infof("Found %d Go files to analyze", len(files))
+			}
+
 			// Load ignore rules if specified
 			var ignoreManager *ignore.Manager
 			if ignoreFile != "" {
 				ignoreManager = ignore.NewManager()
 				if err := ignoreManager.LoadFile(ignoreFile); err != nil {
-					return fmt.Errorf("failed to load ignore file: %w", err)
+					logger.Warnf("Failed to load ignore file: %v", err)
+				} else {
+					logger.Infof("Loaded ignore rules from: %s", ignoreFile)
 				}
 			}
 
@@ -60,13 +99,21 @@ func NewScanCmd() *cobra.Command {
 				return fmt.Errorf("analysis failed: %w", err)
 			}
 
+			logger.Infof("Analysis completed, found %d issues", len(results))
+
 			// Filter out ignored issues
 			if ignoreManager != nil {
 				filteredResults := make([]result.Issue, 0)
+				ignoredCount := 0
 				for _, issue := range results {
 					if !ignoreManager.IsIgnored(issue.Location.File, issue.Location.Line, issue.ID) {
 						filteredResults = append(filteredResults, issue)
+					} else {
+						ignoredCount++
 					}
+				}
+				if ignoredCount > 0 {
+					logger.Infof("Ignored %d issues based on ignore rules", ignoredCount)
 				}
 				results = filteredResults
 			}
@@ -88,6 +135,8 @@ func NewScanCmd() *cobra.Command {
 			if err := writeReport(results, format, outPath); err != nil {
 				return fmt.Errorf("failed to write report: %w", err)
 			}
+
+			logger.Infof("Report generated: %s", outPath)
 
 			// Display result summary
 			printSummary(results)
