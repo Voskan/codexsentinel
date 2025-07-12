@@ -15,6 +15,7 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
 	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/matcher"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
@@ -74,6 +75,13 @@ func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*re
 		}
 		issues = append(issues, taintIssues...)
 	}
+
+	// 4. Run dependency analysis
+	depIssues, err := runDependencyAnalysis(ctx, proj)
+	if err != nil {
+		return nil, fmt.Errorf("dependency analysis failed: %w", err)
+	}
+	issues = append(issues, depIssues...)
 
 	return issues, nil
 }
@@ -207,6 +215,84 @@ func runTaintAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*r
 	return issues, nil
 }
 
+// runDependencyAnalysis performs dependency and license analysis.
+func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
+	// For single files, skip dependency analysis
+	if proj.Filename != "" && !isDirectory(proj.Filename) {
+		return nil, nil
+	}
+
+	// Find go.mod file
+	dir := filepath.Dir(proj.Filename)
+	if proj.Filename == "" {
+		dir = "."
+	}
+	
+	goModPath := filepath.Join(dir, "go.mod")
+	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
+		// No go.mod file found, skip dependency analysis
+		return nil, nil
+	}
+
+	// Default license lists
+	allowLicenses := []string{"MIT", "Apache-2.0", "BSD-3-Clause"}
+	denyLicenses := []string{"AGPL-3.0", "GPL-3.0", "BSL-1.1"}
+
+	// Run dependency analysis
+	reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
+	if err != nil {
+		// Log error but don't fail the entire analysis
+		fmt.Printf("Warning: Dependency analysis skipped due to error: %v\n", err)
+		return nil, nil
+	}
+
+	var issues []*result.Issue
+
+	// Convert dependency reports to issues
+	for _, report := range reports {
+		// License issues
+		if report.LicenseStatus == "DENIED" {
+			issues = append(issues, &result.Issue{
+				ID:          "license-denied",
+				Title:       "Denied License Detected",
+				Description: fmt.Sprintf("Module %s uses denied license: %s", report.Module, report.License),
+				Severity:    result.SeverityHigh,
+				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
+				Category:    "license",
+				Suggestion:  "Consider using a different dependency with an allowed license",
+			})
+		}
+
+		// Vulnerability issues
+		for _, vuln := range report.Vulnerabilities {
+			issues = append(issues, &result.Issue{
+				ID:          "dependency-vulnerability",
+				Title:       "Vulnerable Dependency",
+				Description: fmt.Sprintf("Module %s@%s has vulnerability: %s", report.Module, report.Version, vuln.ID),
+				Severity:    result.SeverityHigh,
+				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
+				Category:    "security",
+				Suggestion:  fmt.Sprintf("Update to a fixed version or apply security patches"),
+			})
+		}
+
+		// Entropy findings (potential secrets)
+		for _, entropy := range report.SuspiciousFiles {
+			issues = append(issues, &result.Issue{
+				ID:          "high-entropy-string",
+				Title:       "High Entropy String Detected",
+				Description: fmt.Sprintf("Potential secret found in %s at line %d", entropy.File, entropy.Line),
+				Severity:    result.SeverityMedium,
+				Location:    result.NewLocationFromPos(token.Position{Filename: entropy.File, Line: entropy.Line}, "", ""),
+				Category:    "security",
+				Suggestion:  "Review and remove hardcoded secrets from the codebase",
+			})
+		}
+	}
+
+	return issues, nil
+}
+
 // isDirectory checks if the given path is a directory
 func isDirectory(path string) bool {
 	info, err := os.Stat(path)
@@ -243,6 +329,62 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 			continue
 		}
 		allIssues = append(allIssues, issues...)
+	}
+
+	// Run dependency analysis if go.mod exists
+	goModPath := filepath.Join(root, "go.mod")
+	if _, err := os.Stat(goModPath); err == nil {
+		// Default license lists
+		allowLicenses := []string{"MIT", "Apache-2.0", "BSD-3-Clause"}
+		denyLicenses := []string{"AGPL-3.0", "GPL-3.0", "BSL-1.1"}
+
+		// Run dependency analysis
+		reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
+		if err != nil {
+			fmt.Printf("Warning: Dependency analysis failed: %v\n", err)
+		} else {
+			// Convert dependency reports to issues
+			for _, report := range reports {
+				// License issues
+				if report.LicenseStatus == "DENIED" {
+					allIssues = append(allIssues, result.Issue{
+						ID:          "license-denied",
+						Title:       "Denied License Detected",
+						Description: fmt.Sprintf("Module %s uses denied license: %s", report.Module, report.License),
+						Severity:    result.SeverityHigh,
+						Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
+						Category:    "license",
+						Suggestion:  "Consider using a different dependency with an allowed license",
+					})
+				}
+
+				// Vulnerability issues
+				for _, vuln := range report.Vulnerabilities {
+					allIssues = append(allIssues, result.Issue{
+						ID:          "dependency-vulnerability",
+						Title:       "Vulnerable Dependency",
+						Description: fmt.Sprintf("Module %s@%s has vulnerability: %s", report.Module, report.Version, vuln.ID),
+						Severity:    result.SeverityHigh,
+						Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
+						Category:    "security",
+						Suggestion:  fmt.Sprintf("Update to a fixed version or apply security patches"),
+					})
+				}
+
+				// Entropy findings (potential secrets)
+				for _, entropy := range report.SuspiciousFiles {
+					allIssues = append(allIssues, result.Issue{
+						ID:          "high-entropy-string",
+						Title:       "High Entropy String Detected",
+						Description: fmt.Sprintf("Potential secret found in %s at line %d", entropy.File, entropy.Line),
+						Severity:    result.SeverityMedium,
+						Location:    result.NewLocationFromPos(token.Position{Filename: entropy.File, Line: entropy.Line}, "", ""),
+						Category:    "security",
+						Suggestion:  "Review and remove hardcoded secrets from the codebase",
+					})
+				}
+			}
+		}
 	}
 
 	return allIssues, nil
