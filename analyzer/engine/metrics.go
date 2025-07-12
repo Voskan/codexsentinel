@@ -87,6 +87,13 @@ func runMetricsAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]
 	}
 	issues = append(issues, globalIssues...)
 
+	// Analyze file sizes
+	fileSizeIssues, err := analyzeFileSizes(files)
+	if err != nil {
+		return nil, fmt.Errorf("file size analysis failed: %w", err)
+	}
+	issues = append(issues, fileSizeIssues...)
+
 	// Analyze imports and other info-level issues
 	infoIssues, err := analyzeInfoLevelIssues(dir)
 	if err != nil {
@@ -418,6 +425,32 @@ func analyzeFunctionDocumentation(dir string) ([]*result.Issue, error) {
 		Category:    "style",
 		Suggestion:  "Add function documentation comment",
 	})
+
+	return issues, nil
+}
+
+// analyzeFileSizes analyzes file sizes
+func analyzeFileSizes(files []string) ([]*result.Issue, error) {
+	var issues []*result.Issue
+
+	fileSizeResults, err := metrics.AnalyzeFileSizes(files)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, fileSizeResult := range fileSizeResults {
+		if fileSizeResult.LOC > 500 { // Threshold for large files
+			issues = append(issues, &result.Issue{
+				ID:          "large-file",
+				Title:       "Large File Detected",
+				Description: fmt.Sprintf("File %s has %d lines of code (threshold: 500)", fileSizeResult.File, fileSizeResult.LOC),
+				Severity:    result.SeverityLow,
+				Location:    result.NewLocationFromPos(token.Position{Filename: fileSizeResult.File, Line: 1}, "", ""),
+				Category:    "metrics",
+				Suggestion:  "Consider splitting large files into smaller, more focused modules",
+			})
+		}
+	}
 
 	return issues, nil
 }
