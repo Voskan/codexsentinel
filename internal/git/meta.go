@@ -83,11 +83,11 @@ func BlameLine(file string, line int) (*BlameInfo, error) {
 // parseBlameOutput parses the output of `git blame --porcelain`.
 func parseBlameOutput(out string, line int) (*BlameInfo, error) {
 	var (
-		hash     string
-		author   string
-		email    string
-		tstamp   time.Time
-		summary  string
+		hash    string
+		author  string
+		email   string
+		tstamp  time.Time
+		summary string
 	)
 
 	lines := strings.Split(out, "\n")

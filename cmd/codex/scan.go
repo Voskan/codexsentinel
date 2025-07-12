@@ -18,12 +18,12 @@ import (
 // NewScanCmd returns the `scan` command that analyzes the target source code.
 func NewScanCmd() *cobra.Command {
 	var (
-		path     string
-		format   string
-		outPath  string
-		strict   bool
+		path       string
+		format     string
+		outPath    string
+		strict     bool
 		ignoreFile string
-		exitCode int
+		exitCode   int
 	)
 
 	cmd := &cobra.Command{
@@ -164,14 +164,14 @@ func writeReport(results []result.Issue, format, outPath string) error {
 // printSummary prints a summary of the analysis results.
 func printSummary(results []result.Issue) {
 	fmt.Printf("Analysis complete. Found %d issues.\n", len(results))
-	
+
 	if len(results) > 0 {
 		fmt.Println("\nIssues found:")
 		for _, issue := range results {
-			fmt.Printf("  [%s] %s at %s:%d\n", 
-				issue.Severity.String(), 
-				issue.Title, 
-				issue.Location.File, 
+			fmt.Printf("  [%s] %s at %s:%d\n",
+				issue.Severity.String(),
+				issue.Title,
+				issue.Location.File,
 				issue.Location.Line)
 		}
 	}

@@ -12,14 +12,14 @@ import (
 
 // GlobalSymbol represents a global variable or constant in a package.
 type GlobalSymbol struct {
-	Name      string // Symbol name
-	Kind      string // "var" or "const"
-	PkgPath   string // Full import path of the package
-	File      string // File where symbol is defined
-	Line      int    // Line number
-	Exported  bool   // Whether the symbol is exported
-	Mutable   bool   // Whether the symbol is a variable (mutable)
-	HasInit   bool   // Whether the symbol has an initializer
+	Name     string // Symbol name
+	Kind     string // "var" or "const"
+	PkgPath  string // Full import path of the package
+	File     string // File where symbol is defined
+	Line     int    // Line number
+	Exported bool   // Whether the symbol is exported
+	Mutable  bool   // Whether the symbol is a variable (mutable)
+	HasInit  bool   // Whether the symbol has an initializer
 }
 
 // AnalyzeGlobals detects global variables and constants defined at package scope.

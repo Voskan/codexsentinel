@@ -8,9 +8,9 @@ import (
 
 // These variables are intended to be set via -ldflags at build time.
 var (
-	Version   = "dev"      // CLI version tag, e.g., v1.0.0
-	Commit    = "unknown"  // Git commit SHA
-	BuildDate = "unknown"  // Build timestamp (e.g., 2025-07-09T12:34:56Z)
+	Version   = "dev"     // CLI version tag, e.g., v1.0.0
+	Commit    = "unknown" // Git commit SHA
+	BuildDate = "unknown" // Build timestamp (e.g., 2025-07-09T12:34:56Z)
 )
 
 // FullVersion returns a human-readable version string.

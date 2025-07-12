@@ -16,8 +16,8 @@ import (
 
 // DuplicateBlock represents two or more identical function bodies across files.
 type DuplicateBlock struct {
-	Hash   string   // Hash of normalized function body
-	Funcs  []DupFn  // All functions that share this body
+	Hash  string  // Hash of normalized function body
+	Funcs []DupFn // All functions that share this body
 }
 
 // DupFn describes a single function instance within a duplicate block.

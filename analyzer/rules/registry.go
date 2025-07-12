@@ -20,16 +20,16 @@ type YAMLRule struct {
 
 // Rule represents metadata and behavior for a registered rule.
 type Rule struct {
-	ID          string     // Unique rule ID (e.g., "sql-injection")
-	Title       string     // Human-readable title
-	Category    string     // Category (e.g., "security", "style", "performance")
-	Severity    string     // Severity level (e.g., "HIGH", "LOW")
-	Description string     // Detailed description
-	Suggestion  string     // Suggested fix
-	References  []string   // External documentation links
-	Engine      RuleFunc   // Optional Go-based rule implementation
-	YAML        *YAMLRule  // Optional YAML-based definition
-	Enabled     bool       // If the rule is enabled
+	ID          string    // Unique rule ID (e.g., "sql-injection")
+	Title       string    // Human-readable title
+	Category    string    // Category (e.g., "security", "style", "performance")
+	Severity    string    // Severity level (e.g., "HIGH", "LOW")
+	Description string    // Detailed description
+	Suggestion  string    // Suggested fix
+	References  []string  // External documentation links
+	Engine      RuleFunc  // Optional Go-based rule implementation
+	YAML        *YAMLRule // Optional YAML-based definition
+	Enabled     bool      // If the rule is enabled
 }
 
 var (

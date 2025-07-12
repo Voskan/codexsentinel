@@ -40,7 +40,7 @@ func matchSSRFVulnerability(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) 
 						Suggestion:  "Validate and whitelist URLs before making requests",
 					})
 				}
-				
+
 				// Check for DNS lookups with user input
 				if isDNSLookup(x) && hasUserInput(ctx, x) {
 					pos := ctx.GetFset().Position(x.Pos())
@@ -54,7 +54,7 @@ func matchSSRFVulnerability(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) 
 						Suggestion:  "Validate hostnames before DNS resolution",
 					})
 				}
-				
+
 				// Check for file operations with user input
 				if isFileOperation(x) && hasUserInput(ctx, x) {
 					pos := ctx.GetFset().Position(x.Pos())
@@ -82,7 +82,7 @@ func isHTTPRequest(call *ast.CallExpr) bool {
 			"Get", "Post", "Put", "Delete", "Head", "Options",
 			"Request", "Do", "Send", "Fetch",
 		}
-		
+
 		for _, pattern := range httpPatterns {
 			if strings.Contains(funcName, pattern) {
 				return true
@@ -99,7 +99,7 @@ func isDNSLookup(call *ast.CallExpr) bool {
 		dnsPatterns := []string{
 			"Lookup", "Resolve", "GetHost", "GetIP",
 		}
-		
+
 		for _, pattern := range dnsPatterns {
 			if strings.Contains(funcName, pattern) {
 				return true
@@ -117,7 +117,7 @@ func isFileOperation(call *ast.CallExpr) bool {
 			"Open", "Read", "Write", "Create", "Delete",
 			"Stat", "Exists", "Copy", "Move",
 		}
-		
+
 		for _, pattern := range filePatterns {
 			if strings.Contains(funcName, pattern) {
 				return true
@@ -174,4 +174,4 @@ func isUserInput(ctx *analyzer.AnalyzerContext, expr ast.Expr) bool {
 		}
 	}
 	return false
-} 
+}

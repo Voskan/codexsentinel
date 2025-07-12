@@ -48,4 +48,4 @@ const HTMLTemplate = `
     </div>
 </body>
 </html>
-` 
+`

@@ -14,9 +14,9 @@ import (
 
 // SSABuilder is responsible for building SSA representation of Go packages.
 type SSABuilder struct {
-	Fset     *token.FileSet      // FileSet for position mapping
-	Program  *ssa.Program        // SSA program
-	Packages []*ssa.Package      // All loaded SSA packages
+	Fset     *token.FileSet            // FileSet for position mapping
+	Program  *ssa.Program              // SSA program
+	Packages []*ssa.Package            // All loaded SSA packages
 	Types    map[string]*types.Package // Mapping from import path to types.Package
 }
 

@@ -32,7 +32,7 @@ func NewCallGraphAnalyzer(paths []string) (*CallGraphAnalyzer, error) {
 	}
 
 	ssaProg := ssabuilder.NewProgram(cfg.Fset, ssabuilder.SanityCheckFunctions)
-	
+
 	// Create SSA packages from the loaded packages
 	var ssaPkgs []*ssabuilder.Package
 	for _, pkg := range pkgs {

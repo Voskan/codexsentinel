@@ -41,7 +41,7 @@ func New(cfg *Config) *Engine {
 
 // Run executes the full analysis pipeline and returns discovered issues.
 func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	
+
 	if proj.Filename == "" {
 		return nil, fmt.Errorf("no Go files found in project")
 	}
@@ -108,15 +108,15 @@ func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 	// Run all registered rules using existing AST
 	for _, rule := range proj.Rules {
 		if rule.Matcher != nil {
-			
+
 			// Create a proper analysis.Pass for rule execution
 			pass := &analysis.Pass{
-				Fset:   fset,
-				Files:  []*ast.File{file},
-				Pkg:    nil, // Skip package for now
+				Fset:     fset,
+				Files:    []*ast.File{file},
+				Pkg:      nil, // Skip package for now
 				ResultOf: make(map[*analysis.Analyzer]interface{}),
 			}
-			
+
 			rule.Matcher(proj, pass)
 		}
 	}
@@ -234,7 +234,7 @@ func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) 
 	if proj.Filename == "" {
 		dir = "."
 	}
-	
+
 	goModPath := filepath.Join(dir, "go.mod")
 	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
 		// No go.mod file found, skip dependency analysis
@@ -299,8 +299,6 @@ func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) 
 
 	return issues, nil
 }
-
-
 
 // isDirectory checks if the given path is a directory
 func isDirectory(path string) bool {
@@ -413,7 +411,7 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 // Run is a package-level function that creates an engine and runs analysis.
 // This is the main entry point used by the CLI.
 func Run(ctx context.Context, path string, cfg interface{}) ([]result.Issue, error) {
-	
+
 	// Create default config
 	config := &Config{
 		EnableSSA:      true,
@@ -439,7 +437,7 @@ func Run(ctx context.Context, path string, cfg interface{}) ([]result.Issue, err
 
 // analyzeSingleFile analyzes a single Go file (legacy method)
 func analyzeSingleFile(ctx context.Context, filePath string, config *Config) ([]result.Issue, error) {
-	
+
 	// Create engine
 	engine := New(config)
 
@@ -495,7 +493,6 @@ func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	builtin.RegisterLoggingMonitoringRule(ctx)
 	// Register SSRF rule
 	builtin.RegisterSSRFRule(ctx)
-	
 
 }
 

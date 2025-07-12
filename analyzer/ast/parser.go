@@ -10,10 +10,10 @@ import (
 
 // ParsedFile represents a parsed Go source file with its AST and FileSet.
 type ParsedFile struct {
-	File   *ast.File     // Parsed AST
+	File   *ast.File      // Parsed AST
 	Fset   *token.FileSet // FileSet for position mapping
-	Path   string        // Absolute file path
-	Source []byte        // Raw source code (optional)
+	Path   string         // Absolute file path
+	Source []byte         // Raw source code (optional)
 }
 
 // ParseFile parses a Go source file into an AST with a new FileSet.

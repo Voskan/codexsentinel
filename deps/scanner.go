@@ -10,13 +10,13 @@ import (
 
 // DependencyReport aggregates all security and license information per module.
 type DependencyReport struct {
-	Module        string          // e.g. github.com/foo/bar
-	Version       string          // e.g. v1.2.3
-	License       string          // e.g. MIT
-	LicenseStatus string          // ALLOWED / DENIED / UNKNOWN
-	LicenseFile   string          // path/to/LICENSE
+	Module        string // e.g. github.com/foo/bar
+	Version       string // e.g. v1.2.3
+	License       string // e.g. MIT
+	LicenseStatus string // ALLOWED / DENIED / UNKNOWN
+	LicenseFile   string // path/to/LICENSE
 
-	Vulnerabilities []Vulnerability // CVE / GHSA results from osv.dev
+	Vulnerabilities []Vulnerability  // CVE / GHSA results from osv.dev
 	SuspiciousFiles []EntropyFinding // High-entropy values in vendored code
 }
 

@@ -7,16 +7,16 @@ import (
 
 // Issue represents a single detected vulnerability, warning or code smell.
 type Issue struct {
-	ID          string   `json:"id"`           // Unique identifier of the rule (e.g., "sql-injection")
-	Title       string   `json:"title"`        // Short title of the issue
-	Description string   `json:"description"`  // Detailed description of the issue
-	Severity    Severity `json:"severity"`     // Issue severity
-	Location    Location `json:"location"`     // Where the issue was found
-	Category    string   `json:"category"`     // Category (security, performance, style, etc.)
-	Suggestion  string   `json:"suggestion"`   // Suggested fix
-	References  []string `json:"references"`   // Links to documentation or references
-	FalsePos    bool     `json:"falsePositive"`// Marked as false positive (optional)
-	Ignored     bool     `json:"ignored"`      // Manually ignored via CLI or config
+	ID          string   `json:"id"`            // Unique identifier of the rule (e.g., "sql-injection")
+	Title       string   `json:"title"`         // Short title of the issue
+	Description string   `json:"description"`   // Detailed description of the issue
+	Severity    Severity `json:"severity"`      // Issue severity
+	Location    Location `json:"location"`      // Where the issue was found
+	Category    string   `json:"category"`      // Category (security, performance, style, etc.)
+	Suggestion  string   `json:"suggestion"`    // Suggested fix
+	References  []string `json:"references"`    // Links to documentation or references
+	FalsePos    bool     `json:"falsePositive"` // Marked as false positive (optional)
+	Ignored     bool     `json:"ignored"`       // Manually ignored via CLI or config
 }
 
 // String returns a concise human-readable summary of the issue.

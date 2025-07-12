@@ -122,52 +122,52 @@ func runMetricsAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]
 func analyzeSingleFileMetrics(filename string) ([]*result.Issue, error) {
 	var issues []*result.Issue
 
-			// Analyze complexity
-		complexityResults, err := metrics.AnalyzeCyclomaticComplexity([]string{filename})
-		if err == nil {
-			for _, complexityResult := range complexityResults {
-				if complexityResult.Complexity > 10 { // Threshold
-					issues = append(issues, &result.Issue{
-						ID:          "high-complexity",
-						Title:       "High Cyclomatic Complexity",
-						Description: fmt.Sprintf("Function %s has complexity %d (threshold: 10)", complexityResult.Name, complexityResult.Complexity),
-						Severity:    result.SeverityMedium,
-						Location:    result.NewLocationFromPos(token.Position{Filename: complexityResult.File, Line: complexityResult.Line}, "", ""),
-						Category:    "metrics",
-						Suggestion:  "Consider breaking down the function into smaller functions",
-					})
-				}
+	// Analyze complexity
+	complexityResults, err := metrics.AnalyzeCyclomaticComplexity([]string{filename})
+	if err == nil {
+		for _, complexityResult := range complexityResults {
+			if complexityResult.Complexity > 10 { // Threshold
+				issues = append(issues, &result.Issue{
+					ID:          "high-complexity",
+					Title:       "High Cyclomatic Complexity",
+					Description: fmt.Sprintf("Function %s has complexity %d (threshold: 10)", complexityResult.Name, complexityResult.Complexity),
+					Severity:    result.SeverityMedium,
+					Location:    result.NewLocationFromPos(token.Position{Filename: complexityResult.File, Line: complexityResult.Line}, "", ""),
+					Category:    "metrics",
+					Suggestion:  "Consider breaking down the function into smaller functions",
+				})
 			}
 		}
+	}
 
-		// Analyze function sizes
-		sizeResults, err := metrics.AnalyzeFunctionSizes([]string{filename})
-		if err == nil {
-			for _, sizeResult := range sizeResults {
-				if sizeResult.LOC > 50 { // Threshold
-					issues = append(issues, &result.Issue{
-						ID:          "large-function",
-						Title:       "Large Function",
-						Description: fmt.Sprintf("Function %s has %d lines of code (threshold: 50)", sizeResult.Name, sizeResult.LOC),
-						Severity:    result.SeverityLow,
-						Location:    result.NewLocationFromPos(token.Position{Filename: sizeResult.File, Line: sizeResult.Line}, "", ""),
-						Category:    "metrics",
-						Suggestion:  "Consider breaking down the function into smaller functions",
-					})
-				}
+	// Analyze function sizes
+	sizeResults, err := metrics.AnalyzeFunctionSizes([]string{filename})
+	if err == nil {
+		for _, sizeResult := range sizeResults {
+			if sizeResult.LOC > 50 { // Threshold
+				issues = append(issues, &result.Issue{
+					ID:          "large-function",
+					Title:       "Large Function",
+					Description: fmt.Sprintf("Function %s has %d lines of code (threshold: 50)", sizeResult.Name, sizeResult.LOC),
+					Severity:    result.SeverityLow,
+					Location:    result.NewLocationFromPos(token.Position{Filename: sizeResult.File, Line: sizeResult.Line}, "", ""),
+					Category:    "metrics",
+					Suggestion:  "Consider breaking down the function into smaller functions",
+				})
 			}
 		}
+	}
 
-		// Add some low severity issues for demonstration
-		issues = append(issues, &result.Issue{
-			ID:          "code-style",
-			Title:       "Code Style Issue",
-			Description: "Variable naming could be improved for better readability",
-			Severity:    result.SeverityLow,
-			Location:    result.NewLocationFromPos(token.Position{Filename: filename, Line: 10}, "", ""),
-			Category:    "style",
-			Suggestion:  "Use more descriptive variable names",
-		})
+	// Add some low severity issues for demonstration
+	issues = append(issues, &result.Issue{
+		ID:          "code-style",
+		Title:       "Code Style Issue",
+		Description: "Variable naming could be improved for better readability",
+		Severity:    result.SeverityLow,
+		Location:    result.NewLocationFromPos(token.Position{Filename: filename, Line: 10}, "", ""),
+		Category:    "style",
+		Suggestion:  "Use more descriptive variable names",
+	})
 
 	return issues, nil
 }
@@ -420,4 +420,4 @@ func analyzeFunctionDocumentation(dir string) ([]*result.Issue, error) {
 	})
 
 	return issues, nil
-} 
+}

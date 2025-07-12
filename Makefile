@@ -4,9 +4,9 @@
 BINARY_NAME=codex
 BUILD_DIR=build
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
+BUILD_TIME=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_COMMIT=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
-LDFLAGS=-ldflags "-X github.com/Voskan/codexsentinel/internal/version.Version=$(VERSION) -X github.com/Voskan/codexsentinel/internal/version.BuildTime=$(BUILD_TIME) -X github.com/Voskan/codexsentinel/internal/version.GitCommit=$(GIT_COMMIT)"
+LDFLAGS=-ldflags "-X github.com/Voskan/codexsentinel/internal/version.Version=$(VERSION) -X github.com/Voskan/codexsentinel/internal/version.BuildDate=$(BUILD_TIME) -X github.com/Voskan/codexsentinel/internal/version.Commit=$(GIT_COMMIT)"
 
 # Default target
 .PHONY: all
@@ -126,6 +126,15 @@ help:
 	@echo "  docs           - Generate documentation"
 	@echo "  clean          - Clean build artifacts"
 	@echo "  run            - Run the application"
+	@echo "  dev            - Development workflow (fmt + lint + test + build)"
+	@echo "  release        - Release preparation (clean + fmt + lint + test + build-all)"
+	@echo "  deps           - Download and tidy dependencies"
+	@echo "  deps-update    - Update dependencies"
+	@echo "  audit          - Security audit with nancy"
+	@echo "  docker-build   - Build Docker image"
+	@echo "  docker-run     - Run Docker container"
+	@echo "  scan           - Scan current project (full analysis)"
+	@echo "  scan-quick     - Quick scan of current project"
 	@echo "  help           - Show this help"
 
 # Development targets
@@ -168,4 +177,18 @@ docker-build:
 .PHONY: docker-run
 docker-run:
 	@echo "Running Docker container..."
-	docker run --rm -v $(PWD):/workspace codexsentinel:latest scan /workspace 
+	docker run --rm -v $(PWD):/workspace codexsentinel:latest scan /workspace
+
+# Scan current project
+.PHONY: scan
+scan: build
+	@echo "Scanning current project..."
+	./$(BUILD_DIR)/$(BINARY_NAME) scan . --format json --out scan_reports/makefile-scan.json
+	@echo "Scan complete. Report saved to scan_reports/makefile-scan.json"
+
+# Quick scan with summary
+.PHONY: scan-quick
+scan-quick: build
+	@echo "Quick scan of current project..."
+	./$(BUILD_DIR)/$(BINARY_NAME) scan . --format json --out scan_reports/quick-scan.json
+	@echo "Quick scan complete. Report saved to scan_reports/quick-scan.json" 

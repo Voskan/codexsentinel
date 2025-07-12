@@ -93,19 +93,19 @@ func hasExposedSensitiveFields(structType *ast.StructType) bool {
 	if structType.Fields == nil {
 		return false
 	}
-	
+
 	for _, field := range structType.Fields.List {
 		if len(field.Names) == 0 {
 			continue
 		}
-		
+
 		fieldName := field.Names[0].Name
 		// Check if field name suggests sensitive data
 		sensitivePatterns := []string{
 			"password", "secret", "key", "token", "credential",
 			"private", "sensitive", "confidential", "auth",
 		}
-		
+
 		fieldNameLower := strings.ToLower(fieldName)
 		for _, pattern := range sensitivePatterns {
 			if strings.Contains(fieldNameLower, pattern) {
@@ -124,7 +124,7 @@ func hasOverlyPermissiveInterface(interfaceType *ast.InterfaceType) bool {
 	if interfaceType.Methods == nil {
 		return false
 	}
-	
+
 	// Consider interface overly permissive if it has more than 10 methods
 	return len(interfaceType.Methods.List) > 10
 }
@@ -134,44 +134,52 @@ func hasTooManyResponsibilities(funcDecl *ast.FuncDecl) bool {
 	if funcDecl.Body == nil {
 		return false
 	}
-	
+
 	// Count different types of operations
 	var dbOps, fileOps, netOps, cryptoOps int
-	
+
 	ast.Inspect(funcDecl.Body, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.CallExpr:
 			if fun, ok := x.Fun.(*ast.SelectorExpr); ok {
 				funcName := fun.Sel.Name
 				// Count different operation types
-				if strings.Contains(strings.ToLower(funcName), "query") || 
-				   strings.Contains(strings.ToLower(funcName), "exec") {
+				if strings.Contains(strings.ToLower(funcName), "query") ||
+					strings.Contains(strings.ToLower(funcName), "exec") {
 					dbOps++
 				}
-				if strings.Contains(strings.ToLower(funcName), "read") || 
-				   strings.Contains(strings.ToLower(funcName), "write") {
+				if strings.Contains(strings.ToLower(funcName), "read") ||
+					strings.Contains(strings.ToLower(funcName), "write") {
 					fileOps++
 				}
-				if strings.Contains(strings.ToLower(funcName), "http") || 
-				   strings.Contains(strings.ToLower(funcName), "get") {
+				if strings.Contains(strings.ToLower(funcName), "http") ||
+					strings.Contains(strings.ToLower(funcName), "get") {
 					netOps++
 				}
-				if strings.Contains(strings.ToLower(funcName), "encrypt") || 
-				   strings.Contains(strings.ToLower(funcName), "hash") {
+				if strings.Contains(strings.ToLower(funcName), "encrypt") ||
+					strings.Contains(strings.ToLower(funcName), "hash") {
 					cryptoOps++
 				}
 			}
 		}
 		return true
 	})
-	
+
 	// Function has too many responsibilities if it performs multiple different types of operations
 	operationTypes := 0
-	if dbOps > 0 { operationTypes++ }
-	if fileOps > 0 { operationTypes++ }
-	if netOps > 0 { operationTypes++ }
-	if cryptoOps > 0 { operationTypes++ }
-	
+	if dbOps > 0 {
+		operationTypes++
+	}
+	if fileOps > 0 {
+		operationTypes++
+	}
+	if netOps > 0 {
+		operationTypes++
+	}
+	if cryptoOps > 0 {
+		operationTypes++
+	}
+
 	return operationTypes > 2
 }
 
@@ -185,7 +193,7 @@ func hasHardcodedSecrets(call *ast.CallExpr) bool {
 				"password", "secret", "key", "token", "credential",
 				"private", "sensitive", "auth", "api_key",
 			}
-			
+
 			for _, pattern := range secretPatterns {
 				if strings.Contains(strings.ToLower(value), pattern) {
 					// Check if it looks like a hardcoded value (not a variable)
@@ -197,4 +205,4 @@ func hasHardcodedSecrets(call *ast.CallExpr) bool {
 		}
 	}
 	return false
-} 
+}

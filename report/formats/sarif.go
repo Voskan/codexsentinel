@@ -16,7 +16,7 @@ type sarifReport struct {
 }
 
 type sarifRun struct {
-	Tool sarifTool   `json:"tool"`
+	Tool    sarifTool     `json:"tool"`
 	Results []sarifResult `json:"results"`
 }
 
@@ -25,20 +25,20 @@ type sarifTool struct {
 }
 
 type sarifDriver struct {
-	Name           string         `json:"name"`
-	FullName       string         `json:"fullName"`
-	Version        string         `json:"version"`
-	InformationURI string         `json:"informationUri"`
-	Rules          []sarifRule    `json:"rules"`
+	Name           string      `json:"name"`
+	FullName       string      `json:"fullName"`
+	Version        string      `json:"version"`
+	InformationURI string      `json:"informationUri"`
+	Rules          []sarifRule `json:"rules"`
 }
 
 type sarifRule struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	ShortDesc   sarifText `json:"shortDescription"`
-	FullDesc    sarifText `json:"fullDescription"`
-	HelpURI     string `json:"helpUri,omitempty"`
-	Properties  map[string]string `json:"properties,omitempty"`
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	ShortDesc  sarifText         `json:"shortDescription"`
+	FullDesc   sarifText         `json:"fullDescription"`
+	HelpURI    string            `json:"helpUri,omitempty"`
+	Properties map[string]string `json:"properties,omitempty"`
 }
 
 type sarifText struct {
@@ -46,10 +46,10 @@ type sarifText struct {
 }
 
 type sarifResult struct {
-	RuleID string `json:"ruleId"`
-	Message sarifText `json:"message"`
+	RuleID    string          `json:"ruleId"`
+	Message   sarifText       `json:"message"`
 	Locations []sarifLocation `json:"locations"`
-	Level string `json:"level"`
+	Level     string          `json:"level"`
 }
 
 type sarifLocation struct {
@@ -88,13 +88,13 @@ func WriteSARIFReport(issues []report.Issue, path string) error {
 		level := severityToLevel(i.Severity)
 
 		result := sarifResult{
-			RuleID: i.RuleID,
+			RuleID:  i.RuleID,
 			Message: sarifText{Text: i.Description},
-			Level: level,
+			Level:   level,
 			Locations: []sarifLocation{{
 				PhysicalLocation: sarifPhysicalLocation{
 					ArtifactLocation: sarifArtifactLocation{URI: i.File},
-					Region: sarifRegion{StartLine: i.Line},
+					Region:           sarifRegion{StartLine: i.Line},
 				},
 			}},
 		}
@@ -103,13 +103,13 @@ func WriteSARIFReport(issues []report.Issue, path string) error {
 		// If rule is not yet added to the driver rules list
 		if _, exists := ruleMap[i.RuleID]; !exists {
 			ruleMap[i.RuleID] = sarifRule{
-				ID: i.RuleID,
-				Name: i.Title,
+				ID:        i.RuleID,
+				Name:      i.Title,
 				ShortDesc: sarifText{Text: i.Title},
-				FullDesc: sarifText{Text: i.Description},
-				HelpURI: i.Reference,
+				FullDesc:  sarifText{Text: i.Description},
+				HelpURI:   i.Reference,
 				Properties: map[string]string{
-					"severity": string(i.Severity),
+					"severity":   string(i.Severity),
 					"suggestion": i.Suggestion,
 				},
 			}
@@ -124,7 +124,7 @@ func WriteSARIFReport(issues []report.Issue, path string) error {
 		Version: "2.1.0",
 		Schema:  "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
 		Runs: []sarifRun{{
-			Tool: tool,
+			Tool:    tool,
 			Results: results,
 		}},
 	}

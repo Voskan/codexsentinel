@@ -13,11 +13,11 @@ import (
 
 // LicenseFinding represents a dependency and its associated license.
 type LicenseFinding struct {
-	Module     string // Module path (e.g. github.com/foo/bar)
-	Version    string // Version (e.g. v1.2.3)
-	License    string // Detected license (e.g. MIT, GPL-3.0)
-	Allowed    bool   // Whether it's in allow-list
-	Denied     bool   // Whether it's in deny-list
+	Module      string // Module path (e.g. github.com/foo/bar)
+	Version     string // Version (e.g. v1.2.3)
+	License     string // Detected license (e.g. MIT, GPL-3.0)
+	Allowed     bool   // Whether it's in allow-list
+	Denied      bool   // Whether it's in deny-list
 	LicenseFile string // Path to license file if found
 }
 
@@ -43,11 +43,11 @@ func AnalyzeLicenses(goModPath string, allowList, denyList []string) ([]LicenseF
 		license, licensePath := detectLicense(modPath, modVersion, rootDir)
 
 		f := LicenseFinding{
-			Module:     modPath,
-			Version:    modVersion,
-			License:    license,
-			Allowed:    contains(allowList, license),
-			Denied:     contains(denyList, license),
+			Module:      modPath,
+			Version:     modVersion,
+			License:     license,
+			Allowed:     contains(allowList, license),
+			Denied:      contains(denyList, license),
 			LicenseFile: licensePath,
 		}
 		findings = append(findings, f)
@@ -60,7 +60,7 @@ func AnalyzeLicenses(goModPath string, allowList, denyList []string) ([]LicenseF
 // Fallback: unknown license.
 func detectLicense(modPath, modVersion, projectRoot string) (string, string) {
 	_ = strings.ReplaceAll(modPath, "/", "_") + "@" + modVersion // moduleName not used
-	modCache := filepath.Join(projectRoot, "vendor", modPath) // for vendored projects
+	modCache := filepath.Join(projectRoot, "vendor", modPath)    // for vendored projects
 
 	licenseFiles := []string{
 		"LICENSE", "LICENSE.md", "LICENSE.txt",

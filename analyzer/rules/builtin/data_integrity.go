@@ -40,7 +40,7 @@ func matchDataIntegrityFailures(ctx *analyzer.AnalyzerContext, pass *analysis.Pa
 						Suggestion:  "Add checksums, signatures, or other integrity verification",
 					})
 				}
-				
+
 				// Check for network downloads without integrity checks
 				if isNetworkDownloadWithoutIntegrity(x) {
 					pos := ctx.GetFset().Position(x.Pos())
@@ -54,7 +54,7 @@ func matchDataIntegrityFailures(ctx *analyzer.AnalyzerContext, pass *analysis.Pa
 						Suggestion:  "Verify checksums or signatures of downloaded files",
 					})
 				}
-				
+
 				// Check for untrusted data processing
 				if isUntrustedDataProcessing(x) {
 					pos := ctx.GetFset().Position(x.Pos())
@@ -94,7 +94,7 @@ func isFileOperationWithoutIntegrity(call *ast.CallExpr) bool {
 		funcName := fun.Sel.Name
 		// Check for file operations that should have integrity checks
 		fileOps := []string{"ReadFile", "WriteFile", "Copy", "Move", "Create"}
-		
+
 		for _, op := range fileOps {
 			if funcName == op {
 				// Check if there are any integrity-related calls in the same scope
@@ -111,7 +111,7 @@ func isNetworkDownloadWithoutIntegrity(call *ast.CallExpr) bool {
 		funcName := fun.Sel.Name
 		// Check for network operations that should have integrity checks
 		netOps := []string{"Get", "Download", "Fetch", "Retrieve"}
-		
+
 		for _, op := range netOps {
 			if strings.Contains(funcName, op) {
 				return !hasIntegrityChecks(call)
@@ -127,7 +127,7 @@ func isUntrustedDataProcessing(call *ast.CallExpr) bool {
 		funcName := fun.Sel.Name
 		// Check for data processing operations
 		processingOps := []string{"Parse", "Unmarshal", "Decode", "Deserialize"}
-		
+
 		for _, op := range processingOps {
 			if strings.Contains(funcName, op) {
 				// Check if there are validation calls
@@ -145,7 +145,7 @@ func isCriticalDataHandler(funcDecl *ast.FuncDecl) bool {
 		"config", "setting", "credential", "token", "key",
 		"user", "admin", "system", "critical", "sensitive",
 	}
-	
+
 	for _, pattern := range criticalPatterns {
 		if strings.Contains(funcName, pattern) {
 			return true
@@ -204,4 +204,4 @@ func hasValidationChecks(node ast.Node) bool {
 		return true
 	})
 	return hasValidation
-} 
+}

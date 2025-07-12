@@ -26,16 +26,16 @@ const (
 
 // Issue represents a single security/code issue found during analysis.
 type Issue struct {
-	RuleID     string        `json:"rule_id"`
-	Title      string        `json:"title"`
-	Description string       `json:"description"`
-	Severity   SeverityLevel `json:"severity"`
-	File       string        `json:"file"`
-	Line       int           `json:"line"`
-	Code       string        `json:"code"`
-	Package    string        `json:"package"`
-	Reference  string        `json:"reference,omitempty"`
-	Suggestion string        `json:"suggestion,omitempty"`
+	RuleID      string        `json:"rule_id"`
+	Title       string        `json:"title"`
+	Description string        `json:"description"`
+	Severity    SeverityLevel `json:"severity"`
+	File        string        `json:"file"`
+	Line        int           `json:"line"`
+	Code        string        `json:"code"`
+	Package     string        `json:"package"`
+	Reference   string        `json:"reference,omitempty"`
+	Suggestion  string        `json:"suggestion,omitempty"`
 }
 
 // Summary aggregates issue counts per severity level.

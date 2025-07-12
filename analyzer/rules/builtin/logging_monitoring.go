@@ -54,7 +54,7 @@ func matchLoggingMonitoringFailures(ctx *analyzer.AnalyzerContext, pass *analysi
 						Suggestion:  "Log authentication attempts, successes, and failures",
 					})
 				}
-				
+
 				// Check for error handling without logging
 				if isErrorHandling(x) && !hasErrorLogging(x) {
 					pos := ctx.GetFset().Position(x.Pos())
@@ -82,7 +82,7 @@ func isSecuritySensitiveFunction(funcDecl *ast.FuncDecl) bool {
 		"password", "token", "session", "credential", "permission",
 		"admin", "user", "role", "privilege", "access",
 	}
-	
+
 	for _, pattern := range securityPatterns {
 		if strings.Contains(funcName, pattern) {
 			return true
@@ -96,7 +96,7 @@ func hasSecurityLogging(funcDecl *ast.FuncDecl) bool {
 	if funcDecl.Body == nil {
 		return false
 	}
-	
+
 	var hasLogging bool
 	ast.Inspect(funcDecl.Body, func(n ast.Node) bool {
 		switch x := n.(type) {
@@ -129,7 +129,7 @@ func isAuthOperation(call *ast.CallExpr) bool {
 			"Login", "Logout", "Authenticate", "Authorize", "Validate",
 			"CheckAuth", "VerifyToken", "ValidateSession", "CheckPermission",
 		}
-		
+
 		for _, pattern := range authPatterns {
 			if strings.Contains(funcName, pattern) {
 				return true
@@ -148,10 +148,10 @@ func hasAuthLogging(call *ast.CallExpr) bool {
 		case *ast.CallExpr:
 			if fun, ok := x.Fun.(*ast.SelectorExpr); ok {
 				funcName := fun.Sel.Name
-				if strings.Contains(funcName, "Log") || 
-				   strings.Contains(funcName, "Info") ||
-				   strings.Contains(funcName, "Warn") ||
-				   strings.Contains(funcName, "Error") {
+				if strings.Contains(funcName, "Log") ||
+					strings.Contains(funcName, "Info") ||
+					strings.Contains(funcName, "Warn") ||
+					strings.Contains(funcName, "Error") {
 					hasLogging = true
 					return false
 				}
@@ -169,7 +169,7 @@ func isErrorHandling(call *ast.CallExpr) bool {
 		errorPatterns := []string{
 			"Error", "Fatal", "Panic", "Handle", "Recover",
 		}
-		
+
 		for _, pattern := range errorPatterns {
 			if strings.Contains(funcName, pattern) {
 				return true
@@ -187,9 +187,9 @@ func hasErrorLogging(call *ast.CallExpr) bool {
 		case *ast.CallExpr:
 			if fun, ok := x.Fun.(*ast.SelectorExpr); ok {
 				funcName := fun.Sel.Name
-				if strings.Contains(funcName, "Log") || 
-				   strings.Contains(funcName, "Error") ||
-				   strings.Contains(funcName, "Fatal") {
+				if strings.Contains(funcName, "Log") ||
+					strings.Contains(funcName, "Error") ||
+					strings.Contains(funcName, "Fatal") {
 					hasLogging = true
 					return false
 				}
@@ -198,4 +198,4 @@ func hasErrorLogging(call *ast.CallExpr) bool {
 		return true
 	})
 	return hasLogging
-} 
+}

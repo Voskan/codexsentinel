@@ -69,7 +69,7 @@ func isSensitiveOperation(funcName string) bool {
 		"admin", "root", "privileged", "sensitive", "confidential",
 		"user", "password", "credential", "token", "session",
 	}
-	
+
 	funcNameLower := strings.ToLower(funcName)
 	for _, op := range sensitiveOps {
 		if strings.Contains(funcNameLower, op) {
@@ -120,4 +120,4 @@ func isDirectDBAccess(call *ast.CallExpr) bool {
 		}
 	}
 	return false
-} 
+}

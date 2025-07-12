@@ -12,11 +12,11 @@ import (
 
 // ComplexityResult represents the cyclomatic complexity of a single function.
 type ComplexityResult struct {
-	Name     string // Function name
-	File     string // File path
-	Line     int    // Line number
-	Complexity int  // Computed cyclomatic complexity
-	Exported bool   // Whether function is exported
+	Name       string // Function name
+	File       string // File path
+	Line       int    // Line number
+	Complexity int    // Computed cyclomatic complexity
+	Exported   bool   // Whether function is exported
 }
 
 // AnalyzeCyclomaticComplexity calculates complexity for all functions in given files.
@@ -40,11 +40,11 @@ func AnalyzeCyclomaticComplexity(files []string) ([]ComplexityResult, error) {
 			score := computeComplexity(fn.Body)
 
 			results = append(results, ComplexityResult{
-				Name:      fn.Name.Name,
-				File:      filepath.ToSlash(start.Filename),
-				Line:      start.Line,
+				Name:       fn.Name.Name,
+				File:       filepath.ToSlash(start.Filename),
+				Line:       start.Line,
 				Complexity: score,
-				Exported:  fn.Name.IsExported(),
+				Exported:   fn.Name.IsExported(),
 			})
 
 			return false

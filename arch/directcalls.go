@@ -112,10 +112,10 @@ func resolveLayerDirect(pkgPath string) string {
 // isAllowedCall returns whether a call from source → target layer is valid.
 func isAllowedCall(from, to string) bool {
 	valid := map[string][]string{
-		"handler":   {"service", "usecase"},
+		"handler":    {"service", "usecase"},
 		"controller": {"service"},
-		"service":   {"repo", "db", "infra"},
-		"usecase":   {"repo", "db"},
+		"service":    {"repo", "db", "infra"},
+		"usecase":    {"repo", "db"},
 	}
 
 	allowed, ok := valid[from]

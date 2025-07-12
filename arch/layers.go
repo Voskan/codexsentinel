@@ -114,11 +114,11 @@ func resolveLayer(pkgPath string) string {
 func isAllowedLayerCall(from, to string) bool {
 	// Define allowed layer-to-layer access rules.
 	allowed := map[string][]string{
-		"handler":   {"controller", "service", "usecase"},
+		"handler":    {"controller", "service", "usecase"},
 		"controller": {"service", "usecase"},
-		"service":   {"usecase", "repo", "db", "infra"},
-		"usecase":   {"repo", "db"},
-		"repo":      {"db"},
+		"service":    {"usecase", "repo", "db", "infra"},
+		"usecase":    {"repo", "db"},
+		"repo":       {"db"},
 	}
 
 	if list, ok := allowed[from]; ok {

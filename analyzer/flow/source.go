@@ -37,11 +37,11 @@ func (sr *SourceRegistry) MatchCall(call *ssa.Call) bool {
 	if call.Call.StaticCallee() == nil {
 		return false
 	}
-	
+
 	callee := call.Call.StaticCallee()
 	pkgPath := callee.Pkg.Pkg.Path()
 	funcName := callee.Name()
-	
+
 	for _, source := range sr.sources {
 		if strings.HasSuffix(pkgPath, source.Package) && source.Function == funcName {
 			return true
@@ -55,7 +55,7 @@ func (sr *SourceRegistry) MatchParameter(param *ssa.Parameter) bool {
 	// Check if parameter name suggests user input
 	paramName := strings.ToLower(param.Name())
 	suspiciousNames := []string{"input", "user", "data", "param", "arg", "value"}
-	
+
 	for _, name := range suspiciousNames {
 		if strings.Contains(paramName, name) {
 			return true
@@ -67,4 +67,4 @@ func (sr *SourceRegistry) MatchParameter(param *ssa.Parameter) bool {
 // All returns all registered sources.
 func (sr *SourceRegistry) All() []Source {
 	return sr.sources
-} 
+}

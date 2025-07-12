@@ -13,11 +13,11 @@ import (
 
 // IgnoreRule represents a single parsed ignore rule.
 type IgnoreRule struct {
-	File     string // optional file path, may contain wildcards
-	Line     int    // optional line number, 0 = any line
-	RuleID   string // rule to ignore, required
-	Comment  string // optional comment after #
-	raw      string // original line (for debugging)
+	File    string // optional file path, may contain wildcards
+	Line    int    // optional line number, 0 = any line
+	RuleID  string // rule to ignore, required
+	Comment string // optional comment after #
+	raw     string // original line (for debugging)
 }
 
 // Manager holds and evaluates parsed ignore rules.
@@ -93,9 +93,10 @@ func (m *Manager) IsIgnored(file string, line int, ruleID string) bool {
 // Syntax: [path[:line]] rule-id [# comment]
 //
 // Examples:
-//   handlers/user.go:42 sql-injection # this is fine
-//   handlers/* xss-template
-//   xss-template
+//
+//	handlers/user.go:42 sql-injection # this is fine
+//	handlers/* xss-template
+//	xss-template
 func parseLine(line string) *IgnoreRule {
 	comment := ""
 	if idx := strings.Index(line, "#"); idx >= 0 {

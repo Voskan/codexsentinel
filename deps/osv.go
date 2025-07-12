@@ -10,14 +10,14 @@ import (
 
 // Vulnerability represents a CVE or known vulnerability for a Go module.
 type Vulnerability struct {
-	Module     string `json:"module"`     // Module name (e.g., github.com/foo/bar)
-	Version    string `json:"version"`    // Vulnerable version
-	ID         string `json:"id"`         // CVE or GHSA ID
-	Details    string `json:"details"`    // Description or summary
-	Severity   string `json:"severity"`   // "LOW", "MEDIUM", "HIGH", "CRITICAL"
-	FixedVersion string `json:"fixed"`    // Version where fixed (if available)
-	Aliases    []string `json:"aliases"`  // Alternative IDs
-	Reference  string `json:"reference"`  // Reference URL
+	Module       string   `json:"module"`    // Module name (e.g., github.com/foo/bar)
+	Version      string   `json:"version"`   // Vulnerable version
+	ID           string   `json:"id"`        // CVE or GHSA ID
+	Details      string   `json:"details"`   // Description or summary
+	Severity     string   `json:"severity"`  // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+	FixedVersion string   `json:"fixed"`     // Version where fixed (if available)
+	Aliases      []string `json:"aliases"`   // Alternative IDs
+	Reference    string   `json:"reference"` // Reference URL
 }
 
 // AuditVulnerabilities runs osv-scanner against the given go.mod path and returns a list of vulnerabilities.
@@ -43,14 +43,14 @@ func AuditVulnerabilities(goModPath string) ([]Vulnerability, error) {
 	for _, finding := range result.Results {
 		for _, vuln := range finding.Vulnerabilities {
 			v := Vulnerability{
-				Module:     finding.Package.Name,
-				Version:    finding.Package.Version,
-				ID:         vuln.ID,
-				Details:    vuln.Details,
+				Module:       finding.Package.Name,
+				Version:      finding.Package.Version,
+				ID:           vuln.ID,
+				Details:      vuln.Details,
 				FixedVersion: extractFixedVersion(vuln.Affected),
-				Severity:   extractSeverity(vuln.Severity),
-				Aliases:    vuln.Aliases,
-				Reference:  vuln.DatabaseSpecific.URL,
+				Severity:     extractSeverity(vuln.Severity),
+				Aliases:      vuln.Aliases,
+				Reference:    vuln.DatabaseSpecific.URL,
 			}
 			vulns = append(vulns, v)
 		}
@@ -67,10 +67,10 @@ type osvResult struct {
 			Version string `json:"version"`
 		} `json:"package"`
 		Vulnerabilities []struct {
-			ID                string   `json:"id"`
-			Details           string   `json:"details"`
-			Aliases           []string `json:"aliases"`
-			Severity          []struct {
+			ID       string   `json:"id"`
+			Details  string   `json:"details"`
+			Aliases  []string `json:"aliases"`
+			Severity []struct {
 				Type  string `json:"type"`
 				Score string `json:"score"`
 			} `json:"severity"`
