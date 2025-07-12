@@ -26,30 +26,30 @@ func RegisterCommandExecRule(ctx *analyzer.AnalyzerContext) {
 func matchExecCommandInjection(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) == 0 {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
 				return true
-			}
+		}
 
-			selector, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
 				return true
-			}
+		}
 
-			pkgIdent, ok := selector.X.(*ast.Ident)
-			if !ok || pkgIdent.Name != "exec" {
+		pkgIdent, ok := selector.X.(*ast.Ident)
+		if !ok || pkgIdent.Name != "exec" {
 				return true
-			}
+		}
 
-			if selector.Sel.Name != "Command" && selector.Sel.Name != "CommandContext" {
+		if selector.Sel.Name != "Command" && selector.Sel.Name != "CommandContext" {
 				return true
-			}
+		}
 
-			// Check if any argument comes from untrusted input
-			for _, arg := range call.Args {
-				if isTainted(ctx, arg) {
+		// Check if any argument comes from untrusted input
+		for _, arg := range call.Args {
+			if isTainted(ctx, arg) {
 					pos := ctx.GetFset().Position(arg.Pos())
-					ctx.Report(result.Issue{
+				ctx.Report(result.Issue{
 						ID:          "command-exec-taint",
 						Title:       "Potential Command Injection",
 						Description: "Untrusted input used in exec.Command may lead to command injection",
@@ -57,12 +57,12 @@ func matchExecCommandInjection(ctx *analyzer.AnalyzerContext, pass *analysis.Pas
 						Location:    result.NewLocationFromPos(pos, "", ""),
 						Category:    "security",
 						Suggestion:  "Validate or sanitize the input before using it in exec.Command",
-					})
-					break
-				}
+				})
+				break
 			}
+		}
 			return true
-		})
+	})
 	}
 }
 
@@ -91,7 +91,7 @@ func isTainted(ctx *analyzer.AnalyzerContext, expr ast.Expr) bool {
 		if x, ok := e.X.(*ast.SelectorExpr); ok {
 			if pkg, ok := x.X.(*ast.Ident); ok {
 				if pkg.Name == "r" && x.Sel.Name == "URL" && e.Sel.Name == "Query" {
-					return true
+				return true
 				}
 			}
 		}
@@ -102,10 +102,10 @@ func isTainted(ctx *analyzer.AnalyzerContext, expr ast.Expr) bool {
 		}
 		// Also check types info if available
 		if ctx.Info() != nil {
-			obj := ctx.Info().Uses[e]
+		obj := ctx.Info().Uses[e]
 			if obj != nil {
-				if v, ok := obj.(*types.Var); ok && v.Pkg() != nil {
-					// Heuristic: check if variable name contains suspicious input identifiers
+		if v, ok := obj.(*types.Var); ok && v.Pkg() != nil {
+			// Heuristic: check if variable name contains suspicious input identifiers
 					return matcher.New([]string{"input", "param", "cmd", "arg", "data"}).Match(e.Name)
 				}
 			}

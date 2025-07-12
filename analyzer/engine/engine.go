@@ -83,12 +83,12 @@ func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*re
 	}
 	issues = append(issues, depIssues...)
 
-	// 5. Run metrics analysis (placeholder for future implementation)
-	// metricsIssues, err := runMetricsAnalysis(ctx, proj)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("metrics analysis failed: %w", err)
-	// }
-	// issues = append(issues, metricsIssues...)
+	// 5. Run metrics analysis
+	metricsIssues, err := runMetricsAnalysis(ctx, proj)
+	if err != nil {
+		return nil, fmt.Errorf("metrics analysis failed: %w", err)
+	}
+	issues = append(issues, metricsIssues...)
 
 	return issues, nil
 }
@@ -393,6 +393,17 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 					})
 				}
 			}
+		}
+	}
+
+	// Run metrics analysis for the entire project
+	metricsIssues, err := runMetricsAnalysis(ctx, &analyzer.AnalyzerContext{Filename: root})
+	if err != nil {
+		fmt.Printf("Warning: Metrics analysis failed: %v\n", err)
+	} else {
+		// Convert metrics issues to result.Issue
+		for _, issue := range metricsIssues {
+			allIssues = append(allIssues, *issue)
 		}
 	}
 

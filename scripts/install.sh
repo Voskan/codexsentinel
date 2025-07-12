@@ -143,7 +143,7 @@ create_alias() {
     SHELL_RC="$HOME/.bashrc"
     if [ -f "$HOME/.zshrc" ]; then
       SHELL_RC="$HOME/.zshrc"
-    fi
+  fi
     echo "alias codex=\"$APP_NAME\"" >> "$SHELL_RC"
     log "Created alias 'codex' in $SHELL_RC"
   elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
