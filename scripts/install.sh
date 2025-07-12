@@ -3,7 +3,7 @@
 set -e
 
 REPO="Voskan/codexsentinel"
-APP_NAME="codex"
+APP_NAME="codex-cli"
 INSTALL_DIR="/usr/local/bin"
 FALLBACK_DIR="$HOME/.local/bin"
 
@@ -79,7 +79,74 @@ install_binary() {
   mv "$TMP_FILE" "$DEST" || fail "Failed to move binary to $DEST"
 
   log "✅ Installed $APP_NAME to $DEST"
+  
+  # Make it globally available
+  setup_global_access
+  
+  # Create convenient alias
+  create_alias
+  
   "$DEST" version || log "Run '$APP_NAME version' to verify"
+}
+
+setup_global_access() {
+  log "Setting up global access..."
+  
+  # Add to PATH permanently
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    SHELL_RC="$HOME/.zshrc"
+    if [ ! -f "$SHELL_RC" ]; then
+      SHELL_RC="$HOME/.bash_profile"
+    fi
+    echo "export PATH=\"\$PATH:$FALLBACK_DIR\"" >> "$SHELL_RC"
+    log "Added to PATH in $SHELL_RC"
+  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux
+    SHELL_RC="$HOME/.bashrc"
+    if [ -f "$HOME/.zshrc" ]; then
+      SHELL_RC="$HOME/.zshrc"
+    fi
+    echo "export PATH=\"\$PATH:$FALLBACK_DIR\"" >> "$SHELL_RC"
+    log "Added to PATH in $SHELL_RC"
+  elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    # Windows (Git Bash)
+    SHELL_RC="$HOME/.bashrc"
+    echo "export PATH=\"\$PATH:$FALLBACK_DIR\"" >> "$SHELL_RC"
+    log "Added to PATH in $SHELL_RC"
+  fi
+}
+
+create_alias() {
+  log "Creating convenient alias..."
+  
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    SHELL_RC="$HOME/.zshrc"
+    if [ ! -f "$SHELL_RC" ]; then
+      SHELL_RC="$HOME/.bash_profile"
+    fi
+    echo "alias codex=\"$APP_NAME\"" >> "$SHELL_RC"
+    log "Created alias 'codex' in $SHELL_RC"
+  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux
+    SHELL_RC="$HOME/.bashrc"
+    if [ -f "$HOME/.zshrc" ]; then
+      SHELL_RC="$HOME/.zshrc"
+    fi
+    echo "alias codex=\"$APP_NAME\"" >> "$SHELL_RC"
+    log "Created alias 'codex' in $SHELL_RC"
+  elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    # Windows (Git Bash)
+    SHELL_RC="$HOME/.bashrc"
+    echo "alias codex=\"$APP_NAME\"" >> "$SHELL_RC"
+    log "Created alias 'codex' in $SHELL_RC"
+  fi
+  
+  log "✅ Installation complete! You can now use:"
+  log "   - '$APP_NAME version' (full command)"
+  log "   - 'codex version' (convenient alias)"
+  log "   - Restart your terminal or run 'source $SHELL_RC' to use immediately"
 }
 
 install_binary

@@ -19,17 +19,108 @@
 
 ---
 
-## 🛠️ Installation
+## 🛠️ Installation and Usage (All OS)
+
+### 1. Quick Install (Recommended)
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/install.sh | sh
+```
+
+This script will:
+
+- Download the latest binary for your OS
+- Install it globally (add to PATH)
+- Create a convenient `codex` alias
+- Work on Linux, macOS, and Windows (via Git Bash/WSL)
+
+### 2. Manual Install via Go
 
 ```bash
 go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
 ```
 
-Or use the install script:
+### 2. Where to find the binary
+
+- By default, Go installs the binary as **codex-cli** in:
+  - **Linux/macOS:** `$HOME/go/bin/`
+  - **Windows:** `%USERPROFILE%\go\bin\`
+
+### 3. Make codex-cli globally available
+
+#### Linux/macOS:
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/install.sh | sh
+# Add to PATH permanently
+echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.bashrc
+echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.zshrc
+
+# Reload shell configuration
+source ~/.bashrc  # or source ~/.zshrc
+
+# Now you can run from anywhere:
+codex-cli version
 ```
+
+#### Windows (PowerShell):
+
+```powershell
+# Add to PATH permanently
+$goBinPath = "$env:USERPROFILE\go\bin"
+$currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+[Environment]::SetEnvironmentVariable("PATH", "$currentPath;$goBinPath", "User")
+
+# Reload environment variables
+refreshenv  # if you have Chocolatey installed
+# or restart your terminal
+
+# Now you can run from anywhere:
+codex-cli version
+```
+
+#### Windows (Command Prompt):
+
+```cmd
+# Add to PATH permanently
+setx PATH "%PATH%;%USERPROFILE%\go\bin"
+
+# Restart your terminal, then run:
+codex-cli version
+```
+
+### 4. (Optional) Create a shorter alias
+
+#### Linux/macOS:
+
+```bash
+# Add alias to your shell config
+echo 'alias codex="codex-cli"' >> ~/.bashrc
+echo 'alias codex="codex-cli"' >> ~/.zshrc
+
+# Reload and use:
+source ~/.bashrc  # or source ~/.zshrc
+codex version
+```
+
+#### Windows (PowerShell):
+
+```powershell
+# Add to PowerShell profile
+echo 'Set-Alias codex codex-cli' >> $PROFILE
+
+# Reload and use:
+. $PROFILE
+codex version
+```
+
+### 5. Verify installation
+
+```bash
+# Should work from any directory:
+codex-cli version
+```
+
+---
 
 ## 📦 Usage
 
@@ -37,44 +128,44 @@ curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/i
 
 ```bash
 # Scan current directory
-codex scan .
+codex-cli scan .
 
 # Scan specific files
-codex scan ./main.go ./pkg/
+codex-cli scan ./main.go ./pkg/
 
 # Scan with custom output
-codex scan ./... --format html --output report.html
+codex-cli scan ./... --format html --output report.html
 ```
 
 ### Advanced Usage
 
 ```bash
 # Scan with specific severity
-codex scan ./... --severity high
+codex-cli scan ./... --severity high
 
 # Use custom config
-codex scan ./... --config .codex.yml
+codex-cli scan ./... --config .codex.yml
 
 # Ignore specific files
-codex scan ./... --ignore-file .codexsentinel.ignore
+codex-cli scan ./... --ignore-file .codexsentinel.ignore
 
 # Generate SARIF for CI/CD
-codex scan ./... --format sarif --output results.sarif
+codex-cli scan ./... --format sarif --output results.sarif
 ```
 
 ### Available Flags
 
-| Flag            | Description                                           | Default               |
-| --------------- | ----------------------------------------------------- | --------------------- |
-| `--config`      | Path to `.codex.yml` config file                      | -                     |
-| `--output`      | Output report file path                               | stdout                |
-| `--format`      | Report format: `json`, `html`, `sarif`, `markdown`    | json                  |
-| `--severity`    | Minimum severity: `low`, `medium`, `high`, `critical` | low                   |
-| `--ignore-file` | Path to `.codexsentinel.ignore`                       | .codexsentinel.ignore |
-| `--ast`         | Enable AST-based analysis                             | true                  |
-| `--ssa`         | Enable SSA-based analysis                             | true                  |
-| `--taint`       | Enable taint flow analysis                            | true                  |
-| `--no-builtin`  | Disable built-in rules                                | false                 |
+| Flag            | Description                                          | Default               |
+| --------------- | ---------------------------------------------------- | --------------------- |
+| `--config`      | Path to `.codex.yml` config file                     | -                     |
+| `--output`      | Output report file path                              | stdout                |
+| `--format`      | Report format:`json`, `html`, `sarif`, `markdown`    | json                  |
+| `--severity`    | Minimum severity:`low`, `medium`, `high`, `critical` | low                   |
+| `--ignore-file` | Path to `.codexsentinel.ignore`                      | .codexsentinel.ignore |
+| `--ast`         | Enable AST-based analysis                            | true                  |
+| `--ssa`         | Enable SSA-based analysis                            | true                  |
+| `--taint`       | Enable taint flow analysis                           | true                  |
+| `--no-builtin`  | Disable built-in rules                               | false                 |
 
 ## 📁 Project Structure
 
