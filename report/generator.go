@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	reporttpl "github.com/Voskan/codexsentinel/report/template"
@@ -46,6 +47,11 @@ type Summary struct {
 	Medium   int `json:"medium"`
 	Low      int `json:"low"`
 	Info     int `json:"info"`
+	// Category counts for charts
+	Security int `json:"security"`
+	Style    int `json:"style"`
+	Metrics  int `json:"metrics"`
+	License  int `json:"license"`
 }
 
 // ReportData represents the full report structure.
@@ -78,6 +84,7 @@ func GenerateReport(issues []Issue, format, outPath string) error {
 func computeSummary(issues []Issue) Summary {
 	s := Summary{Total: len(issues)}
 	for _, i := range issues {
+		// Count by severity
 		switch i.Severity {
 		case SeverityCritical:
 			s.Critical++
@@ -90,8 +97,33 @@ func computeSummary(issues []Issue) Summary {
 		case SeverityInfo:
 			s.Info++
 		}
+		
+		// Count by category (based on rule ID patterns)
+		switch {
+		case contains(i.RuleID, "sql-injection", "xss", "command-exec", "ssrf", "access-control", "taint"):
+			s.Security++
+		case contains(i.RuleID, "global-variable", "unused-import", "naming", "style"):
+			s.Style++
+		case contains(i.RuleID, "complexity", "size", "dead-code", "duplication"):
+			s.Metrics++
+		case contains(i.RuleID, "license", "dependency"):
+			s.License++
+		default:
+			// Default to security if no specific category matches
+			s.Security++
+		}
 	}
 	return s
+}
+
+// contains checks if any of the patterns match the rule ID
+func contains(ruleID string, patterns ...string) bool {
+	for _, pattern := range patterns {
+		if strings.Contains(ruleID, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // writeJSONReport serializes report to JSON file.
