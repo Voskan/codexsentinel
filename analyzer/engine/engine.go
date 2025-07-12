@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
 
 	"github.com/Voskan/codexsentinel/analyzer"
+	customast "github.com/Voskan/codexsentinel/analyzer/ast"
 	"github.com/Voskan/codexsentinel/analyzer/flow"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
@@ -100,10 +100,54 @@ func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 		fset = token.NewFileSet()
 		proj.Fset = fset
 	}
-	file, err := parser.ParseFile(fset, proj.Filename, proj.Source, parser.ParseComments)
+	parsedFile, err := customast.ParseSource(proj.Filename, proj.Source)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse file: %w", err)
 	}
+	file := parsedFile.File
+	proj.Fset = parsedFile.Fset
+
+	// Create AST walker for custom analysis
+	walker := customast.NewWalker(proj.Fset)
+	
+	// Register handlers for different node types
+	walker.RegisterHandler("*ast.CallExpr", func(node ast.Node, path []ast.Node) {
+		// Custom call expression analysis
+		if call, ok := node.(*ast.CallExpr); ok {
+			// Analyze function calls for security issues
+			if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
+				if ident, ok := fun.X.(*ast.Ident); ok {
+					// Check for dangerous function calls
+					if ident.Name == "exec" && fun.Sel.Name == "Command" {
+						// This would be handled by built-in rules
+					}
+				}
+			}
+		}
+	})
+
+	walker.RegisterHandler("*ast.ValueSpec", func(node ast.Node, path []ast.Node) {
+		spec, ok := node.(*ast.ValueSpec)
+		if !ok {
+			return
+		}
+		
+		for _, name := range spec.Names {
+			pos := proj.Fset.Position(name.Pos())
+			proj.Report(result.Issue{
+				ID:          "global-variable-ast",
+				Title:       "Global Variable (AST)",
+				Description: "Global variable '" + name.Name + "' detected at top-level scope.",
+				Severity:    result.SeverityInfo,
+				Location:    result.NewLocationFromPos(pos, "", ""),
+				Category:    "style",
+				Suggestion:  "Consider avoiding global variables for better maintainability.",
+			})
+		}
+	})
+
+	// Walk the AST
+	walker.WalkFile(file)
 
 	// Run all registered rules using existing AST
 	for _, rule := range proj.Rules {
@@ -111,7 +155,7 @@ func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 
 			// Create a proper analysis.Pass for rule execution
 			pass := &analysis.Pass{
-				Fset:     fset,
+				Fset:     proj.Fset,
 				Files:    []*ast.File{file},
 				Pkg:      nil, // Skip package for now
 				ResultOf: make(map[*analysis.Analyzer]interface{}),
