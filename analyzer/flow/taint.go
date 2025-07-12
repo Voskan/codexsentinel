@@ -11,7 +11,7 @@ type TaintEngine struct {
 	Sources  *SourceRegistry
 	Sinks    *SinkRegistry
 	Issues   []TaintIssue
-	position token.Positioner
+	position token.Position
 }
 
 // TaintIssue represents a detected source-to-sink flow.
@@ -24,7 +24,7 @@ type TaintIssue struct {
 }
 
 // NewTaintEngine creates a new TaintEngine instance.
-func NewTaintEngine(sources *SourceRegistry, sinks *SinkRegistry, pos token.Positioner) *TaintEngine {
+func NewTaintEngine(sources *SourceRegistry, sinks *SinkRegistry, pos token.Position) *TaintEngine {
 	return &TaintEngine{
 		Sources:  sources,
 		Sinks:    sinks,

@@ -19,7 +19,7 @@ func main() {
 	}
 
 	output := filepath.Join(installDir, binaryName("codex"))
-	cmd := exec.Command("go", "build", "-o", output, "./cmd/codex")
+	cmd := exec.Command("go", "build", "-o", output, "./cmd/codex-cli")
 	cmd.Env = os.Environ()
 
 	cmd.Stdout = os.Stdout

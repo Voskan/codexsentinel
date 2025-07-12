@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Voskan/codexsentinel/report/template"
+	reporttpl "github.com/Voskan/codexsentinel/report/template"
 )
 
 // SeverityLevel defines the level of issue severity.
@@ -109,7 +109,7 @@ func writeJSONReport(data ReportData, outPath string) error {
 
 // writeHTMLReport renders report using HTML template.
 func writeHTMLReport(data ReportData, outPath string) error {
-	tmpl, err := template.New("report").Parse(template.HTMLTemplate)
+	tmpl, err := template.New("report").Parse(reporttpl.HTMLTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to parse HTML template: %w", err)
 	}

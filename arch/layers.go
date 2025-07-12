@@ -34,7 +34,7 @@ func AnalyzeLayering(pattern string) ([]LayerViolation, error) {
 		return nil, fmt.Errorf("failed to load packages: %w", err)
 	}
 
-	prog, _ := ssa.NewProgram(cfg.Fset, ssa.SanityCheckFunctions)
+	prog := ssa.NewProgram(cfg.Fset, ssa.SanityCheckFunctions)
 	var violations []LayerViolation
 
 	for _, pkg := range pkgs {

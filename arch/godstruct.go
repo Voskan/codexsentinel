@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"golang.org/x/tools/go/packages"
-	"golang.org/x/tools/go/ssa"
 )
 
 // GodStruct represents a struct with excessive number of methods.
@@ -34,7 +33,6 @@ func AnalyzeGodStructs(pattern string, methodLimit int) ([]GodStruct, error) {
 		return nil, fmt.Errorf("failed to load packages: %w", err)
 	}
 
-	prog, _ := ssa.NewProgram(cfg.Fset, ssa.SanityCheckFunctions)
 	var results []GodStruct
 
 	for _, pkg := range pkgs {

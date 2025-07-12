@@ -34,14 +34,14 @@ func AnalyzeDirectCalls(pattern string) ([]DirectCallViolation, error) {
 		return nil, fmt.Errorf("failed to load packages: %w", err)
 	}
 
-	prog, ssaPkgs := ssa.NewProgram(cfg.Fset, ssa.SanityCheckFunctions)
+	prog := ssa.NewProgram(cfg.Fset, ssa.SanityCheckFunctions)
 	var allViolations []DirectCallViolation
 
 	for _, pkg := range pkgs {
 		ssaPkg := prog.CreatePackage(pkg.Types, pkg.Syntax, pkg.TypesInfo, true)
 		ssaPkg.Build()
 
-		fromLayer := resolveLayer(pkg.PkgPath)
+		fromLayer := resolveLayerDirect(pkg.PkgPath)
 		if fromLayer == "" {
 			continue
 		}
@@ -63,7 +63,7 @@ func AnalyzeDirectCalls(pattern string) ([]DirectCallViolation, error) {
 						continue
 					}
 
-					toPkg := resolveLayer(callee.Pkg.Pkg.Path())
+					toPkg := resolveLayerDirect(callee.Pkg.Pkg.Path())
 					if toPkg == "" || toPkg == fromLayer {
 						continue
 					}
@@ -87,8 +87,8 @@ func AnalyzeDirectCalls(pattern string) ([]DirectCallViolation, error) {
 	return allViolations, nil
 }
 
-// resolveLayer maps a package path to a logical architecture layer.
-func resolveLayer(pkgPath string) string {
+// resolveLayerDirect maps a package path to a logical architecture layer.
+func resolveLayerDirect(pkgPath string) string {
 	switch {
 	case strings.Contains(pkgPath, "/handler"):
 		return "handler"

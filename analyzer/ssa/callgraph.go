@@ -5,8 +5,7 @@ import (
 
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/callgraph/cha"
-	"golang.org/x/tools/go/loader"
-	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/packages"
 	ssabuilder "golang.org/x/tools/go/ssa"
 )
 
@@ -15,44 +14,53 @@ type CallGraphAnalyzer struct {
 	Fset     *token.FileSet
 	Program  *ssabuilder.Program
 	Graph    *callgraph.Graph
-	Packages []*ssa.Package
+	Packages []*ssabuilder.Package
 }
 
 // NewCallGraphAnalyzer creates a new call graph analyzer from the provided source paths.
 func NewCallGraphAnalyzer(paths []string) (*CallGraphAnalyzer, error) {
-	conf := loader.Config{
-		ParserMode: parserMode(),
-	}
-	conf.TypeChecker.Error = func(err error) {}
-
-	for _, path := range paths {
-		conf.Import(path)
+	cfg := &packages.Config{
+		Mode:  packages.NeedName | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedDeps | packages.NeedImports | packages.NeedFiles,
+		Dir:   ".",
+		Fset:  token.NewFileSet(),
+		Tests: false,
 	}
 
-	prog, err := conf.Load()
+	pkgs, err := packages.Load(cfg, paths...)
 	if err != nil {
 		return nil, err
 	}
 
-	ssaProg := ssabuilder.NewProgram(prog.Fset, ssabuilder.SanityCheckFunctions)
-	pkgs := ssabuilder.CreatePackages(prog, ssaProg, true)
+	ssaProg := ssabuilder.NewProgram(cfg.Fset, ssabuilder.SanityCheckFunctions)
+	
+	// Create SSA packages from the loaded packages
+	var ssaPkgs []*ssabuilder.Package
+	for _, pkg := range pkgs {
+		ssaPkg := ssaProg.CreatePackage(pkg.Types, pkg.Syntax, pkg.TypesInfo, true)
+		ssaPkgs = append(ssaPkgs, ssaPkg)
+	}
 
 	ssaProg.Build()
 
 	graph := cha.CallGraph(ssaProg)
-	callgraph.DeleteSyntheticNodes(graph)
+	// Remove synthetic nodes manually since DeleteSyntheticNodes doesn't exist
+	for fn := range graph.Nodes {
+		if fn != nil && fn.Synthetic != "" {
+			delete(graph.Nodes, fn)
+		}
+	}
 
 	return &CallGraphAnalyzer{
-		Fset:     prog.Fset,
+		Fset:     cfg.Fset,
 		Program:  ssaProg,
 		Graph:    graph,
-		Packages: pkgs,
+		Packages: ssaPkgs,
 	}, nil
 }
 
 // GetCallers returns all functions that call the given function.
-func (cga *CallGraphAnalyzer) GetCallers(fn *ssa.Function) []*ssa.Function {
-	var callers []*ssa.Function
+func (cga *CallGraphAnalyzer) GetCallers(fn *ssabuilder.Function) []*ssabuilder.Function {
+	var callers []*ssabuilder.Function
 	for _, edge := range cga.Graph.Nodes[fn].In {
 		if edge.Caller.Func != nil {
 			callers = append(callers, edge.Caller.Func)
@@ -62,8 +70,8 @@ func (cga *CallGraphAnalyzer) GetCallers(fn *ssa.Function) []*ssa.Function {
 }
 
 // GetCallees returns all functions that are called by the given function.
-func (cga *CallGraphAnalyzer) GetCallees(fn *ssa.Function) []*ssa.Function {
-	var callees []*ssa.Function
+func (cga *CallGraphAnalyzer) GetCallees(fn *ssabuilder.Function) []*ssabuilder.Function {
+	var callees []*ssabuilder.Function
 	for _, edge := range cga.Graph.Nodes[fn].Out {
 		if edge.Callee.Func != nil {
 			callees = append(callees, edge.Callee.Func)
@@ -73,8 +81,8 @@ func (cga *CallGraphAnalyzer) GetCallees(fn *ssa.Function) []*ssa.Function {
 }
 
 // AllFunctions returns all reachable functions in the call graph.
-func (cga *CallGraphAnalyzer) AllFunctions() []*ssa.Function {
-	var funcs []*ssa.Function
+func (cga *CallGraphAnalyzer) AllFunctions() []*ssabuilder.Function {
+	var funcs []*ssabuilder.Function
 	for fn := range cga.Graph.Nodes {
 		if fn != nil && fn.Name() != "" {
 			funcs = append(funcs, fn)
@@ -82,11 +90,3 @@ func (cga *CallGraphAnalyzer) AllFunctions() []*ssa.Function {
 	}
 	return funcs
 }
-
-// parserMode returns the default parser mode for loader.Config.
-func parserMode() parserModeType {
-	return parserModeType(0) // use default
-}
-
-// parserModeType is a dummy alias to satisfy the interface.
-type parserModeType int

@@ -52,7 +52,7 @@ func loadFile(path string) error {
 		Description: rule.Description,
 		Suggestion:  rule.Suggestion,
 		References:  rule.References,
-		YAML:        &rule,
+		YAML:        &rules.YAMLRule{Pattern: rule.Pattern},
 		Enabled:     rule.Enabled,
 	})
 }

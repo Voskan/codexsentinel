@@ -4,10 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/Voskan/codexsentinel/analyzer"
+	"github.com/Voskan/codexsentinel/analyzer/result"
 )
 
 // RuleFunc defines the function signature for Go-based rules.
-type RuleFunc func(ctx *Context) ([]Issue, error)
+type RuleFunc func(ctx *analyzer.AnalyzerContext) ([]result.Issue, error)
+
+// YAMLRule represents a YAML-based rule definition.
+type YAMLRule struct {
+	Pattern string            `yaml:"pattern"`
+	Filters map[string]string `yaml:"filters,omitempty"`
+}
 
 // Rule represents metadata and behavior for a registered rule.
 type Rule struct {
