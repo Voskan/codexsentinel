@@ -465,6 +465,18 @@ func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	registerSQLInjectionRule(ctx)
 	// Register XSS rule
 	registerXSSRule(ctx)
+	// Register access control rule
+	builtin.RegisterAccessControlRule(ctx)
+	// Register insecure design rule
+	builtin.RegisterInsecureDesignRule(ctx)
+	// Register data integrity rule
+	builtin.RegisterDataIntegrityRule(ctx)
+	// Register logging monitoring rule
+	builtin.RegisterLoggingMonitoringRule(ctx)
+	// Register SSRF rule
+	builtin.RegisterSSRFRule(ctx)
+	
+
 }
 
 // registerSQLInjectionRule registers the SQL injection detection rule.
