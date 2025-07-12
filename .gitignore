@@ -43,6 +43,8 @@ logs/
 *.json
 *.sarif
 reports/
+scan_reports/
+codex-cli
 
 # Temporary files
 *.tmp

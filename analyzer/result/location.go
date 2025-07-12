@@ -3,7 +3,6 @@ package result
 import (
 	"fmt"
 	"go/token"
-	"path/filepath"
 )
 
 // Location represents the position in the source code where an issue was found.
@@ -16,13 +15,13 @@ type Location struct {
 }
 
 // NewLocationFromPos creates a Location from a token.Position and optional metadata.
-func NewLocationFromPos(pos token.Position, functionName, pkgPath string) Location {
+func NewLocationFromPos(pos token.Position, fallbackFile, fallbackPkg string) Location {
 	return Location{
-		File:        filepath.ToSlash(pos.Filename),
-		Line:        pos.Line,
-		Column:      pos.Column,
-		Function:    functionName,
-		PackagePath: pkgPath,
+		File: pos.Filename,
+		Line: pos.Line,
+		Column: pos.Column,
+		Function: "", // No function name in this context
+		PackagePath: fallbackPkg, // Use fallback if no package path is available
 	}
 }
 

@@ -25,10 +25,17 @@ func NewScanCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "scan",
+		Use:   "scan [path]",
 		Short: "Run static analysis on the target source code",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
+
+			// Use path from args if provided, otherwise use flag
+			targetPath := path
+			if len(args) > 0 {
+				targetPath = args[0]
+			}
 
 			// Load config
 			cfg, err := config.LoadDefaultPath()
@@ -37,14 +44,22 @@ func NewScanCmd() *cobra.Command {
 			}
 
 			// Run analysis
-			results, err := engine.Run(ctx, path, cfg)
+			results, err := engine.Run(ctx, targetPath, cfg)
 			if err != nil {
 				return fmt.Errorf("analysis failed: %w", err)
 			}
 
 			// Determine output path
+			reportDir := "scan_reports"
+			if _, err := os.Stat(reportDir); os.IsNotExist(err) {
+				if err := os.Mkdir(reportDir, 0755); err != nil {
+					return fmt.Errorf("failed to create report directory: %w", err)
+				}
+			}
 			if outPath == "" {
-				outPath = defaultOutputPath(format)
+				outPath = filepath.Join(reportDir, defaultOutputPath(format))
+			} else {
+				outPath = filepath.Join(reportDir, filepath.Base(outPath))
 			}
 
 			// Generate report

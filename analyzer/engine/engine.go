@@ -11,11 +11,13 @@ import (
 	"path/filepath"
 
 	"github.com/Voskan/codexsentinel/analyzer"
+	"github.com/Voskan/codexsentinel/analyzer/flow"
 	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
+	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/internal/matcher"
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/ssa/ssautil"
 )
 
 // Engine coordinates the entire static analysis process.
@@ -38,6 +40,7 @@ func New(cfg *Config) *Engine {
 
 // Run executes the full analysis pipeline and returns discovered issues.
 func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
+	
 	if proj.Filename == "" {
 		return nil, fmt.Errorf("no Go files found in project")
 	}
@@ -58,8 +61,9 @@ func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*re
 		ssaIssues, err := runSSAAnalysis(ctx, proj)
 		if err != nil {
 			return nil, fmt.Errorf("SSA analysis failed: %w", err)
+		} else {
+			issues = append(issues, ssaIssues...)
 		}
-		issues = append(issues, ssaIssues...)
 	}
 
 	// 3. Run taint tracking
@@ -76,58 +80,29 @@ func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*re
 
 // runASTAnalysis applies registered AST rules to parsed files.
 func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	// If we already have parsed AST from go/packages, use it
-	if proj.Fset != nil && proj.Types != nil {
-		// Run all registered rules using existing AST
-		for _, rule := range proj.Rules {
-			if rule.Matcher != nil {
-				// Create a mock analysis.Pass for rule execution
-				pass := &analysis.Pass{
-					Fset:   proj.Fset,
-					Files:  []*ast.File{}, // Will be filled by individual file analysis
-					Pkg:    nil, // Skip package for now
-					ResultOf: make(map[*analysis.Analyzer]interface{}),
-				}
-				
-				rule.Matcher(proj, pass)
-			}
-		}
-	} else {
-		// Fallback to parsing single file (legacy mode)
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, proj.Filename, proj.Source, parser.ParseComments)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse file: %w", err)
-		}
-
-		// Create basic types info (skip full type checking for now)
-		typesInfo := &types.Info{
-			Types:      make(map[ast.Expr]types.TypeAndValue),
-			Defs:       make(map[*ast.Ident]types.Object),
-			Uses:       make(map[*ast.Ident]types.Object),
-			Implicits:  make(map[ast.Node]types.Object),
-			Selections: make(map[*ast.SelectorExpr]*types.Selection),
-			Scopes:     make(map[ast.Node]*types.Scope),
-		}
-
-		// Update context with parsed data
+	fset := proj.Fset
+	if fset == nil {
+		fset = token.NewFileSet()
 		proj.Fset = fset
-		proj.Types = typesInfo
-		proj.SSA = nil // Will be built if needed
+	}
+	file, err := parser.ParseFile(fset, proj.Filename, proj.Source, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse file: %w", err)
+	}
 
-		// Run all registered rules
-		for _, rule := range proj.Rules {
-			if rule.Matcher != nil {
-				// Create a mock analysis.Pass for rule execution
-				pass := &analysis.Pass{
-					Fset:   fset,
-					Files:  []*ast.File{file},
-					Pkg:    nil, // Skip package for now
-					ResultOf: make(map[*analysis.Analyzer]interface{}),
-				}
-				
-				rule.Matcher(proj, pass)
+	// Run all registered rules using existing AST
+	for _, rule := range proj.Rules {
+		if rule.Matcher != nil {
+			
+			// Create a proper analysis.Pass for rule execution
+			pass := &analysis.Pass{
+				Fset:   fset,
+				Files:  []*ast.File{file},
+				Pkg:    nil, // Skip package for now
+				ResultOf: make(map[*analysis.Analyzer]interface{}),
 			}
+			
+			rule.Matcher(proj, pass)
 		}
 	}
 
@@ -143,126 +118,131 @@ func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 
 // runSSAAnalysis builds SSA and runs SSA-based rules.
 func runSSAAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	// Build SSA if not already built
-	if proj.SSA == nil {
-		ssaPkg, err := buildSSA(proj)
-		if err != nil {
-			return nil, err
-		}
-		proj.SSA = ssaPkg
+	// For single files, skip SSA analysis to avoid package conflicts
+	// SSA analysis works best with full packages, not individual files
+	if proj.Filename != "" && !isDirectory(proj.Filename) {
+		// Skip SSA for single files to avoid package loading issues
+		return nil, nil
 	}
 
-	// TODO: Implement SSA-based rule execution
-	return []*result.Issue{}, nil
+	// Build SSA if not already built
+	if proj.SSA == nil {
+		// Use analyzer/ssa/builder.go to build SSA for the file's directory
+		dir := filepath.Dir(proj.Filename)
+		builder, err := codessa.BuildSSA([]string{dir})
+		if err != nil {
+			// Log error but don't fail the entire analysis
+			fmt.Printf("Warning: SSA analysis skipped due to error: %v\n", err)
+			return nil, nil
+		}
+		if len(builder.Packages) == 0 {
+			return nil, nil
+		}
+		proj.SSA = builder.Packages[0]
+	}
+
+	// Enumerate all functions in the SSA package
+	var issues []*result.Issue
+	for _, mem := range proj.SSA.Members {
+		fn, ok := mem.(*ssa.Function)
+		if !ok || fn.Blocks == nil {
+			continue
+		}
+		// Placeholder: In a real implementation, run SSA-based rules here
+		// For demonstration, just collect function names
+		// Example: issues = append(issues, ...)
+	}
+	return issues, nil
 }
 
 // runTaintAnalysis performs taint propagation and reports flows to sinks.
 func runTaintAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
+	// For single files, skip taint analysis to avoid package conflicts
+	if proj.Filename != "" && !isDirectory(proj.Filename) {
+		return nil, nil
+	}
+
 	// Build SSA if not already built
 	if proj.SSA == nil {
-		ssaPkg, err := buildSSA(proj)
+		dir := filepath.Dir(proj.Filename)
+		builder, err := codessa.BuildSSA([]string{dir})
 		if err != nil {
-			return nil, err
+			// Log error but don't fail the entire analysis
+			fmt.Printf("Warning: Taint analysis skipped due to error: %v\n", err)
+			return nil, nil
 		}
-		proj.SSA = ssaPkg
+		if len(builder.Packages) == 0 {
+			return nil, nil
+		}
+		proj.SSA = builder.Packages[0]
 	}
 
-	// TODO: Implement taint analysis
-	return []*result.Issue{}, nil
-}
+	// Create taint engine
+	sources := flow.NewSourceRegistry()
+	sinks := flow.NewSinkRegistry()
+	taintEngine := flow.NewTaintEngine(sources, sinks, token.Position{})
 
-// buildSSA builds the SSA representation of the package.
-func buildSSA(proj *analyzer.AnalyzerContext) (*ssa.Package, error) {
-	// Parse the file
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, proj.Filename, proj.Source, parser.ParseComments)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse file: %w", err)
-	}
-
-	// Type check
-	conf := types.Config{}
-	pkg, err := conf.Check(proj.PackageName, fset, []*ast.File{file}, proj.Types)
-	if err != nil {
-		return nil, fmt.Errorf("failed to type check: %w", err)
-	}
-
-	// Build SSA
-	ssaPkg, _, err := ssautil.BuildPackage(&types.Config{}, fset, pkg, []*ast.File{file}, ssa.SanityCheckFunctions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build SSA: %w", err)
-	}
-
-	return ssaPkg, nil
-}
-
-// AnalyzePackages performs production-ready analysis of Go packages in a directory.
-// This function uses go/packages to properly load and analyze all Go files with their dependencies.
-func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Issue, error) {
-	// Create engine
-	engine := New(cfg)
-
-	// Load packages using go/packages
-	pkgConfig := &packages.Config{
-		Mode: packages.NeedName | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedDeps | packages.NeedImports | packages.NeedFiles,
-		Dir:  root,
-		Fset: token.NewFileSet(),
-		Tests: false,
-	}
-
-	pkgs, err := packages.Load(pkgConfig, "./...")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load packages: %w", err)
-	}
-
-	// Print any package loading errors but continue
-	if packages.PrintErrors(pkgs) > 0 {
-		fmt.Println("Warning: Some packages had loading errors, continuing with available packages")
-	}
-
-	var allIssues []result.Issue
-
-	// Analyze each package without SSA for now
-	for _, pkg := range pkgs {
-		// Skip packages without syntax or types
-		if len(pkg.Syntax) == 0 || pkg.Types == nil || pkg.TypesInfo == nil {
+	// Analyze all functions in the SSA package
+	for _, mem := range proj.SSA.Members {
+		fn, ok := mem.(*ssa.Function)
+		if !ok || fn.Blocks == nil {
 			continue
 		}
+		taintEngine.AnalyzeFunction(fn)
+	}
 
-		// Analyze each file in the package
-		for i := range pkg.Syntax {
-			if i >= len(pkg.CompiledGoFiles) {
-				// Пропустить файл, если нет соответствующего пути
-				continue
-			}
-			fileName := pkg.CompiledGoFiles[i]
-			
-			// Create analyzer context for this file
-			analyzerCtx := analyzer.NewAnalyzerContext(
-				pkgConfig.Fset,
-				pkg.TypesInfo,
-				nil, // Disable SSA for now
-				fileName,
-				pkg.Name,
-				nil, // Source not needed when we have parsed AST
-			)
+	// Convert TaintIssues to result.Issue
+	var issues []*result.Issue
+	for _, ti := range taintEngine.Issues {
+		issues = append(issues, &result.Issue{
+			ID:          "taint-flow",
+			Title:       "Taint flow from source to sink",
+			Description: "Untrusted data flows from source to sink function.",
+			Severity:    result.SeverityHigh,
+			Location:    result.NewLocationFromPos(token.Position{Offset: int(ti.SinkPos)}, "", ""),
+			Category:    "security",
+			Suggestion:  "Validate or sanitize user input before passing to sensitive functions.",
+		})
+	}
+	return issues, nil
+}
 
-			// Register built-in rules
-			registerBuiltinRules(analyzerCtx)
+// isDirectory checks if the given path is a directory
+func isDirectory(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
 
-			// Run analysis
-			issues, err := engine.Run(ctx, analyzerCtx)
-			if err != nil {
-				// Log error but continue with other files
-				fmt.Printf("Warning: Failed to analyze %s: %v\n", fileName, err)
-				continue
-			}
+// AnalyzePackages performs file-by-file analysis of all Go files in a directory, regardless of package structure.
+func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Issue, error) {
+	var allIssues []result.Issue
 
-			// Convert to result.Issue slice
-			for _, issue := range issues {
-				allIssues = append(allIssues, *issue)
-			}
+	// Recursively collect all .go files
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
+		if !d.IsDir() && filepath.Ext(path) == ".go" {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Analyze each file individually
+	for _, file := range files {
+		issues, err := analyzeSingleFile(ctx, file, cfg)
+		if err != nil {
+			fmt.Printf("Warning: Failed to analyze %s: %v\n", file, err)
+			continue
+		}
+		allIssues = append(allIssues, issues...)
 	}
 
 	return allIssues, nil
@@ -271,6 +251,7 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 // Run is a package-level function that creates an engine and runs analysis.
 // This is the main entry point used by the CLI.
 func Run(ctx context.Context, path string, cfg interface{}) ([]result.Issue, error) {
+	
 	// Create default config
 	config := &Config{
 		EnableSSA:      true,
@@ -296,6 +277,7 @@ func Run(ctx context.Context, path string, cfg interface{}) ([]result.Issue, err
 
 // analyzeSingleFile analyzes a single Go file (legacy method)
 func analyzeSingleFile(ctx context.Context, filePath string, config *Config) ([]result.Issue, error) {
+	
 	// Create engine
 	engine := New(config)
 
@@ -336,20 +318,141 @@ func analyzeSingleFile(ctx context.Context, filePath string, config *Config) ([]
 // registerBuiltinRules registers all built-in security rules.
 func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	// Register command execution rule
-	registerCommandExecRule(ctx)
+	builtin.RegisterCommandExecRule(ctx)
+	// Register SQL injection rule
+	registerSQLInjectionRule(ctx)
+	// Register XSS rule
+	registerXSSRule(ctx)
 }
 
-// registerCommandExecRule registers the command injection detection rule.
-func registerCommandExecRule(ctx *analyzer.AnalyzerContext) {
-	// This will be called from the builtin package
-	// For now, we'll create a simple rule
+// registerSQLInjectionRule registers the SQL injection detection rule.
+func registerSQLInjectionRule(ctx *analyzer.AnalyzerContext) {
 	rule := &analyzer.Rule{
-		ID:       "command-exec-taint",
-		Title:    "Potential Command Injection via exec.Command",
+		ID:       "sql-injection",
+		Title:    "Potential SQL Injection",
 		Category: "security",
 		Severity: result.SeverityHigh,
-		Summary:  "Using user input in exec.Command without validation may lead to command injection.",
-		Matcher:  nil, // Will be set by the builtin package
+		Summary:  "Using user input in SQL queries without prepared statements may lead to SQL injection.",
+		Matcher:  matchSQLInjection,
 	}
 	ctx.RegisterRule(rule)
+}
+
+// registerXSSRule registers the XSS detection rule.
+func registerXSSRule(ctx *analyzer.AnalyzerContext) {
+	rule := &analyzer.Rule{
+		ID:       "xss-vulnerability",
+		Title:    "Potential Cross-Site Scripting (XSS)",
+		Category: "security",
+		Severity: result.SeverityHigh,
+		Summary:  "Using user input directly in HTML output may lead to XSS attacks.",
+		Matcher:  matchXSSVulnerability,
+	}
+	ctx.RegisterRule(rule)
+}
+
+// matchSQLInjection detects SQL injection vulnerabilities
+func matchSQLInjection(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
+	for _, file := range pass.Files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.CallExpr:
+				// Check for database/sql Query calls
+				if fun, ok := x.Fun.(*ast.SelectorExpr); ok {
+					if ident, ok := fun.X.(*ast.Ident); ok {
+						if ident.Name == "db" || ident.Name == "rows" {
+							if fun.Sel.Name == "Query" || fun.Sel.Name == "QueryRow" {
+								// Check if any argument contains user input
+								for _, arg := range x.Args {
+									if isUserInput(ctx, arg) {
+										pos := ctx.GetFset().Position(arg.Pos())
+										ctx.Report(result.Issue{
+											ID:          "sql-injection",
+											Title:       "Potential SQL Injection",
+											Description: "User input used directly in SQL query without prepared statements",
+											Severity:    result.SeverityHigh,
+											Location:    result.NewLocationFromPos(pos, "", ""),
+											Category:    "security",
+											Suggestion:  "Use prepared statements or parameterized queries",
+										})
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
+	}
+}
+
+// matchXSSVulnerability detects XSS vulnerabilities
+func matchXSSVulnerability(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
+	for _, file := range pass.Files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.CallExpr:
+				// Check for fmt functions with user input
+				if fun, ok := x.Fun.(*ast.SelectorExpr); ok {
+					if pkg, ok := fun.X.(*ast.Ident); ok {
+						if pkg.Name == "fmt" && (fun.Sel.Name == "Fprintf" || fun.Sel.Name == "Printf" || fun.Sel.Name == "Sprintf") {
+							// Check if any argument contains user input
+							for _, arg := range x.Args {
+								if isUserInput(ctx, arg) {
+									pos := ctx.GetFset().Position(arg.Pos())
+									ctx.Report(result.Issue{
+										ID:          "xss-vulnerability",
+										Title:       "Potential Cross-Site Scripting (XSS)",
+										Description: "User input directly output to HTML without proper escaping",
+										Severity:    result.SeverityHigh,
+										Location:    result.NewLocationFromPos(pos, "", ""),
+										Category:    "security",
+										Suggestion:  "Use html/template with proper escaping or html.EscapeString",
+									})
+								}
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
+	}
+}
+
+// isUserInput checks if an expression represents user input
+func isUserInput(ctx *analyzer.AnalyzerContext, expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case *ast.CallExpr:
+		if fun, ok := e.Fun.(*ast.SelectorExpr); ok {
+			if pkg, ok := fun.X.(*ast.Ident); ok {
+				// Check for common user input sources
+				switch pkg.Name {
+				case "r":
+					if fun.Sel.Name == "URL" || fun.Sel.Name == "FormValue" || fun.Sel.Name == "PostFormValue" {
+						return true
+					}
+				case "os":
+					if fun.Sel.Name == "Getenv" {
+						return true
+					}
+				}
+			}
+		}
+	case *ast.SelectorExpr:
+		if x, ok := e.X.(*ast.SelectorExpr); ok {
+			if pkg, ok := x.X.(*ast.Ident); ok {
+				if pkg.Name == "r" && x.Sel.Name == "URL" && e.Sel.Name == "Query" {
+					return true
+				}
+			}
+		}
+	case *ast.Ident:
+		// Heuristic: variable name suggests user input
+		if matcher.New([]string{"userInput", "input", "param", "cmd", "arg", "data", "filename"}).Match(e.Name) {
+			return true
+		}
+	}
+	return false
 }
