@@ -28,6 +28,8 @@ func NewSourceRegistry() *SourceRegistry {
 			{Package: "os", Function: "Getenv", Description: "Environment variable", Tags: []string{"env"}},
 			{Package: "bufio", Function: "ReadString", Description: "User input from stdin", Tags: []string{"input"}},
 			{Package: "fmt", Function: "Scanf", Description: "User input", Tags: []string{"input"}},
+			{Package: "os", Function: "Getenv", Description: "Environment variable", Tags: []string{"env"}},
+			{Package: "net/http", Function: "PostFormValue", Description: "HTTP POST form data", Tags: []string{"http"}},
 		},
 	}
 }

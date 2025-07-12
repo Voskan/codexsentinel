@@ -29,6 +29,9 @@ func NewSinkRegistry() *SinkRegistry {
 			{Package: "database/sql", Function: "Exec", MatchArgs: []int{0}, Description: "SQL execution", Tags: []string{"sql"}},
 			{Package: "net/http", Function: "Get", MatchArgs: []int{0}, Description: "HTTP requests", Tags: []string{"net"}},
 			{Package: "html/template", Function: "Execute", MatchArgs: []int{1}, Description: "Template execution", Tags: []string{"template"}},
+			{Package: "database/sql", Function: "Query", MatchArgs: []int{0}, Description: "SQL query", Tags: []string{"sql"}},
+			{Package: "fmt", Function: "Printf", MatchArgs: []int{0}, Description: "Output formatting", Tags: []string{"output"}},
+			{Package: "fmt", Function: "Sprintf", MatchArgs: []int{0}, Description: "String formatting", Tags: []string{"output"}},
 		},
 	}
 }
