@@ -16,6 +16,9 @@
 - 📄 **Reports** in SARIF, JSON, Markdown, and HTML formats
 - ✍️ YAML-based custom rule definition
 - ✅ Zero-config startup with smart defaults
+- 📁 **Individual file analysis** - scan files with different package names
+- 🛡️ **Graceful error handling** - continues analysis even with package conflicts
+- 📂 **Automatic report organization** - saves reports to `scan_reports/` directory
 
 ---
 
@@ -135,6 +138,10 @@ codex-cli scan ./main.go ./pkg/
 
 # Scan with custom output
 codex-cli scan ./... --format html --output report.html
+
+# Scan individual files (even with different package names)
+codex-cli scan testdata/command_injection.go
+codex-cli scan testdata/xss_vulnerability.go
 ```
 
 ### Advanced Usage
@@ -151,21 +158,32 @@ codex-cli scan ./... --ignore-file .codexsentinel.ignore
 
 # Generate SARIF for CI/CD
 codex-cli scan ./... --format sarif --output results.sarif
+
+# Generate HTML report (saved to scan_reports/)
+codex-cli scan ./... --format html --output report.html
+
+# Generate JSON report (saved to scan_reports/)
+codex-cli scan ./... --format json --output report.json
 ```
 
 ### Available Flags
 
-| Flag            | Description                                          | Default               |
-| --------------- | ---------------------------------------------------- | --------------------- |
-| `--config`      | Path to `.codex.yml` config file                     | -                     |
-| `--output`      | Output report file path                              | stdout                |
-| `--format`      | Report format:`json`, `html`, `sarif`, `markdown`    | json                  |
-| `--severity`    | Minimum severity:`low`, `medium`, `high`, `critical` | low                   |
-| `--ignore-file` | Path to `.codexsentinel.ignore`                      | .codexsentinel.ignore |
-| `--ast`         | Enable AST-based analysis                            | true                  |
-| `--ssa`         | Enable SSA-based analysis                            | true                  |
-| `--taint`       | Enable taint flow analysis                           | true                  |
-| `--no-builtin`  | Disable built-in rules                               | false                 |
+| Flag       | Description                                       | Default |
+| ---------- | ------------------------------------------------- | ------- |
+| `--output` | Output report file path                           | stdout  |
+| `--format` | Report format:`json`, `html`, `sarif`, `markdown` | json    |
+| `--strict` | Exit with code 1 if issues are found              | false   |
+
+### Report Output
+
+Reports are automatically saved to the `scan_reports/` directory:
+
+- HTML reports: `scan_reports/codex-report.html`
+- JSON reports: `scan_reports/codex-report.json`
+- SARIF reports: `scan_reports/codex-report.sarif`
+- Markdown reports: `scan_reports/codex-report.md`
+
+The directory is created automatically if it doesn't exist.
 
 ## 📁 Project Structure
 
@@ -178,7 +196,11 @@ codexsentinel/
 ├── report/          # Report generation (HTML, SARIF, etc.)
 ├── cmd/             # CLI entrypoints
 ├── internal/        # Internal utils (logging, config, fs)
-├── testdata/        # Example test files with issues
+├── testdata/        # Example test files with security vulnerabilities
+│   ├── command_injection.go    # Command injection examples
+│   ├── xss_vulnerability.go    # XSS vulnerability examples
+│   ├── sql_injection.go        # SQL injection examples
+│   └── path_traversal.go       # Path traversal examples
 └── assets/          # Rules, templates, CSS, etc.
 ```
 
@@ -240,13 +262,16 @@ func (h *Handler) GetUser(id string) {
 
 ```bash
 # Scan for security issues
-codex scan ./... --severity high
+codex-cli scan ./... --strict
 
 # Generate HTML report
-codex scan ./... --format html --output security-report.html
+codex-cli scan ./... --format html --output security-report.html
 
 # Check architecture compliance
-codex scan ./... --config .codex.yml
+codex-cli scan ./... --config .codex.yml
+
+# Scan test files with vulnerabilities
+codex-cli scan testdata/
 ```
 
 ## 📘 Custom Rules
@@ -321,7 +346,7 @@ jobs:
         run: go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
 
       - name: Run Security Scan
-        run: codex scan ./... --format sarif --output results.sarif
+        run: codex-cli scan ./... --format sarif --output results.sarif
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v2
@@ -337,7 +362,7 @@ security-scan:
   image: golang:1.21
   script:
     - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
-    - codex scan ./... --format sarif --output results.sarif
+    - codex-cli scan ./... --format sarif --output results.sarif
   artifacts:
     reports:
       sarif: results.sarif
