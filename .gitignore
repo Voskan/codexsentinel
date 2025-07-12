@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-codex
+# codex  # Commented out to allow cmd/codex package
 
 # Test binary, built with `go test -c`
 *.test
@@ -75,4 +75,4 @@ testdata/output/
 
 # Documentation build
 docs/_build/
-docs/.doctrees/ 
+docs/.doctrees/ codex-cli

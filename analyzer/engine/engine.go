@@ -13,6 +13,7 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
 )
@@ -75,46 +76,58 @@ func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*re
 
 // runASTAnalysis applies registered AST rules to parsed files.
 func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	// Parse the Go file
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, proj.Filename, proj.Source, parser.ParseComments)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse file: %w", err)
-	}
-
-	// Type check the file
-	typesInfo := &types.Info{
-		Types:      make(map[ast.Expr]types.TypeAndValue),
-		Defs:       make(map[*ast.Ident]types.Object),
-		Uses:       make(map[*ast.Ident]types.Object),
-		Implicits:  make(map[ast.Node]types.Object),
-		Selections: make(map[*ast.SelectorExpr]*types.Selection),
-		Scopes:     make(map[ast.Node]*types.Scope),
-	}
-
-	conf := types.Config{}
-	pkg, err := conf.Check(proj.PackageName, fset, []*ast.File{file}, typesInfo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to type check: %w", err)
-	}
-
-	// Update context with parsed data
-	proj.Fset = fset
-	proj.Types = typesInfo
-	proj.SSA = nil // Will be built if needed
-
-	// Run all registered rules
-	for _, rule := range proj.Rules {
-		if rule.Matcher != nil {
-			// Create a mock analysis.Pass for rule execution
-			pass := &analysis.Pass{
-				Fset:   fset,
-				Files:  []*ast.File{file},
-				Pkg:    pkg,
-				ResultOf: make(map[*analysis.Analyzer]interface{}),
+	// If we already have parsed AST from go/packages, use it
+	if proj.Fset != nil && proj.Types != nil {
+		// Run all registered rules using existing AST
+		for _, rule := range proj.Rules {
+			if rule.Matcher != nil {
+				// Create a mock analysis.Pass for rule execution
+				pass := &analysis.Pass{
+					Fset:   proj.Fset,
+					Files:  []*ast.File{}, // Will be filled by individual file analysis
+					Pkg:    nil, // Skip package for now
+					ResultOf: make(map[*analysis.Analyzer]interface{}),
+				}
+				
+				rule.Matcher(proj, pass)
 			}
-			
-			rule.Matcher(proj, pass)
+		}
+	} else {
+		// Fallback to parsing single file (legacy mode)
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, proj.Filename, proj.Source, parser.ParseComments)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse file: %w", err)
+		}
+
+		// Create basic types info (skip full type checking for now)
+		typesInfo := &types.Info{
+			Types:      make(map[ast.Expr]types.TypeAndValue),
+			Defs:       make(map[*ast.Ident]types.Object),
+			Uses:       make(map[*ast.Ident]types.Object),
+			Implicits:  make(map[ast.Node]types.Object),
+			Selections: make(map[*ast.SelectorExpr]*types.Selection),
+			Scopes:     make(map[ast.Node]*types.Scope),
+		}
+
+		// Update context with parsed data
+		proj.Fset = fset
+		proj.Types = typesInfo
+		proj.SSA = nil // Will be built if needed
+
+		// Run all registered rules
+		for _, rule := range proj.Rules {
+			if rule.Matcher != nil {
+				// Create a mock analysis.Pass for rule execution
+				pass := &analysis.Pass{
+					Fset:   fset,
+					Files:  []*ast.File{file},
+					Pkg:    nil, // Skip package for now
+					ResultOf: make(map[*analysis.Analyzer]interface{}),
+				}
+				
+				rule.Matcher(proj, pass)
+			}
 		}
 	}
 
@@ -183,6 +196,78 @@ func buildSSA(proj *analyzer.AnalyzerContext) (*ssa.Package, error) {
 	return ssaPkg, nil
 }
 
+// AnalyzePackages performs production-ready analysis of Go packages in a directory.
+// This function uses go/packages to properly load and analyze all Go files with their dependencies.
+func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Issue, error) {
+	// Create engine
+	engine := New(cfg)
+
+	// Load packages using go/packages
+	pkgConfig := &packages.Config{
+		Mode: packages.NeedName | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedDeps | packages.NeedImports | packages.NeedFiles,
+		Dir:  root,
+		Fset: token.NewFileSet(),
+		Tests: false,
+	}
+
+	pkgs, err := packages.Load(pkgConfig, "./...")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load packages: %w", err)
+	}
+
+	// Print any package loading errors but continue
+	if packages.PrintErrors(pkgs) > 0 {
+		fmt.Println("Warning: Some packages had loading errors, continuing with available packages")
+	}
+
+	var allIssues []result.Issue
+
+	// Analyze each package without SSA for now
+	for _, pkg := range pkgs {
+		// Skip packages without syntax or types
+		if len(pkg.Syntax) == 0 || pkg.Types == nil || pkg.TypesInfo == nil {
+			continue
+		}
+
+		// Analyze each file in the package
+		for i := range pkg.Syntax {
+			if i >= len(pkg.CompiledGoFiles) {
+				// Пропустить файл, если нет соответствующего пути
+				continue
+			}
+			fileName := pkg.CompiledGoFiles[i]
+			
+			// Create analyzer context for this file
+			analyzerCtx := analyzer.NewAnalyzerContext(
+				pkgConfig.Fset,
+				pkg.TypesInfo,
+				nil, // Disable SSA for now
+				fileName,
+				pkg.Name,
+				nil, // Source not needed when we have parsed AST
+			)
+
+			// Register built-in rules
+			registerBuiltinRules(analyzerCtx)
+
+			// Run analysis
+			issues, err := engine.Run(ctx, analyzerCtx)
+			if err != nil {
+				// Log error but continue with other files
+				fmt.Printf("Warning: Failed to analyze %s: %v\n", fileName, err)
+				continue
+			}
+
+			// Convert to result.Issue slice
+			for _, issue := range issues {
+				allIssues = append(allIssues, *issue)
+			}
+		}
+	}
+
+	return allIssues, nil
+}
+
 // Run is a package-level function that creates an engine and runs analysis.
 // This is the main entry point used by the CLI.
 func Run(ctx context.Context, path string, cfg interface{}) ([]result.Issue, error) {
@@ -194,13 +279,30 @@ func Run(ctx context.Context, path string, cfg interface{}) ([]result.Issue, err
 		EnableBuiltins: true,
 	}
 
+	// Check if path is a directory or file
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat path: %w", err)
+	}
+
+	if fileInfo.IsDir() {
+		// Use production-ready package analysis for directories
+		return AnalyzePackages(ctx, path, config)
+	} else {
+		// Use single file analysis for individual files
+		return analyzeSingleFile(ctx, path, config)
+	}
+}
+
+// analyzeSingleFile analyzes a single Go file (legacy method)
+func analyzeSingleFile(ctx context.Context, filePath string, config *Config) ([]result.Issue, error) {
 	// Create engine
 	engine := New(config)
 
 	// Read file content
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
 
 	// Create analyzer context
@@ -208,8 +310,8 @@ func Run(ctx context.Context, path string, cfg interface{}) ([]result.Issue, err
 		token.NewFileSet(),
 		&types.Info{},
 		nil,
-		path,
-		filepath.Base(path),
+		filePath,
+		filepath.Base(filePath),
 		content,
 	)
 

@@ -40,7 +40,7 @@ func AnalyzeGlobals(pattern string) ([]GlobalSymbol, error) {
 
 	for _, pkg := range pkgs {
 		for i, file := range pkg.Syntax {
-			fileName := pkg.CompiledGoFiles[i]
+			_ = pkg.CompiledGoFiles[i] // fileName not used
 
 			for _, decl := range file.Decls {
 				gen, ok := decl.(*ast.GenDecl)

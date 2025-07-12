@@ -33,11 +33,14 @@ func AnalyzeDeadCode(pattern string) ([]DeadFunction, error) {
 		return nil, fmt.Errorf("failed to load packages: %w", err)
 	}
 
-	prog, ssaPkgs := ssa.NewProgram(cfg.Fset, ssa.SanityCheckFunctions)
+	prog := ssa.NewProgram(cfg.Fset, ssa.SanityCheckFunctions)
+	var ssaPkgs []*ssa.Package
 
 	// Build all SSA packages
-	for _, p := range ssaPkgs {
-		p.Build()
+	for _, pkg := range pkgs {
+		ssaPkg := prog.CreatePackage(pkg.Types, pkg.Syntax, pkg.TypesInfo, true)
+		ssaPkg.Build()
+		ssaPkgs = append(ssaPkgs, ssaPkg)
 	}
 
 	callGraph := make(map[*ssa.Function]bool)

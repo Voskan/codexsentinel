@@ -59,7 +59,7 @@ func AnalyzeLicenses(goModPath string, allowList, denyList []string) ([]LicenseF
 // detectLicense attempts to read LICENSE file in module cache.
 // Fallback: unknown license.
 func detectLicense(modPath, modVersion, projectRoot string) (string, string) {
-	moduleName := strings.ReplaceAll(modPath, "/", "_") + "@" + modVersion
+	_ = strings.ReplaceAll(modPath, "/", "_") + "@" + modVersion // moduleName not used
 	modCache := filepath.Join(projectRoot, "vendor", modPath) // for vendored projects
 
 	licenseFiles := []string{
