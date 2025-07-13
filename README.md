@@ -363,7 +363,7 @@ jobs:
         run: go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
 
       - name: Run Security Scan
-        run: codex-cli scan ./... --format sarif --output results.sarif
+        run: codex-cli scan ./... --format sarif --out results.sarif
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v2
@@ -379,7 +379,7 @@ security-scan:
   image: golang:1.21
   script:
     - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
-    - codex-cli scan ./... --format sarif --output results.sarif
+    - codex-cli scan ./... --format sarif --out results.sarif
   artifacts:
     reports:
       sarif: results.sarif
