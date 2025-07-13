@@ -31,6 +31,8 @@ func NewScanCmd() *cobra.Command {
 		strict     bool
 		ignoreFile string
 		depsOnly   bool
+		configFile string
+		severity   string
 		exitCode   int
 	)
 
@@ -122,9 +124,18 @@ func NewScanCmd() *cobra.Command {
 				}
 
 				// Load config
-				cfg, err := config.LoadDefaultPath()
-				if err != nil {
-					return fmt.Errorf("failed to load config: %w", err)
+				var cfg *config.Config
+				if configFile != "" {
+					cfg, err = config.LoadFromPath(configFile)
+					if err != nil {
+						return fmt.Errorf("failed to load config from %s: %w", configFile, err)
+					}
+					logger.Infof("Loaded custom config from: %s", configFile)
+				} else {
+					cfg, err = config.LoadDefaultPathPtr()
+					if err != nil {
+						return fmt.Errorf("failed to load config: %w", err)
+					}
 				}
 
 				// Load YAML rules from assets/rules directory
@@ -170,6 +181,19 @@ func NewScanCmd() *cobra.Command {
 					}
 					results = filteredResults
 				}
+
+				// Filter by severity if specified
+				if severity != "" {
+					filteredResults := make([]result.Issue, 0)
+					severityFilter := result.ParseSeverity(severity)
+					for _, issue := range results {
+						if issue.Severity.GreaterThanOrEqual(severityFilter) {
+							filteredResults = append(filteredResults, issue)
+						}
+					}
+					logger.Infof("Filtered to %d issues with severity >= %s", len(filteredResults), severity)
+					results = filteredResults
+				}
 			}
 
 			logger.Infof("Analysis completed, found %d issues", len(results))
@@ -212,6 +236,8 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&strict, "strict", false, "Exit with code 1 if issues are found")
 	cmd.Flags().StringVar(&ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file")
 	cmd.Flags().BoolVar(&depsOnly, "deps", false, "Run dependency analysis only")
+	cmd.Flags().StringVar(&configFile, "config", "", "Path to a custom config file")
+	cmd.Flags().StringVar(&severity, "severity", "", "Filter issues by severity (low, medium, high, critical)")
 
 	return cmd
 }

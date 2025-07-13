@@ -69,6 +69,33 @@ func (s Severity) String() string {
 	return string(s)
 }
 
+// Compare returns -1 if s < other, 0 if s == other, 1 if s > other
+func (s Severity) Compare(other Severity) int {
+	severityOrder := map[Severity]int{
+		SeverityCritical: 5,
+		SeverityHigh:     4,
+		SeverityMedium:   3,
+		SeverityLow:      2,
+		SeverityInfo:     1,
+		SeverityUnknown:  0,
+	}
+	
+	sOrder := severityOrder[s]
+	otherOrder := severityOrder[other]
+	
+	if sOrder < otherOrder {
+		return -1
+	} else if sOrder > otherOrder {
+		return 1
+	}
+	return 0
+}
+
+// GreaterThanOrEqual returns true if s >= other
+func (s Severity) GreaterThanOrEqual(other Severity) bool {
+	return s.Compare(other) >= 0
+}
+
 // Colored returns the colored string of severity for CLI output.
 func (s Severity) Colored() string {
 	return fmt.Sprintf("%s%s\033[0m", SeverityColor(s), s)

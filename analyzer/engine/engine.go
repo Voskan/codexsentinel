@@ -378,7 +378,7 @@ func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) 
 				Severity:    result.SeverityHigh,
 				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
 				Category:    "security",
-				Suggestion:  fmt.Sprintf("Update to a fixed version or apply security patches"),
+				Suggestion:  "Update to a fixed version or apply security patches",
 			})
 		}
 
@@ -473,7 +473,7 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 						Severity:    result.SeverityHigh,
 						Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
 						Category:    "security",
-						Suggestion:  fmt.Sprintf("Update to a fixed version or apply security patches"),
+						Suggestion:  "Update to a fixed version or apply security patches",
 					})
 				}
 

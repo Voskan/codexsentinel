@@ -37,3 +37,21 @@ func Load(path string) (Config, error) {
 func LoadDefaultPath() (Config, error) {
 	return Load(DefaultConfigFilename)
 }
+
+// LoadFromPath loads configuration from a specific file path and returns a pointer.
+func LoadFromPath(path string) (*Config, error) {
+	cfg, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// LoadDefaultPathPtr loads configuration from the default file name and returns a pointer.
+func LoadDefaultPathPtr() (*Config, error) {
+	cfg, err := LoadDefaultPath()
+	if err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}

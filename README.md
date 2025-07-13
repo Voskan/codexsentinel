@@ -133,11 +133,14 @@ codex-cli version
 # Scan current directory
 codex-cli scan .
 
-# Scan specific files
-codex-cli scan ./main.go ./pkg/
+# Scan specific file
+codex-cli scan ./main.go
+
+# Scan specific directory
+codex-cli scan ./pkg/
 
 # Scan with custom output
-codex-cli scan ./... --format html --output report.html
+codex-cli scan . --format html --out report.html
 
 # Scan individual files (even with different package names)
 codex-cli scan testdata/command_injection.go
@@ -148,31 +151,45 @@ codex-cli scan testdata/xss_vulnerability.go
 
 ```bash
 # Scan with specific severity
-codex-cli scan ./... --severity high
+codex-cli scan . --severity high
 
 # Use custom config
-codex-cli scan ./... --config .codex.yml
+codex-cli scan . --config .codex.yml
 
 # Ignore specific files
-codex-cli scan ./... --ignore-file .codexsentinel.ignore
+codex-cli scan . --ignore-file .codexsentinel.ignore
 
 # Generate SARIF for CI/CD
-codex-cli scan ./... --format sarif --output results.sarif
+codex-cli scan . --format sarif --out results.sarif
 
 # Generate HTML report (saved to scan_reports/)
-codex-cli scan ./... --format html --output report.html
+codex-cli scan . --format html --out report.html
 
 # Generate JSON report (saved to scan_reports/)
-codex-cli scan ./... --format json --output report.json
+codex-cli scan . --format json --out report.json
+
+# Run dependency analysis only
+codex-cli scan . --deps
+
+# Filter by severity (high and above)
+codex-cli scan . --severity high
+
+# Use custom config file
+codex-cli scan . --config custom-config.yml
 ```
 
 ### Available Flags
 
-| Flag       | Description                                       | Default |
-| ---------- | ------------------------------------------------- | ------- |
-| `--output` | Output report file path                           | stdout  |
-| `--format` | Report format:`json`, `html`, `sarif`, `markdown` | json    |
-| `--strict` | Exit with code 1 if issues are found              | false   |
+| Flag            | Description                                                   | Default                              |
+| --------------- | ------------------------------------------------------------- | ------------------------------------ |
+| `-p, --path`    | Target directory or file to scan                              | `.` (current directory)              |
+| `-f, --format`  | Output report format:`sarif`, `html`, `markdown`, `json`      | `sarif`                              |
+| `-o, --out`     | Path to write the output report to                            | `scan_reports/codex-report.{format}` |
+| `--strict`      | Exit with code 1 if issues are found                          | `false`                              |
+| `--ignore-file` | Path to ignore file                                           | `.codexsentinel.ignore`              |
+| `--deps`        | Run dependency analysis only                                  | `false`                              |
+| `--config`      | Path to a custom config file                                  | `.codex.yml` (if exists)             |
+| `--severity`    | Filter issues by severity:`low`, `medium`, `high`, `critical` | `all` (no filtering)                 |
 
 ### Report Output
 
@@ -265,7 +282,7 @@ func (h *Handler) GetUser(id string) {
 codex-cli scan ./... --strict
 
 # Generate HTML report
-codex-cli scan ./... --format html --output security-report.html
+codex-cli scan ./... --format html --out security-report.html
 
 # Check architecture compliance
 codex-cli scan ./... --config .codex.yml

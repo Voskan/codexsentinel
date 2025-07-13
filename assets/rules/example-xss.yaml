@@ -1,4 +1,4 @@
-id: go.insecure.xss.reflected_input
+id: go.insecure.xss.reflected_input_example
 title: Reflected Input in HTML Response
 severity: HIGH
 description: |

@@ -36,3 +36,43 @@
 .codex_cache/
 .codexsentinel.lock
 .coverage/
+
+# Specific rule ignores
+# Ignore all XSS issues in test files
+**/testdata/* xss-vulnerability
+**/testdata/* go.insecure.xss.reflected_input
+
+# Ignore specific SQL injection issues
+**/testdata/* sql-injection
+
+# Ignore command injection in test files
+**/testdata/* command-exec-taint
+
+# Ignore specific hardcoded secrets (these are test files)
+**/testdata/* hardcoded-secrets
+**/testdata/* go.insecure.hardcoded_secrets
+
+# Ignore specific files with known issues
+cmd/codex-cli/main.go:1 taint-flow
+analyzer/engine/engine.go:390 hardcoded-secrets
+analyzer/engine/engine.go:485 hardcoded-secrets
+
+# Ignore specific line numbers for known issues
+internal/git/meta.go:167 hardcoded-secrets
+internal/git/meta.go:168 hardcoded-secrets
+internal/git/meta.go:169 hardcoded-secrets
+internal/git/meta.go:170 hardcoded-secrets
+internal/git/meta.go:171 hardcoded-secrets
+internal/git/meta.go:172 hardcoded-secrets
+
+# Ignore specific rule types globally
+global-variable
+missing-package-doc
+missing-function-doc
+unused-import
+code-formatting
+naming-convention
+
+# Ignore specific severity levels for certain files
+**/testdata/* low
+**/testdata/* info

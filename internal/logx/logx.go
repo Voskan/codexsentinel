@@ -24,6 +24,7 @@ func Init(dev bool) error {
 	if dev {
 		cfg = zap.NewDevelopmentConfig()
 		cfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		cfg.Development = false
 	} else {
 		cfg = zap.NewProductionConfig()
 		cfg.EncoderConfig.TimeKey = "timestamp"
