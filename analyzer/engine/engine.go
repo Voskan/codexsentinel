@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	customast "github.com/Voskan/codexsentinel/analyzer/ast"
@@ -17,7 +18,6 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
 	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
 	"github.com/Voskan/codexsentinel/deps"
-	"github.com/Voskan/codexsentinel/internal/matcher"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 )
@@ -578,10 +578,17 @@ func analyzeSingleFile(ctx context.Context, filePath string, config *Config) ([]
 func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	// Register command execution rule
 	builtin.RegisterCommandExecRule(ctx)
-	// Register SQL injection rule
-	registerSQLInjectionRule(ctx)
+	// Register advanced SQL injection rule (string concatenation)
+	ctx.RegisterRule(&analyzer.Rule{
+		ID:       "sql-injection-concat",
+		Title:    "Potential SQL Injection via String Concatenation",
+		Category: "security",
+		Severity: result.SeverityHigh,
+		Summary:  "Building SQL queries via string concatenation is unsafe and may lead to SQL injection.",
+		Matcher:  matchSQLInjectionConcat,
+	})
 	// Register XSS rule
-	registerXSSRule(ctx)
+	builtin.RegisterXSSRule(ctx)
 	// Register access control rule
 	builtin.RegisterAccessControlRule(ctx)
 	// Register insecure design rule
@@ -592,137 +599,71 @@ func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	builtin.RegisterLoggingMonitoringRule(ctx)
 	// Register SSRF rule
 	builtin.RegisterSSRFRule(ctx)
-
 }
 
-// registerSQLInjectionRule registers the SQL injection detection rule.
-func registerSQLInjectionRule(ctx *analyzer.AnalyzerContext) {
-	rule := &analyzer.Rule{
-		ID:       "sql-injection",
-		Title:    "Potential SQL Injection",
-		Category: "security",
-		Severity: result.SeverityHigh,
-		Summary:  "Using user input in SQL queries without prepared statements may lead to SQL injection.",
-		Matcher:  matchSQLInjection,
-	}
-	ctx.RegisterRule(rule)
-}
-
-// registerXSSRule registers the XSS detection rule.
-func registerXSSRule(ctx *analyzer.AnalyzerContext) {
-	rule := &analyzer.Rule{
-		ID:       "xss-vulnerability",
-		Title:    "Potential Cross-Site Scripting (XSS)",
-		Category: "security",
-		Severity: result.SeverityHigh,
-		Summary:  "Using user input directly in HTML output may lead to XSS attacks.",
-		Matcher:  matchXSSVulnerability,
-	}
-	ctx.RegisterRule(rule)
-}
-
-// matchSQLInjection detects SQL injection vulnerabilities
-func matchSQLInjection(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
+// matchSQLInjectionConcat detects SQL injection via string concatenation in SQL queries.
+func matchSQLInjectionConcat(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.CallExpr:
-				// Check for database/sql Query calls
-				if fun, ok := x.Fun.(*ast.SelectorExpr); ok {
-					if ident, ok := fun.X.(*ast.Ident); ok {
-						if ident.Name == "db" || ident.Name == "rows" {
-							if fun.Sel.Name == "Query" || fun.Sel.Name == "QueryRow" {
-								// Check if any argument contains user input
-								for _, arg := range x.Args {
-									if isUserInput(ctx, arg) {
-										pos := ctx.GetFset().Position(arg.Pos())
-										ctx.Report(result.Issue{
-											ID:          "sql-injection",
-											Title:       "Potential SQL Injection",
-											Description: "User input used directly in SQL query without prepared statements",
-											Severity:    result.SeverityHigh,
-											Location:    result.NewLocationFromPos(pos, "", ""),
-											Category:    "security",
-											Suggestion:  "Use prepared statements or parameterized queries",
-										})
-									}
-								}
-							}
-						}
-					}
-				}
+			callExpr, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
 			}
+
+			selector, ok := callExpr.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+
+			funcName := selector.Sel.Name
+			if !isQueryFunc(funcName) {
+				return true
+			}
+
+			if len(callExpr.Args) == 0 {
+				return true
+			}
+
+			// Check if the first argument contains string concatenation
+			if containsStringConcat(callExpr.Args[0]) {
+				pos := pass.Fset.Position(callExpr.Pos())
+				ctx.Report(result.Issue{
+					ID:          "sql-injection-concat",
+					Title:       "Potential SQL Injection via String Concatenation",
+					Description: "Avoid building SQL queries via string concatenation. Use parameterized queries instead.",
+					Severity:    result.SeverityHigh,
+					Location:    result.NewLocationFromPos(pos, "", ""),
+					Category:    "security",
+					Suggestion:  "Use parameterized queries instead of raw string concatenation.",
+				})
+			}
+
 			return true
 		})
 	}
 }
 
-// matchXSSVulnerability detects XSS vulnerabilities
-func matchXSSVulnerability(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
-	for _, file := range pass.Files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.CallExpr:
-				// Check for fmt functions with user input
-				if fun, ok := x.Fun.(*ast.SelectorExpr); ok {
-					if pkg, ok := fun.X.(*ast.Ident); ok {
-						if pkg.Name == "fmt" && (fun.Sel.Name == "Fprintf" || fun.Sel.Name == "Printf" || fun.Sel.Name == "Sprintf") {
-							// Check if any argument contains user input
-							for _, arg := range x.Args {
-								if isUserInput(ctx, arg) {
-									pos := ctx.GetFset().Position(arg.Pos())
-									ctx.Report(result.Issue{
-										ID:          "xss-vulnerability",
-										Title:       "Potential Cross-Site Scripting (XSS)",
-										Description: "User input directly output to HTML without proper escaping",
-										Severity:    result.SeverityHigh,
-										Location:    result.NewLocationFromPos(pos, "", ""),
-										Category:    "security",
-										Suggestion:  "Use html/template with proper escaping or html.EscapeString",
-									})
-								}
-							}
-						}
-					}
-				}
-			}
-			return true
-		})
+// isQueryFunc checks if the function name is a known SQL execution function.
+func isQueryFunc(name string) bool {
+	switch strings.ToLower(name) {
+	case "query", "exec", "queryrow", "prepare":
+		return true
+	default:
+		return false
 	}
 }
 
-// isUserInput checks if an expression represents user input
-func isUserInput(ctx *analyzer.AnalyzerContext, expr ast.Expr) bool {
-	switch e := expr.(type) {
-	case *ast.CallExpr:
-		if fun, ok := e.Fun.(*ast.SelectorExpr); ok {
-			if pkg, ok := fun.X.(*ast.Ident); ok {
-				// Check for common user input sources
-				switch pkg.Name {
-				case "r":
-					if fun.Sel.Name == "URL" || fun.Sel.Name == "FormValue" || fun.Sel.Name == "PostFormValue" {
-						return true
-					}
-				case "os":
-					if fun.Sel.Name == "Getenv" {
-						return true
-					}
-				}
-			}
-		}
-	case *ast.SelectorExpr:
-		if x, ok := e.X.(*ast.SelectorExpr); ok {
-			if pkg, ok := x.X.(*ast.Ident); ok {
-				if pkg.Name == "r" && x.Sel.Name == "URL" && e.Sel.Name == "Query" {
-					return true
-				}
-			}
-		}
-	case *ast.Ident:
-		// Heuristic: variable name suggests user input
-		if matcher.New([]string{"userInput", "input", "param", "cmd", "arg", "data", "filename"}).Match(e.Name) {
-			return true
-		}
+// containsStringConcat checks for use of '+' operator to build query strings.
+func containsStringConcat(expr ast.Expr) bool {
+	binExpr, ok := expr.(*ast.BinaryExpr)
+	if !ok {
+		return false
+	}
+	if binExpr.Op == token.ADD {
+		// Heuristic: if any side is a string literal, treat as potentially dangerous
+		_, leftIsString := binExpr.X.(*ast.BasicLit)
+		_, rightIsString := binExpr.Y.(*ast.BasicLit)
+		return leftIsString || rightIsString || containsStringConcat(binExpr.X) || containsStringConcat(binExpr.Y)
 	}
 	return false
 }

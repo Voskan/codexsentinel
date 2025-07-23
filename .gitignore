@@ -78,3 +78,5 @@ testdata/output/
 # Documentation build
 docs/_build/
 docs/.doctrees/ codex-cli
+
+pages/
