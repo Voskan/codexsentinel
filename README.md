@@ -1,6 +1,29 @@
-# CodexSentinel
+# 🛡️ CodexSentinel
+
+[![Go Version](https://img.shields.io/badge/Go-1.24.2+-blue.svg)](https://golang.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![SLSA Level 3](https://img.shields.io/badge/SLSA-Level%203-brightgreen.svg)](https://slsa.dev/)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Voskan/codexsentinel)](https://goreportcard.com/report/github.com/Voskan/codexsentinel)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Voskan/codexsentinel.svg)](https://pkg.go.dev/github.com/Voskan/codexsentinel)
+[![Release](https://img.shields.io/github/v/release/Voskan/codexsentinel?include_prereleases&sort=semver)](https://github.com/Voskan/codexsentinel/releases)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/Voskan/codexsentinel/release.yml?branch=main)](https://github.com/Voskan/codexsentinel/actions)
 
 **CodexSentinel** is a powerful, blazing-fast static code analyzer for **Go**, built to identify security vulnerabilities, bad practices, architectural violations, and dependency risks. Designed for developers, DevSecOps, and auditors, it supports both CLI usage and structured JSON reports for integration with CI/CD pipelines.
+
+## 📋 Table of Contents
+
+- [🚀 Features](#-features)
+- [📦 Installation](#-installation-and-usage-all-os)
+- [🔧 Usage](#-usage)
+- [📁 Project Structure](#-project-structure)
+- [📚 Examples](#-examples)
+- [📘 Custom Rules](#-custom-rules)
+- [🧪 Testing](#-testing)
+- [🔄 CI/CD Integration](#-cicd-integration)
+- [📄 License](#-license)
+- [🧠 Related Links](#-related-links)
+- [💬 Contributing](#-contributing)
+- [✨ Example Reports](#-example-reports)
 
 ---
 
@@ -19,12 +42,13 @@
 - 📁 **Individual file analysis** - scan files with different package names
 - 🛡️ **Graceful error handling** - continues analysis even with package conflicts
 - 📂 **Automatic report organization** - saves reports to `scan_reports/` directory
+- 🔐 **SLSA Level 3** compliant releases for supply chain security
 
 ---
 
-## 🛠️ Installation and Usage (All OS)
+## 📦 Installation and Usage (All OS)
 
-### 1. Quick Install (Recommended)
+### 🎯 Quick Install (Recommended)
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/install.sh | sh
@@ -37,19 +61,19 @@ This script will:
 - Create a convenient `codex` alias
 - Work on Linux, macOS, and Windows (via Git Bash/WSL)
 
-### 2. Manual Install via Go
+### 🔧 Manual Install via Go
 
 ```bash
 go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
 ```
 
-### 2. Where to find the binary
+### 📍 Where to find the binary
 
 - By default, Go installs the binary as **codex-cli** in:
   - **Linux/macOS:** `$HOME/go/bin/`
   - **Windows:** `%USERPROFILE%\go\bin\`
 
-### 3. Make codex-cli globally available
+### 🌐 Make codex-cli globally available
 
 #### Linux/macOS:
 
@@ -91,7 +115,7 @@ setx PATH "%PATH%;%USERPROFILE%\go\bin"
 codex-cli version
 ```
 
-### 4. (Optional) Create a shorter alias
+### ⚡ (Optional) Create a shorter alias
 
 #### Linux/macOS:
 
@@ -116,7 +140,7 @@ echo 'Set-Alias codex codex-cli' >> $PROFILE
 codex version
 ```
 
-### 5. Verify installation
+### ✅ Verify installation
 
 ```bash
 # Should work from any directory:
@@ -127,7 +151,7 @@ codex-cli version
 
 ## 📦 Usage
 
-### Basic Scan
+### 🔍 Basic Scan
 
 ```bash
 # Scan current directory
@@ -147,7 +171,7 @@ codex-cli scan testdata/command_injection.go
 codex-cli scan testdata/xss_vulnerability.go
 ```
 
-### Advanced Usage
+### ⚙️ Advanced Usage
 
 ```bash
 # Scan with specific severity
@@ -178,7 +202,7 @@ codex-cli scan . --severity high
 codex-cli scan . --config custom-config.yml
 ```
 
-### Available Flags
+### 📋 Available Flags
 
 | Flag            | Description                                                   | Default                              |
 | --------------- | ------------------------------------------------------------- | ------------------------------------ |
@@ -191,7 +215,7 @@ codex-cli scan . --config custom-config.yml
 | `--config`      | Path to a custom config file                                  | `.codex.yml` (if exists)             |
 | `--severity`    | Filter issues by severity:`low`, `medium`, `high`, `critical` | `all` (no filtering)                 |
 
-### Report Output
+### 📄 Report Output
 
 Reports are automatically saved to the `scan_reports/` directory:
 
@@ -201,6 +225,8 @@ Reports are automatically saved to the `scan_reports/` directory:
 - Markdown reports: `scan_reports/codex-report.md`
 
 The directory is created automatically if it doesn't exist.
+
+---
 
 ## 📁 Project Structure
 
@@ -221,9 +247,11 @@ codexsentinel/
 └── assets/          # Rules, templates, CSS, etc.
 ```
 
+---
+
 ## 📚 Examples
 
-### Security Vulnerabilities
+### 🔒 Security Vulnerabilities
 
 **SQL Injection:**
 
@@ -259,7 +287,7 @@ w.Write([]byte(userInput))
 w.Write([]byte(html.EscapeString(userInput)))
 ```
 
-### Architecture Violations
+### 🏗️ Architecture Violations
 
 **Direct Layer Calls:**
 
@@ -275,7 +303,7 @@ func (h *Handler) GetUser(id string) {
 }
 ```
 
-### Running Analysis
+### 🔍 Running Analysis
 
 ```bash
 # Scan for security issues
@@ -290,6 +318,8 @@ codex-cli scan ./... --config .codex.yml
 # Scan test files with vulnerabilities
 codex-cli scan testdata/
 ```
+
+---
 
 ## 📘 Custom Rules
 
@@ -308,7 +338,7 @@ description: "Potential XSS vulnerability when writing user input directly to re
 suggestion: "Use html.EscapeString() to sanitize user input"
 ```
 
-### Rule Structure
+### 📋 Rule Structure
 
 ```yaml
 id: "unique.rule.identifier"
@@ -327,6 +357,8 @@ references:
 
 Learn more in `assets/rules/`.
 
+---
+
 ## 🧪 Testing
 
 ```bash
@@ -339,6 +371,8 @@ go test -cover ./...
 # Run specific test
 go test ./analyzer/...
 ```
+
+---
 
 ## 🔄 CI/CD Integration
 
@@ -357,7 +391,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.21"
+          go-version: "1.24"
 
       - name: Install CodexSentinel
         run: go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
@@ -376,7 +410,7 @@ jobs:
 ```yaml
 security-scan:
   stage: test
-  image: golang:1.21
+  image: golang:1.24
   script:
     - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
     - codex-cli scan ./... --format sarif --out results.sarif
@@ -385,23 +419,57 @@ security-scan:
       sarif: results.sarif
 ```
 
+---
+
 ## 📄 License
 
 MIT © [Voskan](https://github.com/Voskan) - see the [LICENSE](LICENSE) file for details.
+
+---
 
 ## 🧠 Related Links
 
 - [Go SSA Documentation](https://pkg.go.dev/golang.org/x/tools/go/ssa)
 - [OWASP Top 10](https://owasp.org/www-project-top-ten/)
 - [SARIF Specification](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+- [SLSA Framework](https://slsa.dev/)
+
+---
 
 ## 💬 Contributing
 
 We welcome PRs and new rule contributions. Please follow our contribution guide and ensure all changes are covered by tests.
 
+### 🤝 How to Contribute
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### 📝 Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/Voskan/codexsentinel.git
+cd codexsentinel
+
+# Install dependencies
+go mod download
+
+# Run tests
+go test ./...
+
+# Build the binary
+go build -o codex ./cmd/codex-cli
+```
+
+---
+
 ## ✨ Example Reports
 
-### JSON Report
+### 📊 JSON Report
 
 ```json
 {
@@ -426,7 +494,7 @@ We welcome PRs and new rule contributions. Please follow our contribution guide 
 }
 ```
 
-### SARIF Report (for CI/CD)
+### 🔍 SARIF Report (for CI/CD)
 
 ```json
 {
@@ -465,3 +533,108 @@ We welcome PRs and new rule contributions. Please follow our contribution guide 
   ]
 }
 ```
+
+---
+
+## 🔐 SLSA Level 3 Compliance
+
+CodexSentinel releases are built with SLSA Level 3 compliance, ensuring:
+
+- ✅ **Provenance**: Every release includes a provenance file describing the build process
+- ✅ **Verification**: Anyone can verify that binaries were built from expected source code
+- ✅ **Reproducibility**: Builds are reproducible and verifiable
+- ✅ **Supply Chain Security**: Protection against supply chain attacks
+
+### 🔍 Verifying Releases
+
+```bash
+# Install slsa-verifier
+go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@latest
+
+# Verify a release
+slsa-verifier verify-artifact \
+  --provenance-path codex-linux-amd64.intoto.jsonl \
+  --source-uri github.com/Voskan/codexsentinel \
+  --source-tag v1.0.0 \
+  codex-linux-amd64
+```
+
+---
+
+## 📈 Release History
+
+### Latest Release: [v1.0.0](https://github.com/Voskan/codexsentinel/releases/latest)
+
+**Features:**
+
+- 🆕 Initial release with comprehensive security scanning
+- 🔍 OWASP Top 10 vulnerability detection
+- 📦 Dependency analysis with OSV integration
+- 🏗️ Architecture compliance checking
+- 📊 Multiple report formats (SARIF, JSON, HTML, Markdown)
+- 🔐 SLSA Level 3 compliant releases
+
+**Supported Platforms:**
+
+- 🐧 Linux (AMD64, ARM64)
+- 🍎 macOS (AMD64, ARM64)
+- 🪟 Windows (AMD64, ARM64)
+
+**Download:** [Latest Release](https://github.com/Voskan/codexsentinel/releases/latest)
+
+---
+
+## 🌟 Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Voskan/codexsentinel&type=Date)](https://star-history.com/#Voskan/codexsentinel&Date)
+
+---
+
+## 📊 Project Statistics
+
+![GitHub stats](https://github-readme-stats.vercel.app/api?username=Voskan&show_icons=true&theme=radical)
+
+![Top Languages](https://github-readme-stats.vercel.app/api/top-langs/?username=Voskan&layout=compact&theme=radical)
+
+---
+
+## 🎯 Roadmap
+
+- [ ] 🔍 Enhanced taint analysis with more precise data flow tracking
+- [ ] 📊 Advanced code metrics and visualization
+- [ ] 🔧 IDE integration (VS Code, GoLand extensions)
+- [ ] 🌐 Web-based dashboard for analysis results
+- [ ] 📚 Comprehensive rule library expansion
+- [ ] 🔄 Real-time monitoring and alerting
+- [ ] 🧪 Integration with more CI/CD platforms
+- [ ] 📱 Mobile app for quick scans
+
+---
+
+## 🤝 Support
+
+- 📧 **Email**: [support@codexsentinel.dev](mailto:support@codexsentinel.dev)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/Voskan/codexsentinel/discussions)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/Voskan/codexsentinel/issues)
+- 📖 **Documentation**: [Wiki](https://github.com/Voskan/codexsentinel/wiki)
+
+---
+
+## 🙏 Acknowledgments
+
+- [OWASP](https://owasp.org/) for security guidelines
+- [Go Team](https://golang.org/) for the amazing language
+- [SLSA Framework](https://slsa.dev/) for supply chain security
+- All contributors and users of CodexSentinel
+
+---
+
+<div align="center">
+
+**Made with ❤️ by the CodexSentinel Team**
+
+[![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Voskan/codexsentinel)
+[![Go](https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://golang.org/)
+[![Security](https://img.shields.io/badge/Security-000000?style=for-the-badge&logo=security&logoColor=white)](https://slsa.dev/)
+
+</div>
