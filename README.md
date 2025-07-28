@@ -1,12 +1,6 @@
 # 🛡️ CodexSentinel
 
-[![Go Version](https://img.shields.io/badge/Go-1.24.2+-blue.svg)](https://golang.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![SLSA Level 3](https://img.shields.io/badge/SLSA-Level%203-brightgreen.svg)](https://slsa.dev/)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Voskan/codexsentinel)](https://goreportcard.com/report/github.com/Voskan/codexsentinel)
-[![Go Reference](https://pkg.go.dev/badge/github.com/Voskan/codexsentinel.svg)](https://pkg.go.dev/github.com/Voskan/codexsentinel)
-[![Release](https://img.shields.io/github/v/release/Voskan/codexsentinel?include_prereleases&sort=semver)](https://github.com/Voskan/codexsentinel/releases)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/Voskan/codexsentinel/release.yml?branch=main)](https://github.com/Voskan/codexsentinel/actions)
+[![Go Version](https://img.shields.io/badge/Go-1.24.2+-blue.svg)](https://golang.org/) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE) [![SLSA Level 3](https://img.shields.io/badge/SLSA-Level%203-brightgreen.svg)](https://slsa.dev/) [![Go Report Card](https://goreportcard.com/badge/github.com/Voskan/codexsentinel)](https://goreportcard.com/report/github.com/Voskan/codexsentinel) [![Go Reference](https://pkg.go.dev/badge/github.com/Voskan/codexsentinel.svg)](https://pkg.go.dev/github.com/Voskan/codexsentinel) [![Release](https://img.shields.io/github/v/release/Voskan/codexsentinel?include_prereleases&sort=semver)](https://github.com/Voskan/codexsentinel/releases) [![Build Status](https://img.shields.io/github/actions/workflow/status/Voskan/codexsentinel/release.yml?branch=main)](https://github.com/Voskan/codexsentinel/actions)
 
 **CodexSentinel** is a powerful, blazing-fast static code analyzer for **Go**, built to identify security vulnerabilities, bad practices, architectural violations, and dependency risks. Designed for developers, DevSecOps, and auditors, it supports both CLI usage and structured JSON reports for integration with CI/CD pipelines.
 
