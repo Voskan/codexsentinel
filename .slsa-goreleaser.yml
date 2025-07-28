@@ -1,0 +1,64 @@
+# SLSA goreleaser configuration for CodexSentinel
+# This file configures how the SLSA builder builds and releases the project
+
+# Build configuration
+builds:
+  - id: codex
+    binary: codex
+    main: ./cmd/codex
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/Voskan/codexsentinel/internal/version.Version={{.Version}}
+      - -X github.com/Voskan/codexsentinel/internal/version.Commit={{.Commit}}
+      - -X github.com/Voskan/codexsentinel/internal/version.BuildDate={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos=windows
+        goarch=arm64
+
+# Release configuration
+release:
+  draft: false
+  prerelease: false
+
+# Archive configuration
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - assets/rules/*.yaml
+      - assets/html/style.css
+
+# Checksums
+checksum:
+  name_template: "checksums.txt"
+
+# Changelog
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
