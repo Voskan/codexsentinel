@@ -4,12 +4,12 @@
 
 CodexSentinel follows semantic versioning and provides security updates for the following versions:
 
-| Version | Supported          | OWASP Top 10 Coverage | Security Features |
-| ------- | ------------------ | --------------------- | ----------------- |
-| 1.5.x   | :white_check_mark: | 2025 (A01-A10)        | Full Coverage     |
-| 1.4.x   | :white_check_mark: | 2021 (A01-A10)        | Partial Coverage  |
-| 1.3.x   | :x:                | 2021 (Partial)        | Basic Coverage    |
-| < 1.3   | :x:                | None                  | No Coverage       |
+| Version | Supported | OWASP Top 10 Coverage | Security Features |
+| ------- | --------- | --------------------- | ----------------- |
+| 1.5.x   | ✅        | 2025 (A01-A10)        | Full Coverage     |
+| 1.4.x   | ✅        | 2021 (A01-A10)        | Partial Coverage  |
+| 1.3.x   | ❌        | 2021 (Partial)        | Basic Coverage    |
+| < 1.3   | ❌        | None                  | No Coverage       |
 
 ### Version Support Details
 
@@ -27,6 +27,7 @@ CodexSentinel follows semantic versioning and provides security updates for the 
   - Basic dependency analysis
 
 - **v1.3.x and below**: No longer supported
+
   - Security vulnerabilities may exist
   - No updates provided
   - Upgrade recommended
@@ -38,8 +39,7 @@ We take security vulnerabilities seriously. If you discover a security issue in 
 ### 🚨 **How to Report**
 
 1. **DO NOT** create a public GitHub issue for security vulnerabilities
-2. **DO** email us at: `security@codexsentinel.dev`
-3. **DO** use our [Security Advisory](https://github.com/Voskan/codexsentinel/security/advisories) form
+2. **DO** use our [Security Advisory](https://github.com/Voskan/codexsentinel/security/advisories) form
 
 ### 📧 **Email Template**
 
