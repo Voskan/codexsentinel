@@ -24,7 +24,7 @@ type DependencyReport struct {
 // - license classification
 // - CVE lookup (via osv-scanner)
 // - secret-like strings
-func ScanDependencies(goModPath string, allowLicenses, denyLicenses []string) ([]DependencyReport, error) {
+func ScanDependencies(goModPath string, allowLicenses, denyLicenses []string) ([]DependencyReport, error) {	
 	modDir := filepath.Dir(goModPath)
 	var reports []DependencyReport
 
@@ -38,10 +38,36 @@ func ScanDependencies(goModPath string, allowLicenses, denyLicenses []string) ([
 		return nil, fmt.Errorf("vulnerability scan failed: %w", err)
 	}
 
+	// Fetch additional advisories from GitHub Advisory Database
+	ghsaVulns, err := FetchGHSAAdvisories(goModPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "GHSA fetch error: %v\n", err)
+	} else {
+		// Merge, avoiding duplicates by Module+ID
+		existing := make(map[string]struct{})
+		for _, v := range vulns {
+			existing[v.Module+"/"+v.ID] = struct{}{}
+		}
+		for _, v := range ghsaVulns {
+			key := v.Module+"/"+v.ID
+			if _, ok := existing[key]; !ok {
+				vulns = append(vulns, v)
+			}
+		}
+	}
+
 	// Map CVEs by module@version
 	vulnMap := make(map[string][]Vulnerability)
 	for _, v := range vulns {
-		key := fmt.Sprintf("%s@%s", v.Module, v.Version)
+		// Skip stdlib vulnerabilities as they're not in go.mod
+		if v.Module == "stdlib" {
+			continue
+		}
+		
+		// Normalize version by removing 'v' prefix if present
+		normalizedVersion := strings.TrimPrefix(v.Version, "v")
+		
+		key := fmt.Sprintf("%s@%s", v.Module, normalizedVersion)
 		vulnMap[key] = append(vulnMap[key], v)
 	}
 
@@ -64,7 +90,10 @@ func ScanDependencies(goModPath string, allowLicenses, denyLicenses []string) ([
 
 	// Aggregate results
 	for _, lic := range licenses {
-		key := fmt.Sprintf("%s@%s", lic.Module, lic.Version)
+		// Normalize version by removing 'v' prefix if present
+		normalizedVersion := strings.TrimPrefix(lic.Version, "v")
+		
+		key := fmt.Sprintf("%s@%s", lic.Module, normalizedVersion)
 
 		status := "UNKNOWN"
 		if lic.Allowed {
@@ -73,7 +102,7 @@ func ScanDependencies(goModPath string, allowLicenses, denyLicenses []string) ([
 			status = "DENIED"
 		}
 
-		reports = append(reports, DependencyReport{
+		report := DependencyReport{
 			Module:          lic.Module,
 			Version:         lic.Version,
 			License:         lic.License,
@@ -81,7 +110,9 @@ func ScanDependencies(goModPath string, allowLicenses, denyLicenses []string) ([
 			LicenseFile:     lic.LicenseFile,
 			Vulnerabilities: vulnMap[key],
 			SuspiciousFiles: entropyMap[lic.Module],
-		})
+		}
+		
+		reports = append(reports, report)
 	}
 
 	return reports, nil

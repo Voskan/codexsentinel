@@ -63,18 +63,20 @@ func AuditVulnerabilities(goModPath string) ([]Vulnerability, error) {
 
 	var vulns []Vulnerability
 	for _, finding := range result.Results {
-		for _, vuln := range finding.Vulnerabilities {
-			v := Vulnerability{
-				Module:       finding.Package.Name,
-				Version:      finding.Package.Version,
-				ID:           vuln.ID,
-				Details:      vuln.Details,
-				FixedVersion: extractFixedVersion(vuln.Affected),
-				Severity:     extractSeverity(vuln.Severity),
-				Aliases:      vuln.Aliases,
-				Reference:    vuln.DatabaseSpecific.URL,
+		for _, pkg := range finding.Packages {
+			for _, vuln := range pkg.Vulnerabilities {
+				v := Vulnerability{
+					Module:       pkg.Package.Name,
+					Version:      pkg.Package.Version,
+					ID:           vuln.ID,
+					Details:      vuln.Details,
+					FixedVersion: extractFixedVersion(vuln.Affected),
+					Severity:     extractSeverity(vuln.Severity),
+					Aliases:      vuln.Aliases,
+					Reference:    vuln.DatabaseSpecific.URL,
+				}
+				vulns = append(vulns, v)
 			}
-			vulns = append(vulns, v)
 		}
 	}
 
@@ -84,30 +86,36 @@ func AuditVulnerabilities(goModPath string) ([]Vulnerability, error) {
 // osvResult represents the top-level JSON structure returned by osv-scanner.
 type osvResult struct {
 	Results []struct {
-		Package struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"package"`
-		Vulnerabilities []struct {
-			ID       string   `json:"id"`
-			Details  string   `json:"details"`
-			Aliases  []string `json:"aliases"`
-			Severity []struct {
-				Type  string `json:"type"`
-				Score string `json:"score"`
-			} `json:"severity"`
-			Affected []struct {
-				Ranges []struct {
-					Events []struct {
-						Introduced string `json:"introduced,omitempty"`
-						Fixed      string `json:"fixed,omitempty"`
-					} `json:"events"`
-				} `json:"ranges"`
-			} `json:"affected"`
-			DatabaseSpecific struct {
-				URL string `json:"url"`
-			} `json:"database_specific"`
-		} `json:"vulnerabilities"`
+		Source struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"source"`
+		Packages []struct {
+			Package struct {
+				Name    string `json:"name"`
+				Version string `json:"version"`
+			} `json:"package"`
+			Vulnerabilities []struct {
+				ID       string   `json:"id"`
+				Details  string   `json:"details"`
+				Aliases  []string `json:"aliases"`
+				Severity []struct {
+					Type  string `json:"type"`
+					Score string `json:"score"`
+				} `json:"severity"`
+				Affected []struct {
+					Ranges []struct {
+						Events []struct {
+							Introduced string `json:"introduced,omitempty"`
+							Fixed      string `json:"fixed,omitempty"`
+						} `json:"events"`
+					} `json:"ranges"`
+				} `json:"affected"`
+				DatabaseSpecific struct {
+					URL string `json:"url"`
+				} `json:"database_specific"`
+			} `json:"vulnerabilities"`
+		} `json:"packages"`
 	} `json:"results"`
 }
 

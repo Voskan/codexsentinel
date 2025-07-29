@@ -282,11 +282,12 @@ func runDependencyAnalysis(targetPath string) ([]result.Issue, error) {
 			issues = append(issues, result.Issue{
 				ID:          "dependency-vulnerability",
 				Title:       "Vulnerable Dependency",
-				Description: fmt.Sprintf("Module %s@%s has vulnerability: %s", report.Module, report.Version, vuln.ID),
+				Description: fmt.Sprintf("Module %s@%s has vulnerability: %s\nDetails: %s", report.Module, report.Version, vuln.ID, vuln.Details),
 				Severity:    result.SeverityHigh,
 				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
 				Category:    "security",
-				Suggestion:  fmt.Sprintf("Update to a fixed version or apply security patches"),
+				Suggestion:  fmt.Sprintf("Update to a fixed version: %s or apply security patches", vuln.FixedVersion),
+				References:  []string{vuln.Reference},
 			})
 		}
 
@@ -370,6 +371,15 @@ func printSummary(results []result.Issue) {
 				issue.Title,
 				issue.Location.File,
 				issue.Location.Line)
+			if issue.Description != "" {
+				fmt.Printf("      Description: %s\n", issue.Description)
+			}
+			if issue.Suggestion != "" {
+				fmt.Printf("      Remediation: %s\n", issue.Suggestion)
+			}
+			if len(issue.References) > 0 && issue.References[0] != "" {
+				fmt.Printf("      Reference:   %s\n", issue.References[0])
+			}
 		}
 	}
 }
