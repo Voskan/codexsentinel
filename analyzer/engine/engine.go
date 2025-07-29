@@ -599,6 +599,14 @@ func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	builtin.RegisterLoggingMonitoringRule(ctx)
 	// Register SSRF rule
 	builtin.RegisterSSRFRule(ctx)
+	// Register CSRF rule
+	builtin.RegisterCSRFRule(ctx)
+	// Register Path Traversal rule
+	builtin.RegisterPathTraversalRule(ctx)
+	// Register Crypto Weak Algorithm rule
+	builtin.RegisterCryptoWeakRule(ctx)
+	// Register Security Misconfiguration rule
+	builtin.RegisterSecurityMisconfigRule(ctx)
 }
 
 // matchSQLInjectionConcat detects SQL injection via string concatenation in SQL queries.
