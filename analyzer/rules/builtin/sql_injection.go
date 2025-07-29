@@ -5,18 +5,25 @@ import (
 	"go/token"
 	"strings"
 
+	"github.com/Voskan/codexsentinel/analyzer"
+	"github.com/Voskan/codexsentinel/analyzer/result"
 	"golang.org/x/tools/go/analysis"
 )
 
-// SQLInjectionRule detects insecure SQL query constructions using string concatenation.
-var SQLInjectionRule = &analysis.Analyzer{
-	Name: "sql_injection",
-	Doc:  "Detects potential SQL injection vulnerabilities in raw query constructions",
-	Run:  runSQLInjection,
+// RegisterSQLInjectionRule registers the SQL injection detection rule.
+func RegisterSQLInjectionRule(ctx *analyzer.AnalyzerContext) {
+	ctx.RegisterRule(&analyzer.Rule{
+		ID:       "sql-injection",
+		Title:    "Injection (A03:2025)",
+		Category: "security",
+		Severity: result.SeverityHigh,
+		Summary:  "SQL injection vulnerabilities allow attackers to execute malicious SQL queries.",
+		Matcher:  matchSQLInjection,
+	})
 }
 
-// runSQLInjection is the core logic to detect unsafe SQL query building.
-func runSQLInjection(pass *analysis.Pass) (interface{}, error) {
+// matchSQLInjection detects SQL injection vulnerabilities
+func matchSQLInjection(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			callExpr, ok := n.(*ast.CallExpr)
@@ -40,22 +47,22 @@ func runSQLInjection(pass *analysis.Pass) (interface{}, error) {
 
 			// Check if the first argument contains string concatenation
 			if containsStringConcat(callExpr.Args[0]) {
-				pass.Report(analysis.Diagnostic{
-					Pos:     callExpr.Pos(),
-					End:     callExpr.End(),
-					Message: "Potential SQL injection: avoid building queries via string concatenation",
-					SuggestedFixes: []analysis.SuggestedFix{
-						{
-							Message: "Use parameterized queries instead of raw string concatenation",
-						},
-					},
+				pos := ctx.GetFset().Position(callExpr.Pos())
+				ctx.Report(result.Issue{
+					ID:          "sql-injection",
+					Title:       "SQL Injection Vulnerability",
+					Description: "Potential SQL injection: avoid building queries via string concatenation",
+					Severity:    result.SeverityHigh,
+					Location:    result.NewLocationFromPos(pos, "", ""),
+					Category:    "security",
+					Suggestion:  "Use parameterized queries instead of raw string concatenation",
+					References:  []string{"https://owasp.org/www-project-top-ten/2017/A1_2017-Injection"},
 				})
 			}
 
 			return true
 		})
 	}
-	return nil, nil
 }
 
 // isQueryFunc checks if the function name is a known SQL execution function.

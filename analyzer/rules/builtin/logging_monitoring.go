@@ -13,7 +13,7 @@ import (
 func RegisterLoggingMonitoringRule(ctx *analyzer.AnalyzerContext) {
 	ctx.RegisterRule(&analyzer.Rule{
 		ID:       "security-logging-failure",
-		Title:    "Security Logging and Monitoring Failures",
+		Title:    "Security Logging and Monitoring Failures (A09:2025)",
 		Category: "security",
 		Severity: result.SeverityMedium,
 		Summary:  "Missing or insufficient security logging and monitoring for security events.",
@@ -81,6 +81,17 @@ func isSecuritySensitiveFunction(funcDecl *ast.FuncDecl) bool {
 		"login", "logout", "auth", "authenticate", "authorize",
 		"password", "token", "session", "credential", "permission",
 		"admin", "user", "role", "privilege", "access",
+		// A09:2025 - Additional security monitoring patterns
+		"audit", "audit_log", "security_log", "monitor", "monitoring",
+		"alert", "alerting", "detect", "detection", "threat", "threat_detection",
+		"incident", "incident_response", "siem", "security_event",
+		"log", "logger", "logging", "trace", "tracing", "debug",
+		"error", "exception", "failure", "violation", "breach",
+		"intrusion", "attack", "malware", "virus", "trojan",
+		"phishing", "spam", "ddos", "dos", "brute_force",
+		"sql_injection", "xss", "csrf", "ssrf", "path_traversal",
+		"command_injection", "file_upload", "file_download",
+		"data_leak", "data_breach", "pii", "gdpr", "compliance",
 	}
 
 	for _, pattern := range securityPatterns {

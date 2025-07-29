@@ -18,6 +18,13 @@ type DependencyReport struct {
 
 	Vulnerabilities []Vulnerability  // CVE / GHSA results from osv.dev
 	SuspiciousFiles []EntropyFinding // High-entropy values in vendored code
+	
+	// A06:2025 - Additional fields for vulnerable and outdated components
+	IsOutdated     bool   // Component is outdated
+	LatestVersion  string // Latest available version
+	UpdateStatus   string // UPDATE_AVAILABLE / UP_TO_DATE / DEPRECATED
+	DeprecationMsg string // Deprecation warning if applicable
+	SecurityScore  int    // Security score (0-100)
 }
 
 // ScanDependencies performs full dependency audit:

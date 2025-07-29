@@ -13,7 +13,7 @@ import (
 func RegisterDataIntegrityRule(ctx *analyzer.AnalyzerContext) {
 	ctx.RegisterRule(&analyzer.Rule{
 		ID:       "data-integrity-failure",
-		Title:    "Software and Data Integrity Failures",
+		Title:    "Software and Data Integrity Failures (A08:2025)",
 		Category: "security",
 		Severity: result.SeverityHigh,
 		Summary:  "Missing integrity checks for software updates, critical data, and CI/CD pipelines.",

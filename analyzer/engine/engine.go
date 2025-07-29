@@ -578,6 +578,8 @@ func analyzeSingleFile(ctx context.Context, filePath string, config *Config) ([]
 func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	// Register command execution rule
 	builtin.RegisterCommandExecRule(ctx)
+	// Register SQL injection rule
+	builtin.RegisterSQLInjectionRule(ctx)
 	// Register advanced SQL injection rule (string concatenation)
 	ctx.RegisterRule(&analyzer.Rule{
 		ID:       "sql-injection-concat",
@@ -607,6 +609,18 @@ func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	builtin.RegisterCryptoWeakRule(ctx)
 	// Register Security Misconfiguration rule
 	builtin.RegisterSecurityMisconfigRule(ctx)
+	// Register Authentication Bypass rule
+	builtin.RegisterAuthBypassRule(ctx)
+	// Register Session Management rule
+	builtin.RegisterSessionManagementRule(ctx)
+	// Register API Security rule
+	builtin.RegisterAPISecurityRule(ctx)
+	// Register GraphQL Security rule
+	builtin.RegisterGraphQLSecurityRule(ctx)
+	// Register JWT Security rule
+	builtin.RegisterJWTSecurityRule(ctx)
+	// Register WebSocket Security rule
+	builtin.RegisterWebSocketSecurityRule(ctx)
 }
 
 // matchSQLInjectionConcat detects SQL injection via string concatenation in SQL queries.

@@ -13,7 +13,7 @@ import (
 func RegisterCryptoWeakRule(ctx *analyzer.AnalyzerContext) {
 	ctx.RegisterRule(&analyzer.Rule{
 		ID:       "crypto-weak-algorithm",
-		Title:    "Weak Cryptographic Algorithm",
+		Title:    "Cryptographic Failures (A02:2025)",
 		Category: "security",
 		Severity: result.SeverityHigh,
 		Summary:  "Use of weak cryptographic algorithms (MD5, SHA1, DES, etc.) may lead to security vulnerabilities.",

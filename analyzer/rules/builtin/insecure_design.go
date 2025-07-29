@@ -13,7 +13,7 @@ import (
 func RegisterInsecureDesignRule(ctx *analyzer.AnalyzerContext) {
 	ctx.RegisterRule(&analyzer.Rule{
 		ID:       "insecure-design",
-		Title:    "Insecure Design",
+		Title:    "Insecure Design (A04:2025)",
 		Category: "security",
 		Severity: result.SeverityHigh,
 		Summary:  "Architectural and design flaws that lead to security vulnerabilities.",

@@ -13,7 +13,7 @@ import (
 func RegisterSecurityMisconfigRule(ctx *analyzer.AnalyzerContext) {
 	ctx.RegisterRule(&analyzer.Rule{
 		ID:       "security-misconfiguration",
-		Title:    "Security Misconfiguration",
+		Title:    "Security Misconfiguration (A05:2025)",
 		Category: "security",
 		Severity: result.SeverityHigh,
 		Summary:  "Debug endpoints, unsafe settings, and security misconfigurations may expose sensitive information or create vulnerabilities.",

@@ -13,7 +13,7 @@ import (
 func RegisterSSRFRule(ctx *analyzer.AnalyzerContext) {
 	ctx.RegisterRule(&analyzer.Rule{
 		ID:       "ssrf-vulnerability",
-		Title:    "Server-Side Request Forgery (SSRF)",
+		Title:    "Server-Side Request Forgery (SSRF) (A10:2025)",
 		Category: "security",
 		Severity: result.SeverityHigh,
 		Summary:  "Making requests to untrusted URLs without proper validation may lead to SSRF attacks.",

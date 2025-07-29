@@ -13,7 +13,7 @@ import (
 func RegisterAccessControlRule(ctx *analyzer.AnalyzerContext) {
 	ctx.RegisterRule(&analyzer.Rule{
 		ID:       "broken-access-control",
-		Title:    "Broken Access Control",
+		Title:    "Broken Access Control (A01:2025)",
 		Category: "security",
 		Severity: result.SeverityHigh,
 		Summary:  "Missing or insufficient access control checks may lead to unauthorized access.",
