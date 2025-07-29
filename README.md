@@ -750,7 +750,7 @@ go build -o codex ./cmd/codex-cli
 
 ### Getting Help
 
-- 📧 **Email**: [support@codexsentinel.dev](mailto:support@codexsentinel.dev)
+- 📧 **Email**: [voskan1989@gmail.com](mailto:voskan1989@gmail.com)
 - 💬 **Discussions**: [GitHub Discussions](https://github.com/Voskan/codexsentinel/discussions)
 - 🐛 **Issues**: [GitHub Issues](https://github.com/Voskan/codexsentinel/issues)
 - 📖 **Documentation**: [Wiki](https://github.com/Voskan/codexsentinel/wiki)

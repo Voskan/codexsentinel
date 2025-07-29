@@ -144,7 +144,7 @@ CodexSentinel maintains high security standards:
 
 ### 📞 **Contact Information**
 
-- **Security Email**: `security@codexsentinel.dev`
+- **Security Email**: `voskan1989@gmail.com`
 - **GitHub Security**: [https://github.com/Voskan/codexsentinel/security](https://github.com/Voskan/codexsentinel/security)
 - **Discussions**: [https://github.com/Voskan/codexsentinel/discussions](https://github.com/Voskan/codexsentinel/discussions)
 - **Issues**: [https://github.com/Voskan/codexsentinel/issues](https://github.com/Voskan/codexsentinel/issues)
