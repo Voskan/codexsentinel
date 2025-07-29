@@ -14,10 +14,10 @@ type RuleYAML struct {
 
 	// Pattern matching
 	Pattern string `yaml:"pattern" json:"pattern"` // Code pattern to match (e.g., template.Execute($INPUT))
-	
+
 	// Match configuration
 	Match *MatchConfig `yaml:"match,omitempty" json:"match"` // Match configuration
-	
+
 	// Legacy fields for backward compatibility
 	Source     string   `yaml:"source,omitempty" json:"source"`         // Optional taint source (e.g., req.FormValue)
 	Sink       string   `yaml:"sink,omitempty" json:"sink"`             // Optional sink target (e.g., db.Exec)
@@ -28,17 +28,17 @@ type RuleYAML struct {
 
 // MatchConfig defines the matching configuration for a rule
 type MatchConfig struct {
-	Pattern string     `yaml:"pattern" json:"pattern"` // Code pattern to match
-	Filters []Filter   `yaml:"filters,omitempty" json:"filters"` // Filters to apply
+	Pattern string   `yaml:"pattern" json:"pattern"`           // Code pattern to match
+	Filters []Filter `yaml:"filters,omitempty" json:"filters"` // Filters to apply
 }
 
 // Filter defines a filter for rule matching
 type Filter struct {
-	Type    string   `yaml:"type" json:"type"`       // Filter type: param, call, import, file_ext, package
-	Sources  []string `yaml:"sources,omitempty" json:"sources"` // Sources for param/call filters
-	Include  []string `yaml:"include,omitempty" json:"include"` // Include patterns
-	Allow    []string `yaml:"allow,omitempty" json:"allow"`     // Allow patterns
-	Exclude  []string `yaml:"exclude,omitempty" json:"exclude"` // Exclude patterns
+	Type    string   `yaml:"type" json:"type"`                 // Filter type: param, call, import, file_ext, package
+	Sources []string `yaml:"sources,omitempty" json:"sources"` // Sources for param/call filters
+	Include []string `yaml:"include,omitempty" json:"include"` // Include patterns
+	Allow   []string `yaml:"allow,omitempty" json:"allow"`     // Allow patterns
+	Exclude []string `yaml:"exclude,omitempty" json:"exclude"` // Exclude patterns
 }
 
 // Examples provides good and bad code examples

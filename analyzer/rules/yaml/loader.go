@@ -36,64 +36,17 @@ func loadFile(path string) error {
 		return fmt.Errorf("failed to read rule file %q: %w", path, err)
 	}
 
-	var rule RuleYAML
-	if err := yaml.Unmarshal(data, &rule); err != nil {
-		return fmt.Errorf("failed to parse YAML in %q: %w", path, err)
+	rule, err := parseRuleYAML(data, path)
+	if err != nil {
+		return err
 	}
 
-	if rule.ID == "" {
-		return fmt.Errorf("invalid rule in %q: missing required field 'id'", path)
+	if err := validateRule(rule, path); err != nil {
+		return err
 	}
 
-	// Determine pattern from match config or legacy pattern field
-	pattern := rule.Pattern
-	if rule.Match != nil && rule.Match.Pattern != "" {
-		pattern = rule.Match.Pattern
-	}
-	if pattern == "" {
-		return fmt.Errorf("invalid rule in %q: missing required field 'pattern' or 'match.pattern'", path)
-	}
-
-	// Create YAML rule with pattern and filters
-	yamlRule := &rules.YAMLRule{
-		Pattern: pattern,
-		Filters: make(map[string]string),
-	}
-
-	// Process filters if match config exists
-	if rule.Match != nil {
-		for _, filter := range rule.Match.Filters {
-			switch filter.Type {
-			case "param":
-				for _, source := range filter.Sources {
-					yamlRule.Filters["param_"+source] = "true"
-				}
-			case "call":
-				for _, source := range filter.Sources {
-					yamlRule.Filters["call_"+source] = "true"
-				}
-			case "file_ext":
-				for _, ext := range filter.Include {
-					yamlRule.Filters["file_ext_"+ext] = "true"
-				}
-			case "package":
-				for _, pkg := range filter.Allow {
-					yamlRule.Filters["package_"+pkg] = "true"
-				}
-			}
-		}
-	}
-
-	// Set default values
-	if rule.Enabled == false {
-		rule.Enabled = true // Default to enabled
-	}
-	if rule.Category == "" {
-		rule.Category = "security" // Default category
-	}
-	if rule.Severity == "" {
-		rule.Severity = "MEDIUM" // Default severity
-	}
+	yamlRule := createYAMLRule(rule)
+	setDefaultValues(rule)
 
 	// Register into global rule registry
 	return rules.Register(&rules.Rule{
@@ -106,8 +59,111 @@ func loadFile(path string) error {
 		References:  rule.References,
 		YAML:        yamlRule,
 		Enabled:     rule.Enabled,
-		Engine:      createYAMLRuleEngine(rule), // Create engine function for YAML rule
+		Engine:      createYAMLRuleEngine(*rule), // Create engine function for YAML rule
 	})
+}
+
+// parseRuleYAML parses YAML data into a RuleYAML struct
+func parseRuleYAML(data []byte, path string) (*RuleYAML, error) {
+	var rule RuleYAML
+	if err := yaml.Unmarshal(data, &rule); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML in %q: %w", path, err)
+	}
+	return &rule, nil
+}
+
+// validateRule validates the rule structure
+func validateRule(rule *RuleYAML, path string) error {
+	if rule.ID == "" {
+		return fmt.Errorf("invalid rule in %q: missing required field 'id'", path)
+	}
+
+	pattern := getRulePattern(rule)
+	if pattern == "" {
+		return fmt.Errorf("invalid rule in %q: missing required field 'pattern' or 'match.pattern'", path)
+	}
+
+	return nil
+}
+
+// getRulePattern extracts the pattern from rule configuration
+func getRulePattern(rule *RuleYAML) string {
+	pattern := rule.Pattern
+	if rule.Match != nil && rule.Match.Pattern != "" {
+		pattern = rule.Match.Pattern
+	}
+	return pattern
+}
+
+// createYAMLRule creates a YAMLRule with pattern and filters
+func createYAMLRule(rule *RuleYAML) *rules.YAMLRule {
+	yamlRule := &rules.YAMLRule{
+		Pattern: getRulePattern(rule),
+		Filters: make(map[string]string),
+	}
+
+	if rule.Match != nil {
+		processFilters(rule.Match.Filters, yamlRule.Filters)
+	}
+
+	return yamlRule
+}
+
+// processFilters processes match filters and adds them to the filters map
+func processFilters(filters []Filter, filtersMap map[string]string) {
+	for _, filter := range filters {
+		switch filter.Type {
+		case "param":
+			processParamFilter(filter, filtersMap)
+		case "call":
+			processCallFilter(filter, filtersMap)
+		case "file_ext":
+			processFileExtFilter(filter, filtersMap)
+		case "package":
+			processPackageFilter(filter, filtersMap)
+		}
+	}
+}
+
+// processParamFilter processes parameter filters
+func processParamFilter(filter Filter, filtersMap map[string]string) {
+	for _, source := range filter.Sources {
+		filtersMap["param_"+source] = "true"
+	}
+}
+
+// processCallFilter processes call filters
+func processCallFilter(filter Filter, filtersMap map[string]string) {
+	for _, source := range filter.Sources {
+		filtersMap["call_"+source] = "true"
+	}
+}
+
+// processFileExtFilter processes file extension filters
+func processFileExtFilter(filter Filter, filtersMap map[string]string) {
+	for _, ext := range filter.Include {
+		filtersMap["file_ext_"+ext] = "true"
+	}
+}
+
+// processPackageFilter processes package filters
+func processPackageFilter(filter Filter, filtersMap map[string]string) {
+	for _, pkg := range filter.Allow {
+		filtersMap["package_"+pkg] = "true"
+	}
+}
+
+// setDefaultValues sets default values for rule fields
+func setDefaultValues(rule *RuleYAML) {
+	if rule.Enabled == false {
+		rule.Enabled = true // Default to enabled
+	}
+	if rule.Category == "" {
+		rule.Category = "security" // Default category
+	}
+	if rule.Severity == "" {
+		rule.Severity = "MEDIUM" // Default severity
+	}
 }
 
 // createYAMLRuleEngine creates a rule engine function for YAML-based rules

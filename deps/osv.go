@@ -32,7 +32,7 @@ func AuditVulnerabilities(goModPath string) ([]Vulnerability, error) {
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	
+
 	// osv-scanner returns exit code 1 when vulnerabilities are found, which is not an error
 	// We need to check if the command actually failed or just found vulnerabilities
 	if err != nil {

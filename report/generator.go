@@ -83,7 +83,7 @@ func GenerateReport(issues []Issue, format, outPath string, gitMeta *GitMetadata
 		Issues:      issues,
 		GeneratedAt: time.Now().Format(time.RFC3339),
 	}
-	
+
 	if gitMeta != nil {
 		data.Git = *gitMeta
 	}
@@ -115,7 +115,7 @@ func computeSummary(issues []Issue) Summary {
 		case SeverityInfo:
 			s.Info++
 		}
-		
+
 		// Count by category (based on rule ID patterns)
 		switch {
 		case contains(i.RuleID, "sql-injection", "xss", "command-exec", "ssrf", "access-control", "taint"):

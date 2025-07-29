@@ -79,10 +79,10 @@ func (s Severity) Compare(other Severity) int {
 		SeverityInfo:     1,
 		SeverityUnknown:  0,
 	}
-	
+
 	sOrder := severityOrder[s]
 	otherOrder := severityOrder[other]
-	
+
 	if sOrder < otherOrder {
 		return -1
 	} else if sOrder > otherOrder {

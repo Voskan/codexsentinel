@@ -16,7 +16,7 @@ func WriteMarkdownReport(issues []report.Issue, path string, gitMeta *report.Git
 	timestamp := time.Now().Format(time.RFC3339)
 	b.WriteString("# 🛡️ CodexSentinel Report\n\n")
 	b.WriteString(fmt.Sprintf("_Generated at: %s_\n\n", timestamp))
-	
+
 	// Add Git information if available
 	if gitMeta != nil {
 		b.WriteString("## 📁 Repository Information\n\n")
@@ -43,7 +43,7 @@ func WriteMarkdownReport(issues []report.Issue, path string, gitMeta *report.Git
 		}
 		b.WriteString("\n")
 	}
-	
+
 	b.WriteString(fmt.Sprintf("**Total Issues:** %d\n\n", len(issues)))
 
 	for _, issue := range issues {

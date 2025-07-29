@@ -25,11 +25,11 @@ type sarifTool struct {
 }
 
 type sarifDriver struct {
-	Name           string      `json:"name"`
-	FullName       string      `json:"fullName"`
-	Version        string      `json:"version"`
-	InformationURI string      `json:"informationUri"`
-	Rules          []sarifRule `json:"rules"`
+	Name           string                 `json:"name"`
+	FullName       string                 `json:"fullName"`
+	Version        string                 `json:"version"`
+	InformationURI string                 `json:"informationUri"`
+	Rules          []sarifRule            `json:"rules"`
 	Properties     map[string]interface{} `json:"properties,omitempty"`
 }
 
@@ -142,10 +142,10 @@ func WriteSARIFReport(issues []report.Issue, path string, gitMeta *report.GitMet
 	}
 
 	run := sarifRun{
-		Tool: tool,
+		Tool:    tool,
 		Results: results,
 	}
-	
+
 	// Add properties to run if Git metadata exists
 	if len(runProperties) > 0 {
 		// We need to extend sarifRun to include properties

@@ -97,7 +97,7 @@ func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*re
 // runASTAnalysis applies registered AST rules to parsed files.
 func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
 	var issues []*result.Issue
-	
+
 	fset := proj.Fset
 	if fset == nil {
 		fset = token.NewFileSet()
@@ -112,7 +112,7 @@ func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 
 	// Create AST walker for custom analysis
 	walker := customast.NewWalker(proj.Fset)
-	
+
 	// Register handlers for different node types
 	walker.RegisterHandler("*ast.CallExpr", func(node ast.Node, path []ast.Node) {
 		// Custom call expression analysis
@@ -134,7 +134,7 @@ func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 		if !ok {
 			return
 		}
-		
+
 		for _, name := range spec.Names {
 			pos := proj.Fset.Position(name.Pos())
 			proj.Report(result.Issue{
@@ -192,7 +192,7 @@ func runYAMLRules(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*resul
 
 	// Get all registered rules
 	allRules := rules.All()
-	
+
 	for _, rule := range allRules {
 		// Skip disabled rules
 		if !rule.Enabled {

@@ -70,46 +70,91 @@ func matchExecCommandInjection(ctx *analyzer.AnalyzerContext, pass *analysis.Pas
 func isTainted(ctx *analyzer.AnalyzerContext, expr ast.Expr) bool {
 	switch e := expr.(type) {
 	case *ast.CallExpr:
-		if funIdent, ok := e.Fun.(*ast.SelectorExpr); ok {
-			pkgIdent, ok := funIdent.X.(*ast.Ident)
-			if !ok {
-				return false
-			}
-			// Common user input sources
-			switch pkgIdent.Name {
-			case "os":
-				if funIdent.Sel.Name == "Getenv" {
-					return true
-				}
-			case "r":
-				if funIdent.Sel.Name == "URL" || funIdent.Sel.Name == "FormValue" || funIdent.Sel.Name == "PostFormValue" {
-					return true
-				}
-			}
-		}
+		return isCallExprTainted(ctx, e)
 	case *ast.SelectorExpr:
-		if x, ok := e.X.(*ast.SelectorExpr); ok {
-			if pkg, ok := x.X.(*ast.Ident); ok {
-				if pkg.Name == "r" && x.Sel.Name == "URL" && e.Sel.Name == "Query" {
-					return true
-				}
-			}
-		}
+		return isSelectorExprTainted(ctx, e)
 	case *ast.Ident:
-		// Check if variable name suggests user input
-		if matcher.New([]string{"userInput", "input", "param", "cmd", "arg", "data", "filename"}).Match(e.Name) {
-			return true
-		}
-		// Also check types info if available
-		if ctx.Info() != nil {
-			obj := ctx.Info().Uses[e]
-			if obj != nil {
-				if v, ok := obj.(*types.Var); ok && v.Pkg() != nil {
-					// Heuristic: check if variable name contains suspicious input identifiers
-					return matcher.New([]string{"input", "param", "cmd", "arg", "data"}).Match(e.Name)
-				}
-			}
-		}
+		return isIdentTainted(ctx, e)
 	}
+	return false
+}
+
+// isCallExprTainted checks if a call expression is tainted
+func isCallExprTainted(ctx *analyzer.AnalyzerContext, call *ast.CallExpr) bool {
+	if funIdent, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return isPackageCallTainted(ctx, funIdent)
+	}
+	return false
+}
+
+// isPackageCallTainted checks if a package call is tainted
+func isPackageCallTainted(ctx *analyzer.AnalyzerContext, funIdent *ast.SelectorExpr) bool {
+	pkgIdent, ok := funIdent.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+
+	switch pkgIdent.Name {
+	case "os":
+		return funIdent.Sel.Name == "Getenv"
+	case "r":
+		return isHTTPRequestTainted(funIdent.Sel.Name)
+	}
+	return false
+}
+
+// isHTTPRequestTainted checks if HTTP request methods are tainted
+func isHTTPRequestTainted(methodName string) bool {
+	return methodName == "URL" || methodName == "FormValue" || methodName == "PostFormValue"
+}
+
+// isSelectorExprTainted checks if a selector expression is tainted
+func isSelectorExprTainted(ctx *analyzer.AnalyzerContext, selector *ast.SelectorExpr) bool {
+	if x, ok := selector.X.(*ast.SelectorExpr); ok {
+		return isHTTPQueryTainted(ctx, x, selector)
+	}
+	return false
+}
+
+// isHTTPQueryTainted checks if HTTP query parameters are tainted
+func isHTTPQueryTainted(ctx *analyzer.AnalyzerContext, x *ast.SelectorExpr, selector *ast.SelectorExpr) bool {
+	if pkg, ok := x.X.(*ast.Ident); ok {
+		return pkg.Name == "r" && x.Sel.Name == "URL" && selector.Sel.Name == "Query"
+	}
+	return false
+}
+
+// isIdentTainted checks if an identifier is tainted
+func isIdentTainted(ctx *analyzer.AnalyzerContext, ident *ast.Ident) bool {
+	// Check if variable name suggests user input
+	if isVariableNameTainted(ident.Name) {
+		return true
+	}
+	
+	// Also check types info if available
+	return isTypeInfoTainted(ctx, ident)
+}
+
+// isVariableNameTainted checks if a variable name suggests tainted input
+func isVariableNameTainted(name string) bool {
+	return matcher.New([]string{"userInput", "input", "param", "cmd", "arg", "data", "filename"}).Match(name)
+}
+
+// isTypeInfoTainted checks if type information suggests tainted input
+func isTypeInfoTainted(ctx *analyzer.AnalyzerContext, ident *ast.Ident) bool {
+	if ctx.Info() == nil {
+		return false
+	}
+	
+	obj := ctx.Info().Uses[ident]
+	if obj == nil {
+		return false
+	}
+	
+	if v, ok := obj.(*types.Var); ok && v.Pkg() != nil {
+		// Heuristic: check if variable name contains suspicious input identifiers
+		return matcher.New([]string{"input", "param", "cmd", "arg", "data"}).Match(ident.Name)
+	}
+	
 	return false
 }

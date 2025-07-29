@@ -20,6 +20,7 @@ import (
 	"github.com/Voskan/codexsentinel/report"
 	"github.com/Voskan/codexsentinel/report/formats"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 )
 
 // NewScanCmd returns the `scan` command that analyzes the target source code.
@@ -41,192 +42,7 @@ func NewScanCmd() *cobra.Command {
 		Short: "Run static analysis on the target source code",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
-
-			// Use path from args if provided, otherwise use flag
-			targetPath := path
-			if len(args) > 0 {
-				targetPath = args[0]
-			}
-
-			// Initialize logger
-			if err := logx.Init(true); err != nil {
-				return fmt.Errorf("failed to initialize logger: %w", err)
-			}
-			defer logx.Sync()
-
-			logger := logx.L()
-			logger.Infof("Starting CodexSentinel analysis on path: %s", targetPath)
-
-			// Get Git metadata if available
-			var gitMetadata *report.GitMetadata
-			if gitMeta, err := git.GetGitMetadata(); err == nil {
-				logger.Infof("Git repository root: %s", gitMeta.RepoRoot)
-				if gitMeta.CommitHash != "" {
-					logger.Infof("Latest commit: %s by %s", gitMeta.CommitShort, gitMeta.Author)
-				}
-				if gitMeta.IsDirty {
-					logger.Warnf("Working directory has uncommitted changes")
-				}
-				
-				// Convert to report.GitMetadata
-				gitMetadata = &report.GitMetadata{
-					RepoRoot:    gitMeta.RepoRoot,
-					Branch:      gitMeta.Branch,
-					CommitHash:  gitMeta.CommitHash,
-					CommitShort: gitMeta.CommitShort,
-					Author:      gitMeta.Author,
-					Email:       gitMeta.Email,
-					Message:     gitMeta.Message,
-					Timestamp:   gitMeta.Timestamp,
-					IsDirty:     gitMeta.IsDirty,
-				}
-			}
-
-			var results []result.Issue
-			var err error
-
-			if depsOnly {
-				// Run only dependency analysis
-				logger.Infof("Running dependency analysis only")
-				results, err = runDependencyAnalysis(targetPath)
-				if err != nil {
-					return fmt.Errorf("dependency analysis failed: %w", err)
-				}
-			} else {
-				// Run full analysis
-				// Use fsutil for safe file walking
-				fileOpts := fsutil.WalkOptions{
-					RootDir:           targetPath,
-					AllowedExtensions: []string{".go"},
-					MaxFileSizeBytes:  10 * 1024 * 1024, // 10MB limit
-					FollowSymlinks:    false,
-					IncludeHiddenFiles: false,
-					ExcludedPaths:     []string{"vendor", "node_modules", ".git"},
-				}
-
-				files, err := fsutil.Walk(fileOpts)
-				if err != nil {
-					logger.Warnf("Failed to walk files: %v", err)
-				} else {
-					logger.Infof("Found %d Go files to analyze", len(files))
-				}
-
-				// Load ignore rules if specified
-				var ignoreManager *ignore.Manager
-				if ignoreFile != "" {
-					ignoreManager = ignore.NewManager()
-					if err := ignoreManager.LoadFile(ignoreFile); err != nil {
-						logger.Warnf("Failed to load ignore file: %v", err)
-					} else {
-						logger.Infof("Loaded ignore rules from: %s", ignoreFile)
-					}
-				}
-
-				// Load config
-				var cfg *config.Config
-				if configFile != "" {
-					cfg, err = config.LoadFromPath(configFile)
-					if err != nil {
-						return fmt.Errorf("failed to load config from %s: %w", configFile, err)
-					}
-					logger.Infof("Loaded custom config from: %s", configFile)
-				} else {
-					cfg, err = config.LoadDefaultPathPtr()
-					if err != nil {
-						return fmt.Errorf("failed to load config: %w", err)
-					}
-				}
-
-				// Load YAML rules from assets/rules directory
-				yamlRulesDir := "assets/rules"
-				if _, err := os.Stat(yamlRulesDir); err == nil {
-					if err := yaml.LoadFromDir(yamlRulesDir); err != nil {
-						logger.Warnf("Failed to load YAML rules from %s: %v", yamlRulesDir, err)
-					} else {
-						logger.Infof("Loaded YAML rules from %s", yamlRulesDir)
-					}
-				}
-
-				// Load YAML rules from config rule paths
-				for _, rulePath := range cfg.Rules.RulePaths {
-					if _, err := os.Stat(rulePath); err == nil {
-						if err := yaml.LoadFromDir(rulePath); err != nil {
-							logger.Warnf("Failed to load YAML rules from %s: %v", rulePath, err)
-						} else {
-							logger.Infof("Loaded YAML rules from %s", rulePath)
-						}
-					}
-				}
-
-				// Run analysis
-				results, err = engine.Run(ctx, targetPath, cfg)
-				if err != nil {
-					return fmt.Errorf("analysis failed: %w", err)
-				}
-
-				// Filter out ignored issues
-				if ignoreManager != nil {
-					filteredResults := make([]result.Issue, 0)
-					ignoredCount := 0
-					for _, issue := range results {
-						if !ignoreManager.IsIgnored(issue.Location.File, issue.Location.Line, issue.ID) {
-							filteredResults = append(filteredResults, issue)
-						} else {
-							ignoredCount++
-						}
-					}
-					if ignoredCount > 0 {
-						logger.Infof("Ignored %d issues based on ignore rules", ignoredCount)
-					}
-					results = filteredResults
-				}
-
-				// Filter by severity if specified
-				if severity != "" {
-					filteredResults := make([]result.Issue, 0)
-					severityFilter := result.ParseSeverity(severity)
-					for _, issue := range results {
-						if issue.Severity.GreaterThanOrEqual(severityFilter) {
-							filteredResults = append(filteredResults, issue)
-						}
-					}
-					logger.Infof("Filtered to %d issues with severity >= %s", len(filteredResults), severity)
-					results = filteredResults
-				}
-			}
-
-			logger.Infof("Analysis completed, found %d issues", len(results))
-
-			// Determine output path
-			reportDir := "scan_reports"
-			if _, err := os.Stat(reportDir); os.IsNotExist(err) {
-				if err := os.Mkdir(reportDir, 0755); err != nil {
-					return fmt.Errorf("failed to create report directory: %w", err)
-				}
-			}
-			if outPath == "" {
-				outPath = filepath.Join(reportDir, defaultOutputPath(format))
-			} else {
-				outPath = filepath.Join(reportDir, filepath.Base(outPath))
-			}
-
-			// Generate report
-			if err := writeReport(results, format, outPath, gitMetadata); err != nil {
-				return fmt.Errorf("failed to write report: %w", err)
-			}
-
-			logger.Infof("Report generated: %s", outPath)
-
-			// Display result summary
-			printSummary(results)
-
-			// Exit code control
-			if strict && len(results) > 0 {
-				exitCode = 1
-			}
-			os.Exit(exitCode)
-			return nil
+			return runScan(path, args, format, outPath, strict, ignoreFile, depsOnly, configFile, severity, exitCode)
 		},
 	}
 
@@ -240,6 +56,91 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().StringVar(&severity, "severity", "", "Filter issues by severity (low, medium, high, critical)")
 
 	return cmd
+}
+
+// runScan handles the main scan logic
+func runScan(path string, args []string, format, outPath string, strict bool, ignoreFile string, depsOnly bool, configFile, severity string, exitCode int) error {
+	ctx := context.Background()
+
+	// Use path from args if provided, otherwise use flag
+	targetPath := path
+	if len(args) > 0 {
+		targetPath = args[0]
+	}
+
+	// Initialize logger
+	if err := logx.Init(true); err != nil {
+		return fmt.Errorf("failed to initialize logger: %w", err)
+	}
+	defer logx.Sync()
+
+	logger := logx.L()
+	logger.Infof("Starting CodexSentinel analysis on path: %s", targetPath)
+
+	// Get Git metadata if available
+	gitMetadata := getGitMetadata(logger)
+
+	var results []result.Issue
+	var err error
+
+	if depsOnly {
+		// Run only dependency analysis
+		logger.Infof("Running dependency analysis only")
+		results, err = runDependencyAnalysis(targetPath)
+		if err != nil {
+			return fmt.Errorf("dependency analysis failed: %w", err)
+		}
+	} else {
+		// Run full analysis
+		results, err = runFullAnalysis(ctx, targetPath, ignoreFile, configFile, severity, logger)
+		if err != nil {
+			return fmt.Errorf("analysis failed: %w", err)
+		}
+	}
+
+	logger.Infof("Analysis completed, found %d issues", len(results))
+
+	// Generate report
+	if err := generateReport(results, format, outPath, gitMetadata, logger); err != nil {
+		return fmt.Errorf("failed to generate report: %w", err)
+	}
+
+	// Display result summary
+	printSummary(results)
+
+	// Exit code control
+	if strict && len(results) > 0 {
+		exitCode = 1
+	}
+	os.Exit(exitCode)
+	return nil
+}
+
+// getGitMetadata retrieves and logs Git metadata
+func getGitMetadata(logger *zap.SugaredLogger) *report.GitMetadata {
+	if gitMeta, err := git.GetGitMetadata(); err == nil {
+		logger.Infof("Git repository root: %s", gitMeta.RepoRoot)
+		if gitMeta.CommitHash != "" {
+			logger.Infof("Latest commit: %s by %s", gitMeta.CommitShort, gitMeta.Author)
+		}
+		if gitMeta.IsDirty {
+			logger.Warnf("Working directory has uncommitted changes")
+		}
+
+		// Convert to report.GitMetadata
+		return &report.GitMetadata{
+			RepoRoot:    gitMeta.RepoRoot,
+			Branch:      gitMeta.Branch,
+			CommitHash:  gitMeta.CommitHash,
+			CommitShort: gitMeta.CommitShort,
+			Author:      gitMeta.Author,
+			Email:       gitMeta.Email,
+			Message:     gitMeta.Message,
+			Timestamp:   gitMeta.Timestamp,
+			IsDirty:     gitMeta.IsDirty,
+		}
+	}
+	return nil
 }
 
 // runDependencyAnalysis performs dependency analysis and returns issues
@@ -306,6 +207,166 @@ func runDependencyAnalysis(targetPath string) ([]result.Issue, error) {
 	}
 
 	return issues, nil
+}
+
+// runFullAnalysis performs the complete analysis workflow
+func runFullAnalysis(ctx context.Context, targetPath, ignoreFile, configFile, severity string, logger *zap.SugaredLogger) ([]result.Issue, error) {
+	// Use fsutil for safe file walking
+	fileOpts := fsutil.WalkOptions{
+		RootDir:            targetPath,
+		AllowedExtensions:  []string{".go"},
+		MaxFileSizeBytes:   10 * 1024 * 1024, // 10MB limit
+		FollowSymlinks:     false,
+		IncludeHiddenFiles: false,
+		ExcludedPaths:      []string{"vendor", "node_modules", ".git"},
+	}
+
+	files, err := fsutil.Walk(fileOpts)
+	if err != nil {
+		logger.Warnf("Failed to walk files: %v", err)
+	} else {
+		logger.Infof("Found %d Go files to analyze", len(files))
+	}
+
+	// Load ignore rules if specified
+	ignoreManager := loadIgnoreManager(ignoreFile, logger)
+
+	// Load config
+	cfg, err := loadConfig(configFile, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load YAML rules
+	loadYAMLRules(cfg, logger)
+
+	// Run analysis
+	results, err := engine.Run(ctx, targetPath, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("analysis failed: %w", err)
+	}
+
+	// Filter results
+	results = filterResults(results, ignoreManager, severity, logger)
+
+	return results, nil
+}
+
+// loadIgnoreManager loads ignore rules from file
+func loadIgnoreManager(ignoreFile string, logger *zap.SugaredLogger) *ignore.Manager {
+	if ignoreFile == "" {
+		return nil
+	}
+
+	ignoreManager := ignore.NewManager()
+	if err := ignoreManager.LoadFile(ignoreFile); err != nil {
+		logger.Warnf("Failed to load ignore file: %v", err)
+		return nil
+	}
+
+	logger.Infof("Loaded ignore rules from: %s", ignoreFile)
+	return ignoreManager
+}
+
+// loadConfig loads configuration from file or default
+func loadConfig(configFile string, logger *zap.SugaredLogger) (*config.Config, error) {
+	if configFile != "" {
+		cfg, err := config.LoadFromPath(configFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load config from %s: %w", configFile, err)
+		}
+		logger.Infof("Loaded custom config from: %s", configFile)
+		return cfg, nil
+	}
+
+	cfg, err := config.LoadDefaultPathPtr()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+	return cfg, nil
+}
+
+// loadYAMLRules loads YAML rules from directories
+func loadYAMLRules(cfg *config.Config, logger *zap.SugaredLogger) {
+	// Load YAML rules from assets/rules directory
+	yamlRulesDir := "assets/rules"
+	if _, err := os.Stat(yamlRulesDir); err == nil {
+		if err := yaml.LoadFromDir(yamlRulesDir); err != nil {
+			logger.Warnf("Failed to load YAML rules from %s: %v", yamlRulesDir, err)
+		} else {
+			logger.Infof("Loaded YAML rules from %s", yamlRulesDir)
+		}
+	}
+
+	// Load YAML rules from config rule paths
+	for _, rulePath := range cfg.Rules.RulePaths {
+		if _, err := os.Stat(rulePath); err == nil {
+			if err := yaml.LoadFromDir(rulePath); err != nil {
+				logger.Warnf("Failed to load YAML rules from %s: %v", rulePath, err)
+			} else {
+				logger.Infof("Loaded YAML rules from %s", rulePath)
+			}
+		}
+	}
+}
+
+// filterResults filters results based on ignore rules and severity
+func filterResults(results []result.Issue, ignoreManager *ignore.Manager, severity string, logger *zap.SugaredLogger) []result.Issue {
+	// Filter out ignored issues
+	if ignoreManager != nil {
+		filteredResults := make([]result.Issue, 0)
+		ignoredCount := 0
+		for _, issue := range results {
+			if !ignoreManager.IsIgnored(issue.Location.File, issue.Location.Line, issue.ID) {
+				filteredResults = append(filteredResults, issue)
+			} else {
+				ignoredCount++
+			}
+		}
+		if ignoredCount > 0 {
+			logger.Infof("Ignored %d issues based on ignore rules", ignoredCount)
+		}
+		results = filteredResults
+	}
+
+	// Filter by severity if specified
+	if severity != "" {
+		filteredResults := make([]result.Issue, 0)
+		severityFilter := result.ParseSeverity(severity)
+		for _, issue := range results {
+			if issue.Severity.GreaterThanOrEqual(severityFilter) {
+				filteredResults = append(filteredResults, issue)
+			}
+		}
+		logger.Infof("Filtered to %d issues with severity >= %s", len(filteredResults), severity)
+		results = filteredResults
+	}
+
+	return results
+}
+
+// generateReport creates and writes the analysis report
+func generateReport(results []result.Issue, format, outPath string, gitMetadata *report.GitMetadata, logger *zap.SugaredLogger) error {
+	// Determine output path
+	reportDir := "scan_reports"
+	if _, err := os.Stat(reportDir); os.IsNotExist(err) {
+		if err := os.Mkdir(reportDir, 0755); err != nil {
+			return fmt.Errorf("failed to create report directory: %w", err)
+		}
+	}
+	if outPath == "" {
+		outPath = filepath.Join(reportDir, defaultOutputPath(format))
+	} else {
+		outPath = filepath.Join(reportDir, filepath.Base(outPath))
+	}
+
+	// Generate report
+	if err := writeReport(results, format, outPath, gitMetadata); err != nil {
+		return fmt.Errorf("failed to write report: %w", err)
+	}
+
+	logger.Infof("Report generated: %s", outPath)
+	return nil
 }
 
 // defaultOutputPath returns the default filename for a given report format.

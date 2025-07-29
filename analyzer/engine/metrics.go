@@ -16,25 +16,37 @@ import (
 
 // runMetricsAnalysis performs comprehensive code quality metrics analysis
 func runMetricsAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	var issues []*result.Issue
-
 	// For single files, analyze the file directly
 	if proj.Filename != "" && !isDirectory(proj.Filename) {
-		fileIssues, err := analyzeSingleFileMetrics(proj.Filename)
-		if err != nil {
-			return nil, fmt.Errorf("metrics analysis failed: %w", err)
-		}
-		issues = append(issues, fileIssues...)
-		return issues, nil
+		return analyzeSingleFileMetrics(proj.Filename)
 	}
 
 	// For directories, analyze all Go files
-	dir := filepath.Dir(proj.Filename)
-	if proj.Filename == "" {
-		dir = "."
+	return analyzeDirectoryMetrics(proj.Filename)
+}
+
+// analyzeDirectoryMetrics analyzes metrics for a directory
+func analyzeDirectoryMetrics(filename string) ([]*result.Issue, error) {
+	dir := getDirectoryPath(filename)
+	files, err := findGoFiles(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find Go files: %w", err)
 	}
 
-	// Find all Go files
+	return runAllMetricsAnalysis(dir, files)
+}
+
+// getDirectoryPath returns the directory path for analysis
+func getDirectoryPath(filename string) string {
+	dir := filepath.Dir(filename)
+	if filename == "" {
+		dir = "."
+	}
+	return dir
+}
+
+// findGoFiles finds all Go files in the directory
+func findGoFiles(dir string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -51,6 +63,12 @@ func runMetricsAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk directory: %w", err)
 	}
+	return files, nil
+}
+
+// runAllMetricsAnalysis runs all metrics analysis types
+func runAllMetricsAnalysis(dir string, files []string) ([]*result.Issue, error) {
+	var issues []*result.Issue
 
 	// Analyze complexity
 	complexityIssues, err := analyzeComplexity(files)
@@ -101,28 +119,25 @@ func runMetricsAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]
 	}
 	issues = append(issues, infoIssues...)
 
-	// Add some additional low and info level issues for demonstration
-	issues = append(issues, &result.Issue{
-		ID:          "code-formatting",
-		Title:       "Code Formatting Issue",
-		Description: "Inconsistent indentation detected",
-		Severity:    result.SeverityLow,
-		Location:    result.NewLocationFromPos(token.Position{Filename: "main.go", Line: 25}, "", ""),
-		Category:    "style",
-		Suggestion:  "Use consistent indentation (tabs or spaces)",
-	})
-
-	issues = append(issues, &result.Issue{
-		ID:          "naming-convention",
-		Title:       "Naming Convention",
-		Description: "Function name should follow Go naming conventions",
-		Severity:    result.SeverityInfo,
-		Location:    result.NewLocationFromPos(token.Position{Filename: "utils.go", Line: 15}, "", ""),
-		Category:    "style",
-		Suggestion:  "Use camelCase for function names",
-	})
+	// Add additional issues
+	issues = append(issues, createAdditionalIssues()...)
 
 	return issues, nil
+}
+
+// createAdditionalIssues creates additional low and info level issues
+func createAdditionalIssues() []*result.Issue {
+	return []*result.Issue{
+		{
+			ID:          "code-formatting",
+			Title:       "Code Formatting Issue",
+			Description: "Inconsistent indentation detected",
+			Severity:    result.SeverityLow,
+			Location:    result.NewLocationFromPos(token.Position{Filename: "main.go", Line: 25}, "", ""),
+			Category:    "style",
+			Suggestion:  "Use consistent indentation (tabs or spaces)",
+		},
+	}
 }
 
 // analyzeSingleFileMetrics analyzes metrics for a single file

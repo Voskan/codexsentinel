@@ -18,7 +18,7 @@ func WriteJSONReport(issues []report.Issue, path string, gitMeta *report.GitMeta
 		Issues:      issues,
 		GeneratedAt: time.Now().Format(time.RFC3339),
 	}
-	
+
 	if gitMeta != nil {
 		reportData.Git = *gitMeta
 	}
@@ -34,5 +34,3 @@ func WriteJSONReport(issues []report.Issue, path string, gitMeta *report.GitMeta
 
 	return nil
 }
-
-
