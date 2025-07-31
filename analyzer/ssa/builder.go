@@ -9,7 +9,6 @@ import (
 
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
-	ssabuilder "golang.org/x/tools/go/ssa"
 )
 
 // SSABuilder is responsible for building SSA representation of Go packages.
@@ -48,7 +47,7 @@ func BuildSSA(dirs []string) (*SSABuilder, error) {
 		return nil, fmt.Errorf("encountered errors while loading packages")
 	}
 
-	prog := ssabuilder.NewProgram(cfg.Fset, ssabuilder.SanityCheckFunctions)
+	prog := ssa.NewProgram(cfg.Fset, ssa.SanityCheckFunctions)
 	ssaPkgs := make([]*ssa.Package, 0, len(pkgs))
 	typesMap := make(map[string]*types.Package)
 

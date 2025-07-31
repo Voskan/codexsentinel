@@ -30,13 +30,13 @@ func NewRootCmd(ctx context.Context) *cobra.Command {
 
 	// Set custom flag error handling
 	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
-		_ = c.Usage()
+		c.Usage()
 		return fmt.Errorf("flag error: %w", err)
 	})
 
 	// Handle unknown commands gracefully
 	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
-		_ = c.Usage()
+		c.Usage()
 	})
 
 	// Pre-run validation if needed
@@ -51,7 +51,7 @@ func NewRootCmd(ctx context.Context) *cobra.Command {
 func normalizeFlags(flags *pflag.FlagSet) {
 	flags.VisitAll(func(f *pflag.Flag) {
 		if f.Changed && f.Value.Type() == "string" && f.Value.String() == "" {
-			_ = flags.Set(f.Name, "")
+			flags.Set(f.Name, "")
 		}
 	})
 }

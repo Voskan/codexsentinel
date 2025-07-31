@@ -83,7 +83,11 @@ func ScanDependencies(goModPath string, allowLicenses, denyLicenses []string) ([
 	var entropyFindings []EntropyFinding
 	if stat, err := os.Stat(vendorDir); err == nil && stat.IsDir() {
 		files := collectGoFiles(vendorDir)
-		entropyFindings, _ = AnalyzeHighEntropyStrings(files, 20, 4.2)
+		entropyFindings, err = AnalyzeHighEntropyStrings(files, 20, 4.2)
+	if err != nil {
+		// Log error but continue with analysis
+		fmt.Printf("Warning: entropy analysis failed: %v\n", err)
+	}
 	}
 
 	// Group entropy results by module
@@ -128,7 +132,7 @@ func ScanDependencies(goModPath string, allowLicenses, denyLicenses []string) ([
 // collectGoFiles recursively collects all .go files from vendor directory.
 func collectGoFiles(root string) []string {
 	var result []string
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -137,6 +141,9 @@ func collectGoFiles(root string) []string {
 		}
 		return nil
 	})
+	if err != nil {
+		fmt.Printf("Warning: failed to walk directory %s: %v\n", root, err)
+	}
 	return result
 }
 

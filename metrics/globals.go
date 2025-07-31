@@ -39,8 +39,7 @@ func AnalyzeGlobals(pattern string) ([]GlobalSymbol, error) {
 	var results []GlobalSymbol
 
 	for _, pkg := range pkgs {
-		for i, file := range pkg.Syntax {
-			_ = pkg.CompiledGoFiles[i] // fileName not used
+		for _, file := range pkg.Syntax {
 
 			for _, decl := range file.Decls {
 				gen, ok := decl.(*ast.GenDecl)

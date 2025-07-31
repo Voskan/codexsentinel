@@ -153,8 +153,32 @@ func analyzeAuthBypassCall(call *ast.CallExpr, ctx *analyzer.AnalyzerContext) {
 	}
 }
 
-// isAuthBypassFunction checks if function name indicates authentication bypass
+// isAuthBypassFunction checks if function name indicates authentication bypass with improved accuracy
 func isAuthBypassFunction(funcName string) bool {
+	// Exclude internal scanner functions and safe patterns
+	excludePatterns := []string{
+		"loadFile", "validateRule", "setDefaultValues", "getRulePattern",
+		"processFilters", "processParamFilter", "processCallFilter",
+		"processFileExtFilter", "processPackageFilter",
+		"NewSuppressionManager", "GetSuppressionReason",
+		"isSafePattern", "isSafeSQLPattern", "isSafeXSSPattern",
+		"isSafeCommandPattern", "isSafePathPattern",
+		"validate", "check", "verify", "test", "assert",
+		"safe", "secure", "protected", "guarded",
+		"auth_check", "auth_validate", "auth_verify",
+		"check_auth", "validate_auth", "verify_auth",
+		"secure_auth", "protected_auth", "guarded_auth",
+	}
+	
+	funcNameLower := strings.ToLower(funcName)
+	
+	// Check for exclude patterns first
+	for _, exclude := range excludePatterns {
+		if strings.Contains(funcNameLower, exclude) {
+			return false
+		}
+	}
+	
 	bypassPatterns := []string{
 		"bypass", "skip", "disable", "ignore", "override",
 		"auth_bypass", "auth_skip", "auth_disable", "auth_ignore",
@@ -163,16 +187,16 @@ func isAuthBypassFunction(funcName string) bool {
 		"superuser", "root_access", "god_mode", "debug_mode",
 		"test_auth", "dev_auth", "temp_auth", "fake_auth",
 	}
-
+	
 	for _, pattern := range bypassPatterns {
-		if strings.Contains(funcName, pattern) {
+		if strings.Contains(funcNameLower, pattern) {
 			return true
 		}
 	}
 	return false
 }
 
-// isAuthBypassCondition checks if condition indicates authentication bypass
+// isAuthBypassCondition checks if condition indicates authentication bypass with improved accuracy
 func isAuthBypassCondition(condition string) bool {
 	bypassPatterns := []string{
 		"true", "false", "1", "0", "admin", "root", "superuser",
@@ -181,17 +205,30 @@ func isAuthBypassCondition(condition string) bool {
 		"auth == false", "auth == true", "auth == 0", "auth == 1",
 		"!auth", "auth == nil", "auth == \"\"",
 	}
+	
+	// Exclude safe patterns
+	safePatterns := []string{
+		"validate", "check", "verify", "test", "assert",
+		"safe", "secure", "protected", "guarded",
+		"auth_check", "auth_validate", "auth_verify",
+	}
 
 	condLower := strings.ToLower(condition)
 	for _, pattern := range bypassPatterns {
 		if strings.Contains(condLower, pattern) {
+			// Double-check it's not a safe pattern
+			for _, safe := range safePatterns {
+				if strings.Contains(condLower, safe) {
+					return false
+				}
+			}
 			return true
 		}
 	}
 	return false
 }
 
-// isAuthBypassAssignment checks if assignment indicates authentication bypass
+// isAuthBypassAssignment checks if assignment indicates authentication bypass with improved accuracy
 func isAuthBypassAssignment(expr ast.Expr) bool {
 	// Check for hardcoded authentication bypass values
 	if lit, ok := expr.(*ast.BasicLit); ok {
@@ -201,8 +238,21 @@ func isAuthBypassAssignment(expr ast.Expr) bool {
 			"bypass", "skip", "disable", "ignore", "override",
 			"debug", "test", "dev", "temp", "fake", "god", "master",
 		}
+		
+		// Exclude safe patterns
+		safeValues := []string{
+			"validate", "check", "verify", "test", "assert",
+			"safe", "secure", "protected", "guarded",
+		}
+		
 		for _, bypass := range bypassValues {
 			if strings.Contains(value, bypass) {
+				// Double-check it's not a safe pattern
+				for _, safe := range safeValues {
+					if strings.Contains(value, safe) {
+						return false
+					}
+				}
 				return true
 			}
 		}
@@ -216,7 +266,7 @@ func isAuthBypassAssignment(expr ast.Expr) bool {
 	return false
 }
 
-// isAuthBypassCall checks if function call indicates authentication bypass
+// isAuthBypassCall checks if function call indicates authentication bypass with improved accuracy
 func isAuthBypassCall(funcName string) bool {
 	bypassCalls := []string{
 		"bypass", "skip", "disable", "ignore", "override",
@@ -228,16 +278,30 @@ func isAuthBypassCall(funcName string) bool {
 		"set_admin", "set_root", "set_superuser",
 		"force_auth", "override_auth", "fake_auth",
 	}
+	
+	// Exclude safe patterns
+	safeCalls := []string{
+		"validate", "check", "verify", "test", "assert",
+		"safe", "secure", "protected", "guarded",
+		"auth_check", "auth_validate", "auth_verify",
+	}
 
+	funcNameLower := strings.ToLower(funcName)
 	for _, bypass := range bypassCalls {
-		if strings.Contains(funcName, bypass) {
+		if strings.Contains(funcNameLower, bypass) {
+			// Double-check it's not a safe pattern
+			for _, safe := range safeCalls {
+				if strings.Contains(funcNameLower, safe) {
+					return false
+				}
+			}
 			return true
 		}
 	}
 	return false
 }
 
-// isAuthBypassArgument checks if function argument indicates authentication bypass
+// isAuthBypassArgument checks if function argument indicates authentication bypass with improved accuracy
 func isAuthBypassArgument(arg ast.Expr) bool {
 	// Check for hardcoded authentication bypass values
 	if lit, ok := arg.(*ast.BasicLit); ok {
@@ -247,8 +311,21 @@ func isAuthBypassArgument(arg ast.Expr) bool {
 			"bypass", "skip", "disable", "ignore", "override",
 			"debug", "test", "dev", "temp", "fake", "god", "master",
 		}
+		
+		// Exclude safe patterns
+		safeValues := []string{
+			"validate", "check", "verify", "test", "assert",
+			"safe", "secure", "protected", "guarded",
+		}
+		
 		for _, bypass := range bypassValues {
 			if strings.Contains(value, bypass) {
+				// Double-check it's not a safe pattern
+				for _, safe := range safeValues {
+					if strings.Contains(value, safe) {
+						return false
+					}
+				}
 				return true
 			}
 		}

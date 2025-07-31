@@ -38,9 +38,22 @@ func AnalyzeDeadCode(pattern string) ([]DeadFunction, error) {
 
 	// Build all SSA packages
 	for _, pkg := range pkgs {
+		if pkg.Types == nil || len(pkg.Syntax) == 0 {
+			continue
+		}
 		ssaPkg := prog.CreatePackage(pkg.Types, pkg.Syntax, pkg.TypesInfo, true)
-		ssaPkg.Build()
-		ssaPkgs = append(ssaPkgs, ssaPkg)
+		if ssaPkg != nil {
+			// Try to build SSA package, skip if it fails
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// SSA build failed, skip this package
+					}
+				}()
+				ssaPkg.Build()
+				ssaPkgs = append(ssaPkgs, ssaPkg)
+			}()
+		}
 	}
 
 	callGraph := make(map[*ssa.Function]bool)

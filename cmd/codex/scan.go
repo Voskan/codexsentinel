@@ -308,6 +308,17 @@ func loadYAMLRules(cfg *config.Config, logger *zap.SugaredLogger) {
 			}
 		}
 	}
+
+	// Load specific YAML rule files
+	for _, ruleFile := range cfg.Rules.RuleFiles {
+		if _, err := os.Stat(ruleFile); err == nil {
+			if err := yaml.LoadFromFile(ruleFile); err != nil {
+				logger.Warnf("Failed to load YAML rule file %s: %v", ruleFile, err)
+			} else {
+				logger.Infof("Loaded YAML rule file %s", ruleFile)
+			}
+		}
+	}
 }
 
 // filterResults filters results based on ignore rules and severity

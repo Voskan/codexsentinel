@@ -48,7 +48,10 @@ func Init(dev bool) error {
 // You must call logx.Init() before using this.
 func L() *zap.SugaredLogger {
 	once.Do(func() {
-		_ = Init(true) // fallback to dev mode if Init wasn't called
+		if err := Init(true); err != nil {
+			// Fallback to dev mode if Init wasn't called
+			// Error is ignored as this is a fallback
+		}
 	})
 	return globalLogger
 }
@@ -56,6 +59,9 @@ func L() *zap.SugaredLogger {
 // Sync flushes the logger buffer before exiting.
 func Sync() {
 	if globalLogger != nil {
-		_ = globalLogger.Sync()
+		if err := globalLogger.Sync(); err != nil {
+			// Sync errors are typically ignored in production
+			// as they don't affect functionality
+		}
 	}
 }

@@ -264,29 +264,106 @@ func isIncludeOperation(call *ast.CallExpr) bool {
 	return false
 }
 
-// hasPathTraversalUserInput checks if the call has user input as arguments
+// hasPathTraversalUserInput checks if the call has user input as arguments with improved accuracy
 func hasPathTraversalUserInput(ctx *analyzer.AnalyzerContext, call *ast.CallExpr) bool {
 	for _, arg := range call.Args {
 		if isPathTraversalUserInputExpr(ctx, arg) {
+			// Additional check: if the operation is safe, don't report
+			if isSafePathOperation(call) {
+				return false
+			}
 			return true
 		}
 	}
 	return false
 }
 
-// isPathTraversalUserInputExpr checks if the expression is likely user input
+// isSafePathOperation checks if the file operation is considered safe
+func isSafePathOperation(call *ast.CallExpr) bool {
+	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
+		// Check for filepath.Clean() which sanitizes paths
+		if pkg, ok := fun.X.(*ast.Ident); ok && pkg.Name == "filepath" {
+			if fun.Sel.Name == "Clean" {
+				return true
+			}
+		}
+		
+		// Check for filepath.Join() with safe components
+		if pkg, ok := fun.X.(*ast.Ident); ok && pkg.Name == "filepath" {
+			if fun.Sel.Name == "Join" {
+				return hasSafePathComponents(call.Args)
+			}
+		}
+		
+		// Check for os.Stat() which is generally safe
+		if pkg, ok := fun.X.(*ast.Ident); ok && pkg.Name == "os" {
+			if fun.Sel.Name == "Stat" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasSafePathComponents checks if path components are safe
+func hasSafePathComponents(args []ast.Expr) bool {
+	for _, arg := range args {
+		if !isSafePathComponent(arg) {
+			return false
+		}
+	}
+	return true
+}
+
+// isSafePathComponent checks if a path component is safe
+func isSafePathComponent(expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		// String literals are generally safe
+		return true
+	case *ast.Ident:
+		// Check for safe variable names
+		name := strings.ToLower(e.Name)
+		safePatterns := []string{
+			"config", "setting", "default", "static", "fixed",
+			"template", "asset", "resource", "data", "cache",
+		}
+		for _, pattern := range safePatterns {
+			if strings.Contains(name, pattern) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isPathTraversalUserInputExpr checks if the expression is likely user input with improved accuracy
 func isPathTraversalUserInputExpr(ctx *analyzer.AnalyzerContext, expr ast.Expr) bool {
 	switch e := expr.(type) {
 	case *ast.Ident:
-		// Check for common user input variable names
+		// Check for common user input variable names with improved patterns
 		varName := strings.ToLower(e.Name)
 		userInputPatterns := []string{
 			"user", "input", "param", "arg", "file", "path", "filename",
 			"url", "uri", "query", "form", "post", "get", "request",
 			"upload", "download", "template", "include", "config",
 		}
+		
+		// Exclude safe patterns
+		safePatterns := []string{
+			"config", "setting", "default", "static", "fixed",
+			"template", "asset", "resource", "data", "cache",
+			"safe", "validated", "sanitized", "escaped",
+		}
+		
 		for _, pattern := range userInputPatterns {
 			if strings.Contains(varName, pattern) {
+				// Double-check it's not a safe pattern
+				for _, safe := range safePatterns {
+					if strings.Contains(varName, safe) {
+						return false
+					}
+				}
 				return true
 			}
 		}

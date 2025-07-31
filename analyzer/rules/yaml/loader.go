@@ -29,6 +29,11 @@ func LoadFromDir(dir string) error {
 	return nil
 }
 
+// LoadFromFile loads a single YAML rule file.
+func LoadFromFile(path string) error {
+	return loadFile(path)
+}
+
 // loadFile reads and parses a single YAML rule file.
 func loadFile(path string) error {
 	data, err := os.ReadFile(path)
@@ -155,7 +160,7 @@ func processPackageFilter(filter Filter, filtersMap map[string]string) {
 
 // setDefaultValues sets default values for rule fields
 func setDefaultValues(rule *RuleYAML) {
-	if rule.Enabled == false {
+	if !rule.Enabled {
 		rule.Enabled = true // Default to enabled
 	}
 	if rule.Category == "" {

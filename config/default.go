@@ -16,6 +16,15 @@ var DefaultConfig = Config{
 		Disabled:  []string{},
 		Severity:  map[string]string{},
 		RulePaths: []string{"rules/"},
+		RuleFiles: []string{"rules/security.yml", "rules/conventions.yml"},
+		// New configuration for false positive management
+		FalsePositiveConfig: FalsePositiveConfig{
+			EnableContextAnalysis: true,
+			EnableValidationChecks: true,
+			EnableSafePatterns: true,
+			MinConfidence: 0.7,
+			MaxFalsePositiveRate: 0.05,
+		},
 	},
 	Report: ReportConfig{
 		Formats:       []string{"json"},
@@ -48,4 +57,16 @@ var DefaultConfig = Config{
 		EnableAuthChecks:    true,
 		EnableInputValidate: true,
 	},
+	// New configuration for false positive management
+	FalsePositiveManagement: FalsePositiveManagementConfig{
+		EnableAutoSuppression: false,
+		EnableConfidenceScoring: true,
+		EnableContextAwareAnalysis: true,
+		EnableSafePatternDetection: true,
+		EnableValidationTracking: true,
+		ConfidenceThreshold: 0.8,
+		MaxSuppressionRate: 0.1,
+	},
 }
+
+
