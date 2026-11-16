@@ -3,260 +3,151 @@ package engine
 import (
 	"context"
 	"fmt"
-	"go/ast"
 	"go/token"
-	"go/types"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
+	"sort"
+	"sync"
 
 	"github.com/Voskan/codexsentinel/analyzer"
-	customast "github.com/Voskan/codexsentinel/analyzer/ast"
-	"github.com/Voskan/codexsentinel/analyzer/flow"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules"
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/matcher"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/ssa"
 )
 
-// Engine coordinates the entire static analysis process.
-type Engine struct {
-	cfg *Config
-}
-
-// Config defines the configuration for analysis execution.
-type Config struct {
-	Settings       *config.Config
-	EnableSSA      bool // Enables SSA-based analyzers
-	EnableTaint    bool // Enables taint analysis
-	EnableAST      bool // Enables AST-based rules
-	EnableBuiltins bool // Enables built-in rule handlers
-}
-
-// New creates a new Engine instance.
-func New(cfg *Config) *Engine {
-	return &Engine{cfg: cfg}
-}
-
-// Run executes the full analysis pipeline and returns discovered issues.
-func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-
-	if proj.Filename == "" {
-		return nil, fmt.Errorf("no Go files found in project")
+// Run loads a workspace once and analyzes its packages with bounded concurrency.
+func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, error) {
+	if cfg == nil {
+		defaults := config.NewDefaultConfig()
+		cfg = &defaults
 	}
-
-	var issues []*result.Issue
-
-	// 1. Run AST-based rules
-	if e.cfg.EnableAST {
-		astIssues, err := runASTAnalysis(ctx, proj)
-		if err != nil {
-			return nil, fmt.Errorf("AST analysis failed: %w", err)
-		}
-		issues = append(issues, astIssues...)
+	if err := config.Validate(cfg); err != nil {
+		return nil, err
 	}
-
-	// 2. Run SSA-based rules
-	if e.cfg.EnableSSA {
-		ssaIssues, err := runSSAAnalysis(ctx, proj)
-		if err != nil {
-			return nil, fmt.Errorf("SSA analysis failed: %w", err)
-		} else {
-			issues = append(issues, ssaIssues...)
-		}
-	}
-
-	// 3. Run taint tracking
-	if e.cfg.EnableTaint {
-		taintIssues, err := runTaintAnalysis(ctx, proj)
-		if err != nil {
-			return nil, fmt.Errorf("taint analysis failed: %w", err)
-		}
-		issues = append(issues, taintIssues...)
-	}
-
-	if e.cfg.Settings == nil || e.cfg.Settings.Dependencies.Enable {
-		depIssues, err := runDependencyAnalysis(ctx, proj)
-		if err != nil {
-			return nil, fmt.Errorf("dependency analysis failed: %w", err)
-		}
-		issues = append(issues, depIssues...)
-	}
-	if e.cfg.Settings == nil || e.cfg.Settings.Metrics.Enable {
-		metricIssues, err := runMetricsAnalysis(ctx, proj)
-		if err != nil {
-			return nil, fmt.Errorf("metrics analysis failed: %w", err)
-		}
-		issues = append(issues, metricIssues...)
-	}
-
-	return issues, nil
-}
-
-// runASTAnalysis applies registered AST rules to parsed files.
-func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	var issues []*result.Issue
-
-	fset := proj.Fset
-	if fset == nil {
-		fset = token.NewFileSet()
-		proj.Fset = fset
-	}
-	parsedFile, err := customast.ParseSource(proj.Filename, proj.Source)
+	ws, err := workspace.Load(ctx, path, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse file: %w", err)
+		return nil, err
 	}
-	file := parsedFile.File
-	proj.Fset = parsedFile.Fset
-
-	// Run all registered rules using existing AST
-	for _, rule := range proj.Rules {
-		if rule.Matcher != nil {
-
-			// Create a proper analysis.Pass for rule execution
-			pass := &analysis.Pass{
-				Fset:     proj.Fset,
-				Files:    []*ast.File{file},
-				Pkg:      nil, // Skip package for now
-				ResultOf: make(map[*analysis.Analyzer]interface{}),
+	workers := cfg.Scan.Concurrency
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(workers)
+	var mu sync.Mutex
+	var issues []result.Issue
+	for _, pkg := range ws.Packages {
+		group.Go(func() error {
+			if err := groupCtx.Err(); err != nil {
+				return err
 			}
-
-			rule.Matcher(proj, pass)
-		}
-	}
-
-	// Run YAML-based rules
-	yamlIssues, err := runYAMLRules(ctx, proj)
-	if err != nil {
-		return nil, fmt.Errorf("YAML rules analysis failed: %w", err)
-	}
-	issues = append(issues, yamlIssues...)
-
-	// Return collected issues
-	reportedIssues := proj.GetIssues()
-	reportedIssuesSlice := make([]*result.Issue, len(reportedIssues))
-	for i, issue := range reportedIssues {
-		reportedIssuesSlice[i] = &issue
-	}
-	issues = append(issues, reportedIssuesSlice...)
-
-	return issues, nil
-}
-
-// runYAMLRules executes all registered YAML-based rules
-func runYAMLRules(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	var issues []*result.Issue
-
-	// Get all registered rules
-	allRules := rules.All()
-
-	for _, rule := range allRules {
-		// Skip disabled rules
-		if !rule.Enabled {
-			continue
-		}
-
-		// Execute YAML rules that have an engine function
-		if rule.Engine != nil {
-			ruleIssues, err := rule.Engine(proj)
-			if err != nil {
-				// Log error but continue with other rules
-				fmt.Fprintf(os.Stderr, "Warning: YAML rule %s failed: %v\n", rule.ID, err)
-				continue
+			ac := analyzer.NewAnalyzerContext(ws.Fset, pkg.TypesInfo, nil, "", pkg.PkgPath, nil)
+			ac.Cfg, ac.RootDir = cfg, ws.RootDir
+			pass := workspace.NewAnalysisPass(ws, pkg, func(d analysis.Diagnostic) {
+				ac.Report(result.Issue{ID: d.Category, Description: d.Message, Severity: result.SeverityMedium, Category: "security", Location: result.NewLocationFromPos(ws.Fset.Position(d.Pos), "", pkg.PkgPath)})
+			})
+			ac.Files = pass.Files
+			if len(pass.Files) == 0 {
+				return nil
 			}
-
-			// Convert to pointer slice
-			for _, issue := range ruleIssues {
-				issues = append(issues, &issue)
+			ac.Filename = ws.Fset.Position(pass.Files[0].Pos()).Filename
+			registerBuiltinRules(ac)
+			for _, rule := range ac.Rules {
+				if err := groupCtx.Err(); err != nil {
+					return err
+				}
+				if rule.Matcher != nil && ruleEnabled(rule.ID, cfg) {
+					rule.Matcher(ac, pass)
+				}
 			}
-		}
-	}
-
-	return issues, nil
-}
-
-// runSSAAnalysis builds SSA and runs SSA-based rules.
-func runSSAAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	// For single files, skip SSA analysis to avoid package conflicts
-	// SSA analysis works best with full packages, not individual files
-	if proj.Filename != "" && !isDirectory(proj.Filename) {
-		// Skip SSA for single files to avoid package loading issues
-		return nil, nil
-	}
-
-	// Build SSA if not already built
-	if proj.SSA == nil {
-		// Use analyzer/ssa/builder.go to build SSA for the file's directory
-		dir := filepath.Dir(proj.Filename)
-		builder, err := codessa.BuildSSA([]string{dir})
-		if err != nil {
-			// Log error but don't fail the entire analysis
-			fmt.Fprintf(os.Stderr, "Warning: SSA analysis skipped due to error: %v\n", err)
-			return nil, nil
-		}
-		if len(builder.Packages) == 0 {
-			return nil, nil
-		}
-		proj.SSA = builder.Packages[0]
-	}
-
-	return nil, nil
-}
-
-// runTaintAnalysis performs taint propagation and reports flows to sinks.
-func runTaintAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	if proj.SSA == nil && proj.Filename != "" && !isDirectory(proj.Filename) {
-		return nil, nil
-	}
-
-	// Build SSA if not already built
-	if proj.SSA == nil {
-		dir := filepath.Dir(proj.Filename)
-		builder, err := codessa.BuildSSA([]string{dir})
-		if err != nil {
-			// Log error but don't fail the entire analysis
-			fmt.Fprintf(os.Stderr, "Warning: Taint analysis skipped due to error: %v\n", err)
-			return nil, nil
-		}
-		if len(builder.Packages) == 0 {
-			return nil, nil
-		}
-		proj.SSA = builder.Packages[0]
-	}
-
-	// Create taint engine
-	sources := flow.NewSourceRegistry()
-	sinks := flow.NewSinkRegistry()
-	taintEngine := flow.NewTaintEngine(sources, sinks, token.Position{})
-
-	// Analyze all functions in the SSA package
-	for _, mem := range proj.SSA.Members {
-		fn, ok := mem.(*ssa.Function)
-		if !ok || fn.Blocks == nil {
-			continue
-		}
-		taintEngine.AnalyzeFunction(fn)
-	}
-
-	// Convert TaintIssues to result.Issue
-	var issues []*result.Issue
-	for _, ti := range taintEngine.Issues {
-		issues = append(issues, &result.Issue{
-			ID:          "taint-flow",
-			Title:       "Taint flow from source to sink",
-			Description: "Untrusted data flows from source to sink function.",
-			Severity:    result.SeverityHigh,
-			Location:    result.NewLocationFromPos(token.Position{Offset: int(ti.SinkPos)}, "", ""),
-			Category:    "security",
-			Suggestion:  "Validate or sanitize user input before passing to sensitive functions.",
+			for _, rule := range rules.All() {
+				if rule.Enabled && rule.Engine != nil && ruleEnabled(rule.ID, cfg) {
+					found, err := rule.Engine(ac)
+					if err != nil {
+						return fmt.Errorf("rule %s: %w", rule.ID, err)
+					}
+					for _, issue := range found {
+						ac.Report(issue)
+					}
+				}
+			}
+			if cfg.Metrics.Enable {
+				for _, file := range pass.Files {
+					found, err := analyzeSingleFileMetrics(ws.Fset.Position(file.Pos()).Filename)
+					if err != nil {
+						return err
+					}
+					for _, issue := range found {
+						ac.Report(*issue)
+					}
+				}
+			}
+			mu.Lock()
+			issues = append(issues, ac.GetIssues()...)
+			mu.Unlock()
+			return nil
 		})
 	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	if cfg.Dependencies.Enable && ws.GoModPath != "" {
+		found, err := runDependencyAnalysis(ctx, &analyzer.AnalyzerContext{Filename: filepath.Dir(ws.GoModPath), Cfg: cfg})
+		if err != nil {
+			return nil, err
+		}
+		for _, issue := range found {
+			issues = append(issues, *issue)
+		}
+	}
+	issues = configureIssues(issues, cfg)
+	sort.SliceStable(issues, func(i, j int) bool {
+		a, b := issues[i], issues[j]
+		if a.Location.File != b.Location.File {
+			return a.Location.File < b.Location.File
+		}
+		if a.Location.Line != b.Location.Line {
+			return a.Location.Line < b.Location.Line
+		}
+		if a.Location.Column != b.Location.Column {
+			return a.Location.Column < b.Location.Column
+		}
+		return a.ID < b.ID
+	})
 	return issues, nil
+}
+
+func isDirectory(path string) bool { info, err := os.Stat(path); return err == nil && info.IsDir() }
+
+func ruleEnabled(id string, cfg *config.Config) bool {
+	return (len(cfg.Rules.Enabled) == 0 || matcher.New(cfg.Rules.Enabled).Match(id)) && !matcher.New(cfg.Rules.Disabled).Match(id)
+}
+
+func configureIssues(issues []result.Issue, cfg *config.Config) []result.Issue {
+	out := make([]result.Issue, 0, len(issues))
+	for _, issue := range issues {
+		if !ruleEnabled(issue.ID, cfg) {
+			continue
+		}
+		if severity, ok := cfg.Rules.SeverityOverrides[issue.ID]; ok {
+			issue.Severity = result.ParseSeverity(severity)
+		}
+		if issue.Confidence == 0 {
+			issue.Confidence = 1
+		}
+		if issue.Confidence < cfg.Suppression.MinConfidence {
+			continue
+		}
+		out = append(out, issue)
+	}
+	return out
 }
 
 // runDependencyAnalysis performs dependency and license analysis.
@@ -267,7 +158,7 @@ func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) 
 	}
 
 	// Find go.mod file
-	dir := filepath.Dir(proj.Filename)
+	dir := getDirectoryPath(proj.Filename)
 	if proj.Filename == "" {
 		dir = "."
 	}
@@ -279,8 +170,8 @@ func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) 
 	}
 
 	// Default license lists
-	allowLicenses := []string{"MIT", "Apache-2.0", "BSD-3-Clause"}
-	denyLicenses := []string{"AGPL-3.0", "GPL-3.0", "BSL-1.1"}
+	allowLicenses := proj.Cfg.Dependencies.AllowLicenses
+	denyLicenses := proj.Cfg.Dependencies.DenyLicenses
 
 	// Run dependency analysis
 	reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
@@ -337,231 +228,12 @@ func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) 
 	return issues, nil
 }
 
-// isDirectory checks if the given path is a directory
-func isDirectory(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	return info.IsDir()
-}
-
-// AnalyzePackages performs file-by-file analysis of all Go files in a directory, regardless of package structure.
-func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Issue, error) {
-	var allIssues []result.Issue
-
-	// Recursively collect all .go files
-	var files []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && filepath.Ext(path) == ".go" {
-			files = append(files, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Analyze each file individually
-	for _, file := range files {
-		issues, err := analyzeSingleFile(ctx, file, cfg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to analyze %s: %v\n", file, err)
-			continue
-		}
-		allIssues = append(allIssues, issues...)
-	}
-
-	// Run dependency analysis if go.mod exists
-	goModPath := filepath.Join(root, "go.mod")
-	if _, err := os.Stat(goModPath); err == nil && (cfg.Settings == nil || cfg.Settings.Dependencies.Enable) {
-		// Default license lists
-		allowLicenses := []string{"MIT", "Apache-2.0", "BSD-3-Clause"}
-		denyLicenses := []string{"AGPL-3.0", "GPL-3.0", "BSL-1.1"}
-
-		// Run dependency analysis
-		reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Dependency analysis failed: %v\n", err)
-		} else {
-			// Convert dependency reports to issues
-			for _, report := range reports {
-				// License issues
-				if report.LicenseStatus == "DENIED" {
-					allIssues = append(allIssues, result.Issue{
-						ID:          "license-denied",
-						Title:       "Denied License Detected",
-						Description: fmt.Sprintf("Module %s uses denied license: %s", report.Module, report.License),
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
-						Category:    "license",
-						Suggestion:  "Consider using a different dependency with an allowed license",
-					})
-				}
-
-				// Vulnerability issues
-				for _, vuln := range report.Vulnerabilities {
-					allIssues = append(allIssues, result.Issue{
-						ID:          "dependency-vulnerability",
-						Title:       "Vulnerable Dependency",
-						Description: fmt.Sprintf("Module %s@%s has vulnerability: %s", report.Module, report.Version, vuln.ID),
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
-						Category:    "security",
-						Suggestion:  "Update to a fixed version or apply security patches",
-					})
-				}
-
-				// Entropy findings (potential secrets)
-				for _, entropy := range report.SuspiciousFiles {
-					allIssues = append(allIssues, result.Issue{
-						ID:          "high-entropy-string",
-						Title:       "High Entropy String Detected",
-						Description: fmt.Sprintf("Potential secret found in %s at line %d", entropy.File, entropy.Line),
-						Severity:    result.SeverityMedium,
-						Location:    result.NewLocationFromPos(token.Position{Filename: entropy.File, Line: entropy.Line}, "", ""),
-						Category:    "security",
-						Suggestion:  "Review and remove hardcoded secrets from the codebase",
-					})
-				}
-			}
-		}
-	}
-
-	if cfg.Settings == nil || cfg.Settings.Metrics.Enable {
-		// Run metrics analysis for the entire project
-		metricsIssues, err := runMetricsAnalysis(ctx, &analyzer.AnalyzerContext{Filename: root})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Metrics analysis failed: %v\n", err)
-		} else {
-			// Convert metrics issues to result.Issue
-			for _, issue := range metricsIssues {
-				allIssues = append(allIssues, *issue)
-			}
-		}
-
-	}
-
-	return allIssues, nil
-}
-
-// Run is a package-level function that creates an engine and runs analysis.
-// This is the main entry point used by the CLI.
-func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, error) {
-	if cfg == nil {
-		cfg = &config.DefaultConfig
-	}
-	if err := config.Validate(cfg); err != nil {
-		return nil, err
-	}
-	options := &Config{EnableSSA: cfg.Taint.Enable, EnableTaint: cfg.Taint.Enable, EnableAST: true, EnableBuiltins: true, Settings: cfg}
-	fileInfo, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stat path: %w", err)
-	}
-	var issues []result.Issue
-	if fileInfo.IsDir() {
-		issues, err = AnalyzePackages(ctx, path, options)
-	} else {
-		issues, err = analyzeSingleFile(ctx, path, options)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return configureIssues(issues, cfg), nil
-}
-
-func ruleEnabled(id string, cfg *config.Config) bool {
-	return (len(cfg.Rules.Enabled) == 0 || matcher.New(cfg.Rules.Enabled).Match(id)) && !matcher.New(cfg.Rules.Disabled).Match(id)
-}
-
-func configureIssues(issues []result.Issue, cfg *config.Config) []result.Issue {
-	out := make([]result.Issue, 0, len(issues))
-	for _, issue := range issues {
-		if !ruleEnabled(issue.ID, cfg) {
-			continue
-		}
-		if severity, ok := cfg.Rules.SeverityOverrides[issue.ID]; ok {
-			issue.Severity = result.ParseSeverity(severity)
-		}
-		if issue.Confidence == 0 {
-			issue.Confidence = 1
-		}
-		if issue.Confidence < cfg.Suppression.MinConfidence {
-			continue
-		}
-		out = append(out, issue)
-	}
-	return out
-}
-
-// analyzeSingleFile analyzes a single Go file (legacy method)
-func analyzeSingleFile(ctx context.Context, filePath string, config *Config) ([]result.Issue, error) {
-
-	// Create engine
-	engine := New(config)
-
-	// Read file content
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
-	}
-
-	// Create analyzer context
-	analyzerCtx := analyzer.NewAnalyzerContext(
-		token.NewFileSet(),
-		&types.Info{},
-		nil,
-		filePath,
-		filepath.Base(filePath),
-		content,
-	)
-
-	// Register built-in rules
-	registerBuiltinRules(analyzerCtx)
-	if config.Settings != nil {
-		active := analyzerCtx.Rules[:0]
-		for _, rule := range analyzerCtx.Rules {
-			if ruleEnabled(rule.ID, config.Settings) {
-				active = append(active, rule)
-			}
-		}
-		analyzerCtx.Rules = active
-	}
-
-	// Run analysis
-	issues, err := engine.Run(ctx, analyzerCtx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert to result.Issue slice
-	resultIssues := make([]result.Issue, len(issues))
-	for i, issue := range issues {
-		resultIssues[i] = *issue
-	}
-
-	return resultIssues, nil
-}
-
 // registerBuiltinRules registers all built-in security rules.
 func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	// Register command execution rule
 	builtin.RegisterCommandExecRule(ctx)
 	// Register SQL injection rule
 	builtin.RegisterSQLInjectionRule(ctx)
-	// Register advanced SQL injection rule (string concatenation)
-	ctx.RegisterRule(&analyzer.Rule{
-		ID:       "sql-injection-concat",
-		Title:    "Potential SQL Injection via String Concatenation",
-		Category: "security",
-		Severity: result.SeverityHigh,
-		Summary:  "Building SQL queries via string concatenation is unsafe and may lead to SQL injection.",
-		Matcher:  matchSQLInjectionConcat,
-	})
 	// Register XSS rule
 	builtin.RegisterXSSRule(ctx)
 	// Register access control rule
@@ -594,71 +266,4 @@ func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	builtin.RegisterJWTSecurityRule(ctx)
 	// Register WebSocket Security rule
 	builtin.RegisterWebSocketSecurityRule(ctx)
-}
-
-// matchSQLInjectionConcat detects SQL injection via string concatenation in SQL queries.
-func matchSQLInjectionConcat(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
-	for _, file := range pass.Files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			callExpr, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-
-			selector, ok := callExpr.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-
-			funcName := selector.Sel.Name
-			if !isQueryFunc(funcName) {
-				return true
-			}
-
-			if len(callExpr.Args) == 0 {
-				return true
-			}
-
-			// Check if the first argument contains string concatenation
-			if containsStringConcat(callExpr.Args[0]) {
-				pos := pass.Fset.Position(callExpr.Pos())
-				ctx.Report(result.Issue{
-					ID:          "sql-injection-concat",
-					Title:       "Potential SQL Injection via String Concatenation",
-					Description: "Avoid building SQL queries via string concatenation. Use parameterized queries instead.",
-					Severity:    result.SeverityHigh,
-					Location:    result.NewLocationFromPos(pos, "", ""),
-					Category:    "security",
-					Suggestion:  "Use parameterized queries instead of raw string concatenation.",
-				})
-			}
-
-			return true
-		})
-	}
-}
-
-// isQueryFunc checks if the function name is a known SQL execution function.
-func isQueryFunc(name string) bool {
-	switch strings.ToLower(name) {
-	case "query", "exec", "queryrow", "prepare":
-		return true
-	default:
-		return false
-	}
-}
-
-// containsStringConcat checks for use of '+' operator to build query strings.
-func containsStringConcat(expr ast.Expr) bool {
-	binExpr, ok := expr.(*ast.BinaryExpr)
-	if !ok {
-		return false
-	}
-	if binExpr.Op == token.ADD {
-		// Heuristic: if any side is a string literal, treat as potentially dangerous
-		_, leftIsString := binExpr.X.(*ast.BasicLit)
-		_, rightIsString := binExpr.Y.(*ast.BasicLit)
-		return leftIsString || rightIsString || containsStringConcat(binExpr.X) || containsStringConcat(binExpr.Y)
-	}
-	return false
 }

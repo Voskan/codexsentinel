@@ -24,6 +24,9 @@ func runCLI(t *testing.T, args ...string) error {
 func fixture(t *testing.T, source string) string {
 	t.Helper()
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.test/fixture\n\ngo 1.24.2\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0600); err != nil {
 		t.Fatal(err)
 	}
