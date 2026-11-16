@@ -194,3 +194,49 @@ func TestConfiguredFailureThreshold(t *testing.T) {
 		}
 	}
 }
+
+// TestScanAppliesEmbeddedRulesOutsideRepository runs the scan from a directory
+// without assets/rules, the way an installed binary runs in another project,
+// and runs it twice in one process as long-lived servers do.
+func TestScanAppliesEmbeddedRulesOutsideRepository(t *testing.T) {
+	t.Chdir(t.TempDir())
+	dir := fixture(t, "package main\n\nimport \"net/http\"\n\nfunc main() {\n\tresp, err := http.Get(\"http://example.com/data\")\n\tif err == nil {\n\t\tresp.Body.Close()\n\t}\n}\n")
+	for run := 0; run < 2; run++ {
+		output := filepath.Join(t.TempDir(), "report.json")
+		if err := runCLI(t, "scan", dir, "--format", "json", "--out", output); err != nil {
+			t.Fatalf("run %d: %v", run, err)
+		}
+		data, err := os.ReadFile(output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rep report.ReportData
+		if err := json.Unmarshal(data, &rep); err != nil {
+			t.Fatal(err)
+		}
+		found := 0
+		for _, issue := range rep.Issues {
+			if issue.RuleID == "go.security.plaintext-http-request" {
+				found++
+			}
+		}
+		if found != 1 {
+			t.Fatalf("run %d: want one embedded YAML finding, got %d: %+v", run, found, rep.Issues)
+		}
+	}
+}
+
+func TestScanFixResolvesPathsAgainstProjectRoot(t *testing.T) {
+	t.Chdir(t.TempDir())
+	dir := fixture(t, "package main\n\nimport \"crypto/tls\"\n\nvar cfg = &tls.Config{InsecureSkipVerify: true}\n\nfunc main() { _ = cfg }\n")
+	if err := runCLI(t, "scan", dir, "--format", "json", "--out", filepath.Join(t.TempDir(), "r.json"), "--fix"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "InsecureSkipVerify: false") {
+		t.Fatalf("fix not applied from another working directory:\n%s", data)
+	}
+}

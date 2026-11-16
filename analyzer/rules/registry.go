@@ -53,6 +53,19 @@ func Register(r *Rule) error {
 	return nil
 }
 
+// Upsert registers r, replacing any rule already registered with the same ID.
+// Loading the same rule files again is therefore harmless, which long-running
+// processes rely on.
+func Upsert(r *Rule) error {
+	if r == nil || r.ID == "" {
+		return errors.New("rule ID cannot be empty")
+	}
+	rulesMu.Lock()
+	defer rulesMu.Unlock()
+	rules[r.ID] = r
+	return nil
+}
+
 // Get returns a rule by its ID.
 func Get(id string) (*Rule, bool) {
 	rulesMu.RLock()

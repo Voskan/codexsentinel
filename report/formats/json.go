@@ -11,7 +11,7 @@ import (
 // WriteJSONReport serializes the provided issues into a pretty JSON format and writes them to a file.
 func WriteJSONReport(issues []report.Issue, path string, gitMeta *report.GitMetadata) error {
 	// Create full report structure
-	summary := computeSummary(issues)
+	summary := report.ComputeSummary(issues)
 	reportData := report.ReportData{
 		Summary:     summary,
 		Issues:      issues,

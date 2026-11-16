@@ -10,7 +10,7 @@ import (
 
 // WriteMarkdownReport generates a markdown report from the given issues and writes it to the provided path.
 func WriteMarkdownReport(issues []report.Issue, outPath string, gitMeta *report.GitMetadata) error {
-	summary := computeSummary(issues)
+	summary := report.ComputeSummary(issues)
 
 	content := generateMarkdownContent(issues, summary, gitMeta)
 

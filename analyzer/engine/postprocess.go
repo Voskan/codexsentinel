@@ -40,6 +40,7 @@ func postProcess(ws *workspace.Workspace, cfg *config.Config, issues []result.Is
 			continue
 		}
 		issue.Location.File = relativePath(ws.RootDir, issue.Location.File)
+		issue.Fix = relativeFix(ws.RootDir, issue.Fix)
 		if inline.Suppressed(issue.Location.File, issue.Location.Line, issue.ID) {
 			continue
 		}
@@ -54,6 +55,20 @@ func postProcess(ws *workspace.Workspace, cfg *config.Config, issues []result.Is
 	out = dedupIssues(out)
 	baseline.Assign(ws.RootDir, ws.Fset, files, out)
 	sortIssues(out)
+	return out
+}
+
+// relativeFix returns a copy of fix whose edit paths are relative to root, like
+// the finding locations, so that reports do not expose absolute paths.
+func relativeFix(root string, fix *result.SuggestedFix) *result.SuggestedFix {
+	if fix == nil {
+		return nil
+	}
+	out := &result.SuggestedFix{Message: fix.Message, Edits: make([]result.TextEdit, len(fix.Edits))}
+	for i, e := range fix.Edits {
+		e.File = relativePath(root, e.File)
+		out.Edits[i] = e
+	}
 	return out
 }
 

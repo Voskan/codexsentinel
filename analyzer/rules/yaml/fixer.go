@@ -1,15 +1,11 @@
 package yaml
 
 import (
-	"errors"
-	"fmt"
 	"go/ast"
-	"go/format"
 	"go/token"
-	"os"
 	"regexp"
-	"sort"
 
+	"github.com/Voskan/codexsentinel/analyzer/fixer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 )
 
@@ -42,85 +38,8 @@ func replaceEdit(fset *token.FileSet, n ast.Node, text string) result.TextEdit {
 	}
 }
 
-// ApplyFixes writes the suggested fixes of issues to disk. Fixes whose edits
-// overlap an already accepted fix are skipped. Every rewritten file is
-// formatted with go/format; a file that no longer parses is left untouched
-// and reported as an error. It returns the files that were changed.
+// ApplyFixes writes the suggested fixes of issues to disk; edit paths are used
+// as they are. It is kept for existing callers; see fixer.ApplyFixes.
 func ApplyFixes(issues []result.Issue) ([]string, error) {
-	type fileEdits struct {
-		edits []result.TextEdit
-	}
-	byFile := map[string]*fileEdits{}
-	var order []string
-	overlaps := func(list []result.TextEdit, e result.TextEdit) bool {
-		for _, o := range list {
-			if e.StartOffset < o.EndOffset && o.StartOffset < e.EndOffset || e.StartOffset == o.StartOffset {
-				return true
-			}
-		}
-		return false
-	}
-	for _, issue := range issues {
-		if issue.Fix == nil || len(issue.Fix.Edits) == 0 {
-			continue
-		}
-		ok := true
-		for _, e := range issue.Fix.Edits {
-			if e.EndOffset < e.StartOffset || e.File == "" {
-				ok = false
-				break
-			}
-			if fe := byFile[e.File]; fe != nil && overlaps(fe.edits, e) {
-				ok = false
-				break
-			}
-		}
-		if !ok {
-			continue
-		}
-		for _, e := range issue.Fix.Edits {
-			fe := byFile[e.File]
-			if fe == nil {
-				fe = &fileEdits{}
-				byFile[e.File] = fe
-				order = append(order, e.File)
-			}
-			fe.edits = append(fe.edits, e)
-		}
-	}
-	sort.Strings(order)
-	var changed []string
-	var errs []error
-	for _, file := range order {
-		if err := applyFileEdits(file, byFile[file].edits); err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		changed = append(changed, file)
-	}
-	return changed, errors.Join(errs...)
-}
-
-func applyFileEdits(file string, edits []result.TextEdit) error {
-	info, err := os.Stat(file)
-	if err != nil {
-		return err
-	}
-	src, err := os.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	sort.Slice(edits, func(i, j int) bool { return edits[i].StartOffset > edits[j].StartOffset })
-	out := append([]byte(nil), src...)
-	for _, e := range edits {
-		if e.EndOffset > len(out) {
-			return fmt.Errorf("%s: fix is out of range; the file changed since the scan", file)
-		}
-		out = append(out[:e.StartOffset:e.StartOffset], append([]byte(e.NewText), out[e.EndOffset:]...)...)
-	}
-	formatted, err := format.Source(out)
-	if err != nil {
-		return fmt.Errorf("%s: fixed source does not parse: %w", file, err)
-	}
-	return os.WriteFile(file, formatted, info.Mode().Perm())
+	return fixer.ApplyFixes("", issues)
 }

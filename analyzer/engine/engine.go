@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"sync"
 
 	"github.com/Voskan/codexsentinel/analyzer"
@@ -24,8 +25,23 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// Options holds per-run inputs that are not part of the configuration.
+type Options struct {
+	// Rules are package-level rules used for this run only, for example
+	// compiled YAML rules. They are combined with the rules in the global
+	// registry; a rule here replaces a registered rule with the same ID.
+	// Passing rules here instead of registering them keeps repeated runs in
+	// one process independent of each other.
+	Rules []*rules.Rule
+}
+
 // Run loads a workspace once and analyzes its packages with bounded concurrency.
 func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, error) {
+	return RunWithOptions(ctx, path, cfg, Options{})
+}
+
+// RunWithOptions is Run with additional per-run inputs.
+func RunWithOptions(ctx context.Context, path string, cfg *config.Config, opts Options) ([]result.Issue, error) {
 	if cfg == nil {
 		defaults := config.NewDefaultConfig()
 		cfg = &defaults
@@ -37,7 +53,7 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	if err != nil {
 		return nil, err
 	}
-	issues, err := runPackageRules(ctx, ws, cfg)
+	issues, err := runPackageRules(ctx, ws, cfg, packageRules(opts.Rules))
 	if err != nil {
 		return nil, err
 	}
@@ -48,8 +64,28 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	return postProcess(ws, cfg, append(issues, found...)), nil
 }
 
-// runPackageRules runs the built-in and registered rules on every package.
-func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.Config) ([]result.Issue, error) {
+// packageRules merges the registered rules with the rules of one run. The
+// result is sorted by ID so that findings are produced in a stable order.
+func packageRules(extra []*rules.Rule) []*rules.Rule {
+	byID := map[string]*rules.Rule{}
+	for _, r := range rules.All() {
+		byID[r.ID] = r
+	}
+	for _, r := range extra {
+		if r != nil && r.ID != "" {
+			byID[r.ID] = r
+		}
+	}
+	out := make([]*rules.Rule, 0, len(byID))
+	for _, r := range byID {
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// runPackageRules runs the built-in rules and ruleSet on every package.
+func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, ruleSet []*rules.Rule) ([]result.Issue, error) {
 	workers := cfg.Scan.Concurrency
 	if workers <= 0 {
 		workers = runtime.NumCPU()
@@ -60,7 +96,7 @@ func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.C
 	var issues []result.Issue
 	for _, pkg := range ws.Packages {
 		group.Go(func() error {
-			found, err := analyzePackage(groupCtx, ws, pkg, cfg)
+			found, err := analyzePackage(groupCtx, ws, pkg, cfg, ruleSet)
 			if err != nil {
 				return err
 			}
@@ -77,7 +113,7 @@ func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.C
 }
 
 // analyzePackage runs the enabled package-level rules on one package.
-func analyzePackage(ctx context.Context, ws *workspace.Workspace, pkg *packages.Package, cfg *config.Config) ([]result.Issue, error) {
+func analyzePackage(ctx context.Context, ws *workspace.Workspace, pkg *packages.Package, cfg *config.Config, ruleSet []*rules.Rule) ([]result.Issue, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -100,7 +136,7 @@ func analyzePackage(ctx context.Context, ws *workspace.Workspace, pkg *packages.
 			rule.Matcher(ac, pass)
 		}
 	}
-	for _, rule := range rules.All() {
+	for _, rule := range ruleSet {
 		if !rule.Enabled || rule.Engine == nil || !ruleEnabled(rule.ID, cfg) {
 			continue
 		}

@@ -218,9 +218,10 @@ a fixed depth. Package initializers are not attributed to the importing
 module.
 
 `caps lock` writes the result to `.codexsentinel.caps.json`. Commit this file.
-`caps verify` then fails when a dependency upgrade adds a capability. With
-`dependencies.check_capabilities: true`, `scan` reports the same escalations
-as `supply-chain-capability-escalation` findings. An escalation is Critical
+`caps verify` then fails when a dependency upgrade adds a capability. When the
+lock file exists, `scan` reports the same escalations as
+`supply-chain-capability-escalation` findings; the check is offline and is
+turned off with `dependencies.check_capabilities: false`. An escalation is Critical
 when the module gains exec, cgo or plugin access, or when it gains
 environment or network access and now has both. Otherwise it is High.
 
@@ -273,8 +274,11 @@ A threshold of 0 disables the check.
 
 ## YAML rules
 
-YAML rules are loaded from `assets/rules` in the working directory, from every
-directory in `rules.rule_paths` and from every file in `rules.rule_files`.
+The default rules in `assets/rules` are compiled into the binary and apply in
+every project. Rules from every directory in `rules.rule_paths` and every file
+in `rules.rule_files` are added to them; a rule with the same ID replaces the
+default one. Files named `example-*.yaml` in `assets/rules` are samples and
+are not loaded.
 
 ```yaml
 id: go.security.plaintext-http-request
@@ -412,7 +416,7 @@ values are errors. Omitted keys keep their defaults.
 | `metrics.enable_duplication`, `enable_dead_code`, `enable_globals` | `true` | Individual checks |
 | `dependencies.enable` | `false` | Run the dependency audit during `scan` |
 | `dependencies.check_vulnerabilities`, `check_reachability`, `check_licenses` | `true` | Individual checks |
-| `dependencies.check_capabilities` | `false` | Verify the capability lock file during `scan` |
+| `dependencies.check_capabilities` | `true` | Verify the capability lock file during `scan` |
 | `dependencies.capability_lockfile` | `.codexsentinel.caps.json` | Lock file path, relative to the module root |
 | `dependencies.allow_licenses`, `deny_licenses` | see README | SPDX identifiers |
 | `suppression.ignore_file` | `.codexsentinel.ignore` | Ignore file, relative to the module root |

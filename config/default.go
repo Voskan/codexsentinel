@@ -25,7 +25,7 @@ var DefaultConfig = Config{
 		EnableDuplication: true, EnableDeadCode: true, EnableGlobals: true,
 	},
 	Dependencies: DependencyConfig{
-		Enable: false, CheckVulnerabilities: true, CheckReachability: true, CheckLicenses: true,
+		Enable: false, CheckVulnerabilities: true, CheckReachability: true, CheckCapabilities: true, CheckLicenses: true,
 		CapabilityLockfile: ".codexsentinel.caps.json",
 		AllowLicenses:      []string{"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MPL-2.0"},
 		DenyLicenses:       []string{"AGPL-3.0", "GPL-3.0", "GPL-2.0", "SSPL-1.0", "BSL-1.1"},

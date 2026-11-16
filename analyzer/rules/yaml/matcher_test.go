@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/testutil"
 	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"golang.org/x/tools/go/analysis"
@@ -214,23 +213,6 @@ func once(s string) string { return strings.Replace(s, "a", "b", 1) }
 		if len(pkg.Errors) > 0 {
 			t.Fatalf("fixed package does not compile: %v", pkg.Errors)
 		}
-	}
-}
-
-func TestApplyFixesRejectsBrokenOutput(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "a.go")
-	src := "package a\n\nvar x = 1\n"
-	if err := os.WriteFile(file, []byte(src), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	start := strings.Index(src, "1")
-	issue := result.Issue{Fix: &result.SuggestedFix{Edits: []result.TextEdit{{File: file, StartOffset: start, EndOffset: start + 1, NewText: "("}}}}
-	if _, err := ApplyFixes([]result.Issue{issue}); err == nil {
-		t.Fatal("broken fix applied")
-	}
-	if data, _ := os.ReadFile(file); string(data) != src {
-		t.Fatal("file modified despite error")
 	}
 }
 

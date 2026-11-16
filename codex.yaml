@@ -44,7 +44,8 @@ dependencies:
   enable: false
   check_vulnerabilities: true
   check_reachability: true
-  check_capabilities: false
+  # Offline check against the capability lock file; skipped when the file is absent.
+  check_capabilities: true
   capability_lockfile: .codexsentinel.caps.json
   check_licenses: true
   allow_licenses: [MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0]

@@ -11,10 +11,13 @@ import (
 
 	"github.com/Voskan/codexsentinel/analyzer/baseline"
 	"github.com/Voskan/codexsentinel/analyzer/engine"
+	"github.com/Voskan/codexsentinel/analyzer/fixer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/analyzer/rules"
 	"github.com/Voskan/codexsentinel/analyzer/rules/yaml"
 	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
 	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/assets"
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/git"
@@ -125,11 +128,7 @@ func runScan(ctx context.Context, opts scanOptions) error {
 	logger.Infof("Analysis completed, found %d issues", len(results))
 
 	if opts.fix {
-		changed, err := yaml.ApplyFixes(results)
-		for _, file := range changed {
-			logger.Infof("Applied fixes to %s", file)
-		}
-		if err != nil {
+		if err := applyFixes(targetPath, results, logger); err != nil {
 			return fmt.Errorf("failed to apply fixes: %w", err)
 		}
 	}
@@ -151,6 +150,21 @@ func runScan(ctx context.Context, opts scanOptions) error {
 		return &IssuesFoundError{Count: count}
 	}
 	return nil
+}
+
+// applyFixes writes the suggested fixes to the source files. Finding paths
+// are relative to the project root, which may differ from the working
+// directory.
+func applyFixes(targetPath string, results []result.Issue, logger *zap.SugaredLogger) error {
+	root, err := workspace.ProjectRoot(targetPath)
+	if err != nil {
+		return err
+	}
+	changed, err := fixer.ApplyFixes(root, results)
+	for _, file := range changed {
+		logger.Infof("Applied fixes to %s", file)
+	}
+	return err
 }
 
 // applyBaselineAndDiff removes findings recorded in the baseline file and,
@@ -274,11 +288,8 @@ func runFullAnalysis(ctx context.Context, targetPath, ignoreFile string, cfg *co
 		logger.Infof("Using ignore rules from: %s", abs)
 	}
 
-	// Load YAML rules
-	loadYAMLRules(cfg, logger)
-
 	// Run analysis; suppressions are applied by the engine
-	results, err := engine.Run(ctx, targetPath, cfg)
+	results, err := engine.RunWithOptions(ctx, targetPath, cfg, engine.Options{Rules: loadYAMLRules(cfg, logger)})
 	if err != nil {
 		return nil, fmt.Errorf("analysis failed: %w", err)
 	}
@@ -304,39 +315,44 @@ func loadConfig(configFile string, logger *zap.SugaredLogger) (*config.Config, e
 	return cfg, nil
 }
 
-// loadYAMLRules loads YAML rules from directories
-func loadYAMLRules(cfg *config.Config, logger *zap.SugaredLogger) {
-	// Load YAML rules from assets/rules directory
-	yamlRulesDir := "assets/rules"
-	if _, err := os.Stat(yamlRulesDir); err == nil {
-		if err := yaml.LoadFromDir(yamlRulesDir); err != nil {
-			logger.Warnf("Failed to load YAML rules from %s: %v", yamlRulesDir, err)
-		} else {
-			logger.Infof("Loaded YAML rules from %s", yamlRulesDir)
+// loadYAMLRules compiles the YAML rules for one scan: the rules embedded in
+// the binary, then the configured rule directories and files. A later rule
+// replaces an earlier one with the same ID. Rule files that fail to load are
+// reported as warnings so that the rest of the scan still runs.
+func loadYAMLRules(cfg *config.Config, logger *zap.SugaredLogger) []*rules.Rule {
+	var compiled []*yaml.CompiledRule
+	add := func(source string, found []*yaml.CompiledRule, err error) {
+		if err != nil {
+			logger.Warnf("Failed to load YAML rules from %s: %v", source, err)
+			return
 		}
+		logger.Infof("Loaded %d YAML rules from %s", len(found), source)
+		compiled = append(compiled, found...)
 	}
-
-	// Load YAML rules from config rule paths
+	found, err := yaml.LoadFromFS(assets.BuiltinRulesFS, "rules")
+	add("built-in rules", found, err)
 	for _, rulePath := range cfg.Rules.RulePaths {
-		if _, err := os.Stat(rulePath); err == nil {
-			if err := yaml.LoadFromDir(rulePath); err != nil {
-				logger.Warnf("Failed to load YAML rules from %s: %v", rulePath, err)
-			} else {
-				logger.Infof("Loaded YAML rules from %s", rulePath)
-			}
+		info, err := os.Stat(rulePath)
+		switch {
+		case err != nil:
+			logger.Warnf("Rule path %s not found: %v", rulePath, err)
+		case info.IsDir():
+			found, err := yaml.CompileDir(rulePath)
+			add(rulePath, found, err)
+		default:
+			found, err := yaml.CompileFile(rulePath)
+			add(rulePath, found, err)
 		}
 	}
-
-	// Load specific YAML rule files
 	for _, ruleFile := range cfg.Rules.RuleFiles {
-		if _, err := os.Stat(ruleFile); err == nil {
-			if err := yaml.LoadFromFile(ruleFile); err != nil {
-				logger.Warnf("Failed to load YAML rule file %s: %v", ruleFile, err)
-			} else {
-				logger.Infof("Loaded YAML rule file %s", ruleFile)
-			}
+		if _, err := os.Stat(ruleFile); err != nil {
+			logger.Warnf("Rule file %s not found: %v", ruleFile, err)
+			continue
 		}
+		found, err := yaml.CompileFile(ruleFile)
+		add(ruleFile, found, err)
 	}
+	return yaml.Registrations(compiled)
 }
 
 // filterResults filters results by minimum severity

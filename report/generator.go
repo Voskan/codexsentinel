@@ -2,16 +2,9 @@
 package report
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"html/template"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/Voskan/codexsentinel/analyzer/result"
-	reporttpl "github.com/Voskan/codexsentinel/report/template"
 )
 
 // SeverityLevel defines the level of issue severity.
@@ -89,29 +82,6 @@ type ReportData struct {
 	Git         GitMetadata `json:"git,omitempty"`
 }
 
-// GenerateReport creates a report in the specified format (json, html).
-func GenerateReport(issues []Issue, format, outPath string, gitMeta *GitMetadata) error {
-	summary := ComputeSummary(issues)
-	data := ReportData{
-		Summary:     summary,
-		Issues:      issues,
-		GeneratedAt: time.Now().Format(time.RFC3339),
-	}
-
-	if gitMeta != nil {
-		data.Git = *gitMeta
-	}
-
-	switch format {
-	case "json":
-		return writeJSONReport(data, outPath)
-	case "html":
-		return writeHTMLReport(data, outPath)
-	default:
-		return fmt.Errorf("unsupported report format: %s", format)
-	}
-}
-
 // ComputeSummary counts findings by severity and explicit category.
 func ComputeSummary(issues []Issue) Summary {
 	s := Summary{Total: len(issues)}
@@ -146,37 +116,4 @@ func ComputeSummary(issues []Issue) Summary {
 		}
 	}
 	return s
-}
-
-// writeJSONReport serializes report to JSON file.
-func writeJSONReport(data ReportData, outPath string) error {
-	file, err := os.Create(outPath)
-	if err != nil {
-		return fmt.Errorf("failed to create JSON report file: %w", err)
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
-}
-
-// writeHTMLReport renders report using HTML template.
-func writeHTMLReport(data ReportData, outPath string) error {
-	tmpl, err := template.New("report").Parse(reporttpl.HTMLTemplate)
-	if err != nil {
-		return fmt.Errorf("failed to parse HTML template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return fmt.Errorf("failed to render HTML template: %w", err)
-	}
-
-	dir := filepath.Dir(outPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create report directory: %w", err)
-	}
-
-	return os.WriteFile(outPath, buf.Bytes(), 0644)
 }

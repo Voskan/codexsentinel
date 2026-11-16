@@ -148,9 +148,9 @@ codex-cli caps lock .        # write .codexsentinel.caps.json
 codex-cli caps verify .      # exit code 1 when a dependency gained capabilities
 ```
 
-Set `dependencies.check_capabilities: true` to make `scan` report capability
-escalations against the lock file as `supply-chain-capability-escalation`
-findings.
+When the lock file exists, `scan` also reports capability escalations against
+it as `supply-chain-capability-escalation` findings. The check is offline;
+set `dependencies.check_capabilities: false` to turn it off.
 
 ### Exit codes
 
@@ -237,8 +237,10 @@ report the same line, the finding with the longer trace is kept.
 
 ### YAML rules
 
-Pattern rules are loaded from `assets/rules` in the working directory and from
-the directories and files in `rules.rule_paths` and `rules.rule_files`.
+The default pattern rules from [assets/rules](assets/rules) are compiled into
+the binary, so they apply wherever `codex-cli` runs. Rules from the
+directories and files in `rules.rule_paths` and `rules.rule_files` are added
+to them; a rule with the same ID replaces the default one.
 
 ```yaml
 id: go.style.strings-replace-all
@@ -299,7 +301,7 @@ dependencies:
   enable: false                  # queries OSV/GHSA over the network
   check_vulnerabilities: true
   check_reachability: true
-  check_capabilities: false
+  check_capabilities: true       # offline; only when the lock file exists
   capability_lockfile: .codexsentinel.caps.json
   check_licenses: true
   allow_licenses: [MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0]

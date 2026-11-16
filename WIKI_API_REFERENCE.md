@@ -14,6 +14,7 @@ Module path: `github.com/Voskan/codexsentinel`
 - [Findings](#findings)
 - [Reports](#reports)
 - [Baselines](#baselines)
+- [Applying fixes](#applying-fixes)
 - [Dependencies and capabilities](#dependencies-and-capabilities)
 - [go/analysis analyzers](#goanalysis-analyzers)
 - [golangci-lint v2 plugin](#golangci-lint-v2-plugin)
@@ -51,9 +52,19 @@ func main() {
 - **Output.** Suppressions, deduplication, fingerprints and ordering are already applied to the returned findings. Their file paths are relative to the module root.
 - **Cancellation.** Cancelling `ctx` stops the scan and returns the context error.
 
-YAML rules are not loaded by `engine.Run` itself. Load them first with
-`yaml.LoadFromDir(dir)` from `analyzer/rules/yaml`; they register into the
-global rule registry used by the engine.
+YAML rules are not loaded by `engine.Run` itself. Compile them and pass them
+to `engine.RunWithOptions`, which keeps repeated runs in one process
+independent:
+
+```go
+compiled, err := yaml.LoadFromFS(assets.BuiltinRulesFS, "rules") // the default rules
+more, err := yaml.CompileDir("rules")                              // your own rules
+opts := engine.Options{Rules: yaml.Registrations(append(compiled, more...))}
+issues, err := engine.RunWithOptions(ctx, "./...", &cfg, opts)
+```
+
+`yaml.LoadFromDir(dir)` still registers rules in the global registry used by
+`engine.Run`; loading the same files again replaces them.
 
 ## Configuration
 
@@ -149,6 +160,19 @@ fresh, removed := known.Filter(issues)     // findings not in the baseline
 
 `engine.Run` already assigns fingerprints. `baseline.Fingerprint(rule, file,
 scope, line, occurrence)` exposes the hash for other tools.
+
+## Applying fixes
+
+Package `analyzer/fixer`:
+
+```go
+changed, err := fixer.ApplyFixes(root, issues) // root: the module root of the scan
+```
+
+Edit paths in engine findings are relative to the module root, like their
+locations, and `ApplyFixes` resolves them against `root`. Fixes that overlap
+an earlier fix are skipped, and a file whose fixed source no longer parses is
+left unchanged and reported in `err`.
 
 ## Dependencies and capabilities
 

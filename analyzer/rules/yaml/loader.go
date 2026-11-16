@@ -12,7 +12,6 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,48 +22,114 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LoadFromDir loads all YAML rule files from the given directory.
+// LoadFromDir compiles every YAML rule file under dir and registers the rules
+// in the global registry, replacing rules with the same ID.
 func LoadFromDir(dir string) error {
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if ext := filepath.Ext(path); d.IsDir() || (ext != ".yaml" && ext != ".yml") {
-			return nil
-		}
-		return loadFile(path)
-	})
-	if err != nil {
-		return fmt.Errorf("error loading rules from directory %q: %w", dir, err)
-	}
-	return nil
-}
-
-// LoadFromFile loads a YAML rule file.
-func LoadFromFile(path string) error {
-	return loadFile(path)
-}
-
-// loadFile parses, compiles and registers every rule in a YAML file.
-func loadFile(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to read rule file %q: %w", path, err)
-	}
-	parsed, err := ParseRules(data, path)
+	compiled, err := CompileDir(dir)
 	if err != nil {
 		return err
 	}
-	for _, rule := range parsed {
-		compiled, err := Compile(rule)
-		if err != nil {
-			return fmt.Errorf("invalid rule %q in %q: %w", rule.ID, path, err)
-		}
-		if err := rules.Register(compiled.Registration()); err != nil {
-			return fmt.Errorf("rule %q in %q: %w", rule.ID, path, err)
+	return registerCompiled(compiled)
+}
+
+// LoadFromFile compiles a YAML rule file and registers its rules in the global
+// registry, replacing rules with the same ID.
+func LoadFromFile(path string) error {
+	compiled, err := CompileFile(path)
+	if err != nil {
+		return err
+	}
+	return registerCompiled(compiled)
+}
+
+func registerCompiled(compiled []*CompiledRule) error {
+	for _, c := range compiled {
+		if err := rules.Upsert(c.Registration()); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// LoadFromFS compiles the rule files in dir of fsys, for example rules embedded
+// in the binary. Files named example-*.yaml are samples and are skipped, as
+// are rules with "enabled: false".
+func LoadFromFS(fsys fs.FS, dir string) ([]*CompiledRule, error) {
+	return compileFS(fsys, dir, true)
+}
+
+// CompileDir compiles every .yaml and .yml file under dir. Disabled rules are
+// kept; their registry entries are marked as not enabled.
+func CompileDir(dir string) ([]*CompiledRule, error) {
+	compiled, err := compileFS(os.DirFS(dir), ".", false)
+	if err != nil {
+		return nil, fmt.Errorf("error loading rules from directory %q: %w", dir, err)
+	}
+	return compiled, nil
+}
+
+// CompileFile compiles the rules of one YAML file. Disabled rules are kept;
+// their registry entries are marked as not enabled.
+func CompileFile(path string) ([]*CompiledRule, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read rule file %q: %w", path, err)
+	}
+	return compileData(data, path, false)
+}
+
+// Registrations converts compiled rules to registry entries, in order.
+func Registrations(compiled []*CompiledRule) []*rules.Rule {
+	out := make([]*rules.Rule, len(compiled))
+	for i, c := range compiled {
+		out[i] = c.Registration()
+	}
+	return out
+}
+
+func compileFS(fsys fs.FS, dir string, builtin bool) ([]*CompiledRule, error) {
+	var out []*CompiledRule
+	err := fs.WalkDir(fsys, dir, func(name string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		ext := path.Ext(name)
+		if d.IsDir() || (ext != ".yaml" && ext != ".yml") {
+			return nil
+		}
+		if builtin && strings.HasPrefix(d.Name(), "example-") {
+			return nil
+		}
+		data, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			return fmt.Errorf("failed to read rule file %q: %w", name, err)
+		}
+		compiled, err := compileData(data, name, builtin)
+		if err != nil {
+			return err
+		}
+		out = append(out, compiled...)
+		return nil
+	})
+	return out, err
+}
+
+func compileData(data []byte, name string, dropDisabled bool) ([]*CompiledRule, error) {
+	parsed, err := ParseRules(data, name)
+	if err != nil {
+		return nil, err
+	}
+	var out []*CompiledRule
+	for _, rule := range parsed {
+		compiled, err := Compile(rule)
+		if err != nil {
+			return nil, fmt.Errorf("invalid rule %q in %q: %w", rule.ID, name, err)
+		}
+		if rule.IsEnabled() || !dropDisabled {
+			out = append(out, compiled)
+		}
+	}
+	return out, nil
 }
 
 // ParseRules decodes a rule file. A file holds one rule per YAML document, or
