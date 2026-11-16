@@ -101,7 +101,8 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	}
 	var bundle *codessa.GraphBundle
 	needReachability := cfg.Dependencies.Enable && cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability
-	if (cfg.Taint.Enable || needReachability) && len(ws.Packages) > 0 {
+	capsLock := capabilityLockPath(ws, cfg)
+	if (cfg.Taint.Enable || needReachability || capsLock != "") && len(ws.Packages) > 0 {
 		if bundle, err = codessa.BuildFromWorkspace(ws); err != nil {
 			return nil, fmt.Errorf("build SSA: %w", err)
 		}
@@ -114,10 +115,18 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 		issues = append(issues, found...)
 	}
 	if cfg.Dependencies.Enable && ws.GoModPath != "" {
+		depBundle := bundle
 		if !needReachability {
-			bundle = nil
+			depBundle = nil
 		}
-		found, err := runDependencyAnalysis(ctx, ws, cfg, bundle)
+		found, err := runDependencyAnalysis(ctx, ws, cfg, depBundle)
+		if err != nil {
+			return nil, err
+		}
+		issues = append(issues, found...)
+	}
+	if capsLock != "" && bundle != nil {
+		found, err := runCapabilityCheck(ws, bundle, capsLock)
 		if err != nil {
 			return nil, err
 		}
@@ -210,6 +219,39 @@ func runDependencyAnalysis(ctx context.Context, ws *workspace.Workspace, cfg *co
 		fmt.Fprintf(os.Stderr, "Warning: dependency analysis incomplete: %v\n", err)
 	}
 	return deps.ReportIssues(reports, relativePath(ws.RootDir, ws.GoModPath)), nil
+}
+
+// capabilityLockPath returns the capability lock file to verify, or "" when
+// the check is disabled or the project has no lock file.
+func capabilityLockPath(ws *workspace.Workspace, cfg *config.Config) string {
+	if !cfg.Dependencies.CheckCapabilities || ws.GoModPath == "" {
+		return ""
+	}
+	path := cfg.Dependencies.CapabilityLockfile
+	if path == "" {
+		path = ".codexsentinel.caps.json"
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(ws.RootDir, path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+// runCapabilityCheck reports dependencies whose reachable code gained risky
+// capabilities that the lock file does not approve.
+func runCapabilityCheck(ws *workspace.Workspace, bundle *codessa.GraphBundle, lockPath string) ([]result.Issue, error) {
+	lock, err := deps.LoadCapabilityLock(lockPath)
+	if err != nil {
+		return nil, fmt.Errorf("capability lock: %w", err)
+	}
+	report, err := deps.AnalyzeCapabilities(ws, bundle)
+	if err != nil {
+		return nil, err
+	}
+	return deps.EscalationIssues(deps.DiffCapabilities(lock, report), relativePath(ws.RootDir, lockPath)), nil
 }
 
 // registerBuiltinRules registers all built-in security rules.
