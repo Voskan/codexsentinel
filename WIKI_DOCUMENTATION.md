@@ -121,6 +121,8 @@ severity, CWE and OWASP category. Notable behavior:
 | Injection | `sql-injection`, `command-injection`, `xss` | Report queries, commands and HTML built from non-constant data. The taint engine adds interprocedural flows. Supports `database/sql`, sqlx, pgx and gorm. |
 | Files | `path-traversal`, `archive-zip-slip`, `archive-decompression-bomb`, `insecure-file-permissions` | Access through `*os.Root` (Go 1.24) is confined and never reported. `filepath.Join` with request input is reported with a hint to use `os.OpenRoot`. |
 | Web | `csrf-missing-protection`, `cors-wildcard-credentials`, `websocket-origin-bypass`, `cookie-*`, `debug-endpoint-exposed` | `csrf-missing-protection` reports state-changing routes that use cookie sessions without cross-origin protection. These count as protection: `http.NewCrossOriginProtection` (Go 1.25), gorilla/csrf, justinas/nosurf, gin-csrf, the fiber CSRF middleware, and echo's `middleware.CSRF`. |
+| gRPC | `grpc-insecure-credentials`, `grpc-server-missing-limits` | `insecure.NewCredentials()` and `grpc.WithInsecure()` are not reported when every dial target in the function is a constant loopback, `bufnet` or Unix socket address. `grpc.NewServer` is reported when its options set neither `MaxConcurrentStreams` nor an interceptor, or allow messages over 64 MiB; options built in another function are not judged. |
+| Outbound requests | `ssrf`, `ssrf-missing-ip-guard` | `ssrf-missing-ip-guard` reports an `http.Transport` without an IP-checking dialer (`net.Dialer.Control`) when a client using it sends requests to URLs without a constant host, which DNS rebinding can point at `169.254.169.254` and other internal addresses. A custom `DialContext` other than a plain `net.Dialer` counts as a guard. |
 | Denial of service | `http-server-missing-timeout`, `http-unbounded-body-read`, `untrusted-slice-allocation`, `http-client-unsafe`, `graphql-unbounded-query`, `context-propagation-missing` | `http.MaxBytesReader` and `io.LimitReader` bound a body read. |
 | Cryptography | `crypto-weak-hash`, `crypto-weak-cipher`, `crypto-weak-rand`, `crypto-weak-rsa`, `tls-insecure-config` | `tls-insecure-config` provides fixes for `InsecureSkipVerify` and old `MinVersion` values. |
 | Authentication | `jwt-*`, `auth-hardcoded-credential`, `auth-non-constant-time-compare`, `hardcoded-secret` | Covers golang-jwt and similar libraries. Secrets combine provider-specific patterns with an entropy check. |
@@ -161,8 +163,16 @@ taint crosses:
 | Tag | Sources |
 | --- | --- |
 | `http` | `net/http.Request` methods and fields (`FormValue`, `PathValue`, `URL`, `Header`, `Body`, `Cookie`, ...), `url.Values.Get`, gin, echo and fiber context accessors and binders, chi `URLParam`, gorilla/mux `Vars` |
+| `rpc` | gRPC server methods: request message parameters, `Recv()` and `RecvMsg()` on server streams, `metadata.FromIncomingContext`; ConnectRPC `*connect.Request[T]`, `*connect.ClientStream[T]` and `*connect.BidiStream[T]` parameters |
 | `cli` | `os.Args`, `os.Stdin`, `fmt.Scan*` (confidence 0.7) |
 | `env` | `os.Getenv`, `os.LookupEnv` (confidence 0.6) |
+
+A method is a gRPC server method when its receiver embeds a generated
+`Unimplemented...Server` or `Unsafe...Server` type, or when it is exported and
+has the unary handler shape `func(context.Context, *Req) (*Resp, error)` with
+protobuf messages. Generated client methods, which take `...grpc.CallOption`,
+are not sources. Taint then follows getters such as `req.GetFilter()` into
+services and repositories.
 
 `cli` and `env` input is controlled by whoever runs the program. It is not
 reported for `path-traversal`, because opening a file the operator named is

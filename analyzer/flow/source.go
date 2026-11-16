@@ -16,7 +16,8 @@ func frameworkSources(pkg, recv string, methods []string, outArgMethods []string
 }
 
 // builtinSources lists untrusted inputs from HTTP requests, popular web
-// frameworks, the command line and the environment.
+// frameworks, gRPC and ConnectRPC handlers, the command line and the
+// environment.
 func builtinSources() []SourceSpec {
 	var out []SourceSpec
 	for _, m := range []string{"FormValue", "PostFormValue", "PathValue", "Cookie", "Cookies", "CookiesNamed", "Referer", "UserAgent", "FormFile", "MultipartReader", "BasicAuth"} {
@@ -52,5 +53,5 @@ func builtinSources() []SourceSpec {
 		SourceSpec{Package: "os", Function: "Getenv", Tags: []string{"env"}, Confidence: 0.6, Description: "environment variable"},
 		SourceSpec{Package: "os", Function: "LookupEnv", Tags: []string{"env"}, Confidence: 0.6, Description: "environment variable"},
 	)
-	return out
+	return append(out, rpcSources()...)
 }

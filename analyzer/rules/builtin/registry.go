@@ -24,6 +24,7 @@ func RegisterAll(ctx *analyzer.AnalyzerContext) {
 		RegisterJWTSecurityRule,
 		RegisterWebSocketSecurityRule,
 		RegisterHardcodedSecretRule,
+		RegisterGRPCSecurityRules,
 	} {
 		register(ctx)
 	}

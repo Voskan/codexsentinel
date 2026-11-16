@@ -22,6 +22,9 @@ const (
 	SourceGlobal
 	// SourceOutArg marks pointer arguments written by a call as tainted.
 	SourceOutArg
+	// SourceParam marks function parameters of a given type as tainted, such as
+	// the request of an RPC handler.
+	SourceParam
 )
 
 // SourceSpec identifies an untrusted input.

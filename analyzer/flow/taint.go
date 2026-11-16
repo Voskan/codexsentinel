@@ -199,6 +199,9 @@ func (a *analysis) analyze(fn *ssa.Function) *FuncSummary {
 	}
 	st := newFuncState(a, fn)
 	st.collect = collect
+	for p, spec := range a.reg.paramSources(fn) {
+		st.addNode(p, sourceNode(spec, p.Pos(), fmt.Sprintf("untrusted input received by %s as parameter %s", functionName(fn), p.Name())))
+	}
 	if a.interproc {
 		for i, p := range fn.Params {
 			if carries(p.Type()) {

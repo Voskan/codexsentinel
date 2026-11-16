@@ -176,12 +176,14 @@ set `dependencies.check_capabilities: false` to turn it off.
 | `idor-unscoped-mutation` | Medium | CWE-639 | A01 |
 | `path-traversal` | High | CWE-22 | A01 |
 | `ssrf` | Medium | CWE-918 | A01 |
+| `ssrf-missing-ip-guard` | Medium | CWE-918 | A01 |
 | `websocket-origin-bypass` | High | CWE-346 | A01 |
 | `cors-wildcard-credentials` | High | CWE-942 | A02 |
 | `debug-endpoint-exposed` | Medium | CWE-489 | A02 |
 | `graphql-introspection-enabled` | Low | CWE-200 | A02 |
 | `http-server-missing-timeout` | High | CWE-400 | A02 |
 | `insecure-file-permissions` | Medium | CWE-732 | A02 |
+| `grpc-insecure-credentials` | High | CWE-319 | A04 |
 | `crypto-weak-cipher` | High | CWE-327 | A04 |
 | `crypto-weak-hash` | Medium | CWE-328 | A04 |
 | `crypto-weak-rand` | High | CWE-338 | A04 |
@@ -195,6 +197,7 @@ set `dependencies.check_capabilities: false` to turn it off.
 | `archive-decompression-bomb` | Medium | CWE-409 | A06 |
 | `context-propagation-missing` | Medium | CWE-400 | A06 |
 | `graphql-unbounded-query` | Medium | CWE-400 | A06 |
+| `grpc-server-missing-limits` | Medium | CWE-400 | A06 |
 | `http-client-unsafe` | Medium | CWE-400 | A06 |
 | `http-unbounded-body-read` | High | CWE-400 | A06 |
 | `untrusted-slice-allocation` | High | CWE-789 | A06 |

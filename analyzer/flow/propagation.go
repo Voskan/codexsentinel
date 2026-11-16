@@ -465,6 +465,9 @@ func (s *funcState) call(instr ssa.CallInstruction) {
 	recv, args := EffectiveArgs(common)
 	t, known := resolveTarget(common)
 	pos := instr.Pos()
+	if msg, label := streamMessage(common, recv, args, result); msg != nil {
+		s.addNode(msg, sourceNode(streamSource, pos, label))
+	}
 	if known {
 		name := describe(t)
 		for _, spec := range s.eng.reg.sourcesFor(t, SourceCall) {
