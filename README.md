@@ -252,6 +252,13 @@ report the same line, the finding with the longer trace is kept.
 | `license-denied` | A dependency license is denied or not allowed |
 | `high-entropy-string` | Vendored dependency code contains a string that looks like a secret |
 | `supply-chain-capability-escalation` | A dependency uses capabilities missing from the lock file |
+| `dependency-typosquatting` | A required module is one or two characters away from a well-known module without being one (offline) |
+| `gomod-local-replace` | A `replace` directive points at a local directory (offline) |
+| `gomod-missing-checksum` | A direct requirement has no content hash in `go.sum` (offline) |
+| `dependency-policy-denied` | A module matches `denied_prefixes` or falls outside `allowed_prefixes` (offline) |
+| `dependency-young-module` | The required version was published less than `min_module_age_days` ago (module proxy) |
+| `dependency-retracted` | The required version is retracted by the module's authors (module proxy) |
+| `dependency-deprecated` | The module is marked deprecated in its latest `go.mod` (module proxy) |
 | `arch-layer-violation` | A package imports a layer it may not depend on |
 | `arch-import-cycle` | Packages of the module import each other in a cycle |
 | `arch-god-struct` | A struct has too many methods, or too many fields while also carrying behavior |
@@ -336,6 +343,11 @@ dependencies:
   check_licenses: true
   allow_licenses: [MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0]
   deny_licenses: [AGPL-3.0, GPL-3.0, GPL-2.0, SSPL-1.0, BSL-1.1]
+  check_provenance: true         # typosquatting and policy offline; proxy lookups with enable
+  check_hygiene: true            # local replace directives and go.sum checksums
+  min_module_age_days: 7         # 0 disables the age check
+  allowed_prefixes: []           # when set, only these module prefixes are allowed
+  denied_prefixes: []
 suppression:
   ignore_file: .codexsentinel.ignore
   enable_inline_ignore: true

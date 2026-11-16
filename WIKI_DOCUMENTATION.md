@@ -282,6 +282,32 @@ Vendored modules are also scanned for high-entropy strings, which are
 reported as `high-entropy-string`. Network failures are reported as a warning,
 and the rest of the scan completes.
 
+### go.mod hygiene and module provenance
+
+These checks run on every scan, even with `dependencies.enable: false`,
+because they only read `go.mod` and `go.sum`. Findings point at the line of
+the `require` or `replace` directive, so `--diff` reports a newly added
+dependency.
+
+| Rule | Behavior |
+| --- | --- |
+| `dependency-typosquatting` (`check_provenance`) | Compares each requirement, without its `/vN` suffix and with nested modules reduced to their repository, with a built-in list of about 300 widely used modules. A module that is not in the list but is one edit away (two for paths of 20 characters or more) is reported, counting transpositions and look-alike characters (`rn`/`m`, `l`/`1`, `o`/`0`, dropped `-`) as one edit. Modules under domains that only one organization can publish to (`golang.org/x`, `google.golang.org`, `go.uber.org`, `gopkg.in`, `k8s.io` and others), modules of the same account as the scanned module, and modules under `allowed_prefixes` are not compared. |
+| `gomod-local-replace` (`check_hygiene`) | Reports `replace` directives whose target is a directory. |
+| `gomod-missing-checksum` (`check_hygiene`) | Reports direct requirements without an `h1:` hash of their content in `go.sum`, or all of them when `go.sum` is missing. Requirements replaced by a directory are skipped; for other replacements the replacement version is checked. |
+| `dependency-policy-denied` | Reports modules matching `denied_prefixes`, and, when `allowed_prefixes` is set, every required module outside it, direct or indirect. A prefix matches whole path elements; a prefix ending in `/` or `.` matches any continuation. |
+
+With `dependencies.enable` and `check_vulnerabilities`, the module proxy is
+also asked about each requirement. The proxy is the first URL in `GOPROXY`
+(default `https://proxy.golang.org`); `direct` or `off` disables the lookups,
+and modules matching `GONOPROXY` or `GOPRIVATE` are never sent. Answers are
+cached under the user cache directory, `@latest` answers for 24 hours.
+
+| Rule | Behavior |
+| --- | --- |
+| `dependency-young-module` | Reports a version published fewer than `min_module_age_days` days ago (from `@v/<version>.info`), unless the module is under `allowed_prefixes` or belongs to the scanned module's account. |
+| `dependency-deprecated` | Reports a module whose latest `go.mod` has a `// Deprecated:` comment, with the authors' text. |
+| `dependency-retracted` | Reports a version inside a `retract` interval of the latest `go.mod`, with the rationale. |
+
 ## Capability lock file
 
 `codex-cli caps inspect` attributes privileged operations to the dependency
@@ -504,6 +530,9 @@ values are errors. Omitted keys keep their defaults.
 | `dependencies.check_capabilities` | `true` | Verify the capability lock file during `scan` |
 | `dependencies.capability_lockfile` | `.codexsentinel.caps.json` | Lock file path, relative to the module root |
 | `dependencies.allow_licenses`, `deny_licenses` | see README | SPDX identifiers |
+| `dependencies.check_provenance`, `check_hygiene` | `true` | go.mod checks; proxy lookups only with `enable` |
+| `dependencies.min_module_age_days` | `7` | Minimum age of a required version; 0 disables |
+| `dependencies.allowed_prefixes`, `denied_prefixes` | empty | Module path policy |
 | `suppression.ignore_file` | `.codexsentinel.ignore` | Ignore file, relative to the module root |
 | `suppression.enable_inline_ignore` | `true` | Honor `//codex:ignore` |
 | `suppression.require_ignore_reason` | `false` | Report directives without a reason |

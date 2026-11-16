@@ -13,6 +13,7 @@ import (
 
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/config"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -26,6 +27,7 @@ type DependencyReport struct {
 
 	Vulnerabilities []Vulnerability  // Known vulnerabilities affecting Version
 	SuspiciousFiles []EntropyFinding // High-entropy values in vendored code
+	Findings        []ModuleFinding  // go.mod hygiene and provenance problems
 }
 
 // ScanOptions configures ScanDependencies.
@@ -39,6 +41,26 @@ type ScanOptions struct {
 	Bundle *codessa.GraphBundle
 	OSV    *OSVClient  // defaults to NewOSVClient()
 	GHSA   *GHSAClient // defaults to NewGHSAClient()
+
+	// CheckHygiene reports local replace directives and missing checksums.
+	CheckHygiene bool
+	// CheckProvenance reports typosquatted names and policy violations, and,
+	// together with CheckVulnerabilities, asks the module proxy for young,
+	// deprecated and retracted modules.
+	CheckProvenance  bool
+	MinModuleAgeDays int
+	AllowedPrefixes  []string
+	DeniedPrefixes   []string
+	Proxy            *ProxyClient // defaults to NewProxyClient()
+}
+
+// OptionsFromConfig returns the scan options set by a dependencies section.
+func OptionsFromConfig(c config.DependencyConfig) ScanOptions {
+	return ScanOptions{
+		AllowLicenses: c.AllowLicenses, DenyLicenses: c.DenyLicenses, CheckLicenses: c.CheckLicenses,
+		CheckVulnerabilities: c.CheckVulnerabilities, CheckHygiene: c.CheckHygiene, CheckProvenance: c.CheckProvenance,
+		MinModuleAgeDays: c.MinModuleAgeDays, AllowedPrefixes: c.AllowedPrefixes, DeniedPrefixes: c.DeniedPrefixes,
+	}
 }
 
 // ScanDependencies audits the modules of goModPath. When an advisory source
@@ -71,6 +93,10 @@ func ScanDependencies(ctx context.Context, goModPath string, opts ScanOptions) (
 		}
 	}
 	entropy := vendorEntropy(filepath.Dir(goModPath))
+	findings, err := moduleFindings(ctx, goModPath, opts)
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	reports := make([]DependencyReport, 0, len(mods))
 	for _, m := range mods {
@@ -85,7 +111,52 @@ func ScanDependencies(ctx context.Context, goModPath string, opts ScanOptions) (
 		}
 		reports = append(reports, r)
 	}
-	return reports, errors.Join(errs...)
+	return attachFindings(reports, findings), errors.Join(errs...)
+}
+
+// moduleFindings runs the go.mod hygiene and provenance checks enabled in opts.
+func moduleFindings(ctx context.Context, goModPath string, opts ScanOptions) ([]ModuleFinding, error) {
+	if !opts.CheckHygiene && !opts.CheckProvenance {
+		return nil, nil
+	}
+	var errs []error
+	found, err := AnalyzeGoModHygiene(goModPath, HygieneOptions{
+		Typosquatting: opts.CheckProvenance, Hygiene: opts.CheckHygiene,
+		AllowedPrefixes: opts.AllowedPrefixes, DeniedPrefixes: opts.DeniedPrefixes,
+	})
+	if err != nil {
+		errs = append(errs, fmt.Errorf("go.mod hygiene: %w", err))
+	}
+	if opts.CheckProvenance && opts.CheckVulnerabilities {
+		online, err := CheckProvenance(ctx, goModPath, ProvenanceOptions{
+			MinModuleAgeDays: opts.MinModuleAgeDays, AllowedPrefixes: opts.AllowedPrefixes, Proxy: opts.Proxy,
+		})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("module provenance: %w", err))
+		}
+		found = append(found, online...)
+		sortFindings(found)
+	}
+	return found, errors.Join(errs...)
+}
+
+// attachFindings adds each finding to the report of its module, creating
+// reports for modules that ReadGoMod leaves out, such as local replacements.
+func attachFindings(reports []DependencyReport, findings []ModuleFinding) []DependencyReport {
+	index := map[string]int{}
+	for i, r := range reports {
+		index[r.Module] = i
+	}
+	for _, f := range findings {
+		i, ok := index[f.Module]
+		if !ok {
+			reports = append(reports, DependencyReport{Module: f.Module, Version: f.Version})
+			i = len(reports) - 1
+			index[f.Module] = i
+		}
+		reports[i].Findings = append(reports[i].Findings, f)
+	}
+	return reports
 }
 
 func collectVulnerabilities(ctx context.Context, mods []ModuleVersion, opts ScanOptions) ([]Vulnerability, error) {
@@ -263,6 +334,7 @@ func ReportIssues(reports []DependencyReport, goModPath string) []result.Issue {
 		for _, v := range r.Vulnerabilities {
 			issues = append(issues, vulnerabilityIssue(r, v, loc))
 		}
+		issues = append(issues, FindingIssues(r.Findings, goModPath)...)
 		for _, e := range r.SuspiciousFiles {
 			issues = append(issues, result.Issue{
 				ID: "high-entropy-string", Title: "High Entropy String in Vendored Code", Severity: result.SeverityMedium, Category: "security",

@@ -101,6 +101,7 @@ func Validate(cfg *Config) error {
 		{"metrics.min_duplicate_loc", int64(cfg.Metrics.MinDuplicateLOC)},
 		{"architecture.god_struct_max_methods", int64(cfg.Architecture.GodStructMaxMethods)},
 		{"architecture.god_struct_max_fields", int64(cfg.Architecture.GodStructMaxFields)},
+		{"dependencies.min_module_age_days", int64(cfg.Dependencies.MinModuleAgeDays)},
 	}
 	for _, threshold := range thresholds {
 		if threshold.value < 0 {

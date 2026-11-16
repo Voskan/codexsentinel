@@ -256,12 +256,7 @@ func runDependencyAnalysis(ctx context.Context, targetPath string, cfg *config.C
 	if _, err := os.Stat(goModPath); err != nil {
 		return nil, fmt.Errorf("go.mod file not found in %s", targetPath)
 	}
-	opts := deps.ScanOptions{
-		AllowLicenses:        cfg.Dependencies.AllowLicenses,
-		DenyLicenses:         cfg.Dependencies.DenyLicenses,
-		CheckLicenses:        cfg.Dependencies.CheckLicenses,
-		CheckVulnerabilities: cfg.Dependencies.CheckVulnerabilities,
-	}
+	opts := deps.OptionsFromConfig(cfg.Dependencies)
 	if cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability {
 		if ws, err := workspace.Load(ctx, targetPath, cfg); err != nil {
 			logger.Warnf("Reachability analysis skipped: %v", err)

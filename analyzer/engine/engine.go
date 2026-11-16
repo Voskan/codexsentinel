@@ -194,6 +194,9 @@ func runWorkspaceAnalyses(ctx context.Context, ws *workspace.Workspace, cfg *con
 			return nil, err
 		}
 	}
+	if !cfg.Dependencies.Enable && ws.GoModPath != "" && (cfg.Dependencies.CheckHygiene || cfg.Dependencies.CheckProvenance) {
+		issues = append(issues, runModuleHygiene(ws, cfg)...)
+	}
 	if needCritsec && bundle != nil {
 		issues = append(issues, critsec.Analyze(ws, bundle, func(id string) bool { return ruleEnabled(id, cfg) })...)
 	}
@@ -245,13 +248,9 @@ func ruleEnabled(id string, cfg *config.Config) bool {
 // and license policy violations. Advisory lookups that fail are reported as a
 // warning so that the rest of the analysis still completes.
 func runDependencyAnalysis(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, bundle *codessa.GraphBundle) ([]result.Issue, error) {
-	reports, err := deps.ScanDependencies(ctx, ws.GoModPath, deps.ScanOptions{
-		AllowLicenses:        cfg.Dependencies.AllowLicenses,
-		DenyLicenses:         cfg.Dependencies.DenyLicenses,
-		CheckLicenses:        cfg.Dependencies.CheckLicenses,
-		CheckVulnerabilities: cfg.Dependencies.CheckVulnerabilities,
-		Bundle:               bundle,
-	})
+	opts := deps.OptionsFromConfig(cfg.Dependencies)
+	opts.Bundle = bundle
+	reports, err := deps.ScanDependencies(ctx, ws.GoModPath, opts)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
@@ -259,6 +258,19 @@ func runDependencyAnalysis(ctx context.Context, ws *workspace.Workspace, cfg *co
 		fmt.Fprintf(os.Stderr, "Warning: dependency analysis incomplete: %v\n", err)
 	}
 	return deps.ReportIssues(reports, relativePath(ws.RootDir, ws.GoModPath)), nil
+}
+
+// runModuleHygiene runs the offline go.mod checks when the full dependency
+// audit is off. Problems reading go.mod are reported as a warning.
+func runModuleHygiene(ws *workspace.Workspace, cfg *config.Config) []result.Issue {
+	findings, err := deps.AnalyzeGoModHygiene(ws.GoModPath, deps.HygieneOptions{
+		Typosquatting: cfg.Dependencies.CheckProvenance, Hygiene: cfg.Dependencies.CheckHygiene,
+		AllowedPrefixes: cfg.Dependencies.AllowedPrefixes, DeniedPrefixes: cfg.Dependencies.DeniedPrefixes,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: go.mod checks incomplete: %v\n", err)
+	}
+	return deps.FindingIssues(findings, relativePath(ws.RootDir, ws.GoModPath))
 }
 
 // capabilityLockPath returns the capability lock file to verify, or "" when

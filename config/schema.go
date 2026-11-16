@@ -97,6 +97,18 @@ type DependencyConfig struct {
 	CheckLicenses        bool     `yaml:"check_licenses"`
 	AllowLicenses        []string `yaml:"allow_licenses"`
 	DenyLicenses         []string `yaml:"deny_licenses"`
+	// CheckProvenance reports typosquatted module names and policy
+	// violations offline, and young, deprecated and retracted versions
+	// through the module proxy when vulnerability checks are on.
+	CheckProvenance bool `yaml:"check_provenance"`
+	// CheckHygiene reports local replace directives and missing checksums.
+	CheckHygiene bool `yaml:"check_hygiene"`
+	// MinModuleAgeDays reports versions published fewer days ago; 0 disables.
+	MinModuleAgeDays int `yaml:"min_module_age_days"`
+	// AllowedPrefixes, when set, lists the only module path prefixes allowed.
+	AllowedPrefixes []string `yaml:"allowed_prefixes"`
+	// DeniedPrefixes lists module path prefixes that must not be required.
+	DeniedPrefixes []string `yaml:"denied_prefixes"`
 }
 
 type SuppressionConfig struct {

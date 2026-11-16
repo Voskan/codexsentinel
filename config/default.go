@@ -30,6 +30,7 @@ var DefaultConfig = Config{
 		CapabilityLockfile: ".codexsentinel.caps.json",
 		AllowLicenses:      []string{"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MPL-2.0"},
 		DenyLicenses:       []string{"AGPL-3.0", "GPL-3.0", "GPL-2.0", "SSPL-1.0", "BSL-1.1"},
+		CheckProvenance:    true, CheckHygiene: true, MinModuleAgeDays: 7,
 	},
 	Suppression: SuppressionConfig{
 		IgnoreFile: ".codexsentinel.ignore", EnableInlineIgnore: true, MinConfidence: 0.5,
@@ -63,6 +64,8 @@ func NewDefaultConfig() Config {
 	cfg.Architecture.AllowedDeps = cloneLists(cfg.Architecture.AllowedDeps)
 	cfg.Dependencies.AllowLicenses = slices.Clone(cfg.Dependencies.AllowLicenses)
 	cfg.Dependencies.DenyLicenses = slices.Clone(cfg.Dependencies.DenyLicenses)
+	cfg.Dependencies.AllowedPrefixes = slices.Clone(cfg.Dependencies.AllowedPrefixes)
+	cfg.Dependencies.DeniedPrefixes = slices.Clone(cfg.Dependencies.DeniedPrefixes)
 	cfg.Report.Formats = slices.Clone(cfg.Report.Formats)
 	return cfg
 }

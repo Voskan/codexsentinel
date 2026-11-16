@@ -52,6 +52,15 @@ dependencies:
   check_licenses: true
   allow_licenses: [MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0]
   deny_licenses: [AGPL-3.0, GPL-3.0, GPL-2.0, SSPL-1.0, BSL-1.1]
+  # Offline go.mod checks run on every scan: typosquatted module names,
+  # local replace directives, missing go.sum checksums and module policy.
+  check_provenance: true
+  check_hygiene: true
+  # With check_vulnerabilities, the module proxy is asked for versions
+  # younger than this many days, deprecated modules and retracted versions.
+  min_module_age_days: 7
+  allowed_prefixes: []
+  denied_prefixes: []
 suppression:
   ignore_file: .codexsentinel.ignore
   enable_inline_ignore: true
