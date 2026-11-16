@@ -439,8 +439,8 @@ func EscalationIssues(escalations []CapabilityEscalation, lockPath string) []res
 			desc += " Call path: " + strings.Join(e.Evidence, "; ") + "."
 		}
 		out = append(out, result.Issue{
-			ID: "supply-chain-capability-escalation", Title: "Dependency Capability Escalation", Severity: e.Severity, Category: "security",
-			CWE: "CWE-506", Confidence: 1, Description: desc,
+			ID: "supply-chain-capability-escalation", Title: "Dependency Capability Escalation", Severity: e.Severity, Category: "supply-chain",
+			CWE: "CWE-506", OWASP: "A03:2025", Confidence: 1, Description: desc,
 			Location:   result.NewLocationFromPos(token.Position{Filename: lockPath, Line: 1}, "", ""),
 			Suggestion: "Review the dependency change. If the new behaviour is expected, approve it with 'codex caps lock'.",
 		})

@@ -389,7 +389,7 @@ func vulnerabilityIssue(r DependencyReport, v Vulnerability, loc result.Location
 		}
 	}
 	issue := result.Issue{
-		ID: "dependency-vulnerability", Title: "Vulnerable Dependency", Severity: result.ParseSeverity(v.Severity), Category: "security",
+		ID: "dependency-vulnerability", Title: "Vulnerable Dependency", Severity: result.ParseSeverity(v.Severity), Category: "supply-chain", CWE: "CWE-1395", OWASP: "A03:2025",
 		Location: loc, Description: desc, Suggestion: suggestion, Reachable: v.Reachable, Confidence: 1,
 	}
 	if v.Reference != "" {

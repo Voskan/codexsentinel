@@ -110,6 +110,7 @@ docker run --rm -v "$PWD:/workspace" codexsentinel scan . --format sarif --out r
 ## Usage
 
 ```bash
+codex-cli init                                     # write .codexsentinel.yaml for this module
 codex-cli scan .                                   # SARIF report in scan_reports/
 codex-cli scan ./... --format json --out report.json
 codex-cli scan . --format html --out report.html
@@ -123,7 +124,22 @@ codex-cli cache status                             # cache location and size
 codex-cli cache clean                              # remove cached results
 codex-cli sbom . > sbom.cdx.json                   # CycloneDX 1.6 SBOM
 codex-cli sbom . --vex --vex-out openvex.json      # add vulnerabilities and write OpenVEX
+codex-cli rules --category reliability             # list rules (table, json or markdown)
+codex-cli explain sql-injection                    # description, examples and references for a rule
 ```
+
+`codex-cli init` reads `go.mod` and the directory tree and writes a commented
+`.codexsentinel.yaml`: architecture layers for directories named after common
+layers (`handler`, `controller` and `api` become delivery; `service` and
+`usecase` the service layer; `domain`, `entity` and `model` the domain;
+`repository`, `repo`, `storage` and `adapter` the repository layer), allowed
+dependencies between them, and exclusions for mocks, `gen` directories and
+`*.pb.go` files when present. It also creates an empty `.codexsentinel.ignore`.
+An existing configuration is kept unless `--force` is given; `--with-caps`
+writes the capability lock file as well.
+
+`codex-cli explain` accepts a rule ID or its code (`CS001`) and suggests
+similar IDs for a typo. Every finding's rule can be looked up this way.
 
 Package-level results are cached on disk and reused while a package, the
 packages it imports, the configuration and the analyzer are unchanged.

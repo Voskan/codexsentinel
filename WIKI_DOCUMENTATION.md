@@ -27,6 +27,9 @@ key, suppression mechanism and report format. For a first run, start with the
 
 | Command | Purpose |
 | --- | --- |
+| `codex-cli init [path] [--force] [--with-caps]` | Write a `.codexsentinel.yaml` with the layers, libraries and generated code found in the module, and an empty ignore file |
+| `codex-cli rules [--category C] [--severity S] [--format table\|json\|markdown]` | List the rule catalog: ID, code, severity, category, CWE and OWASP category |
+| `codex-cli explain RULE` | Print a rule's explanation, a vulnerable and a fixed example, references and how to suppress it; `RULE` is an ID or a code such as `CS001` |
 | `codex-cli scan [path]` | Analyze a module, a package pattern (`./...`) or a single `.go` file |
 | `codex-cli baseline create [path] --out FILE` | Record the current findings in a baseline file |
 | `codex-cli caps inspect [path]` | Print the capabilities each dependency uses, with a call path as evidence |
