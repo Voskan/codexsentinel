@@ -1,6 +1,8 @@
 package builtin
 
 import (
+	"go/build"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,6 +49,15 @@ func f(m Message, err error, tokenType string) bool {
 `}, registerWebProtocols)
 }
 
+// requireGoRelease skips the test when the Go toolchain that type-checks the
+// fixtures predates release (for example "go1.25").
+func requireGoRelease(t *testing.T, release string) {
+	t.Helper()
+	if !slices.Contains(build.Default.ReleaseTags, release) {
+		t.Skipf("fixture needs %s or newer", release)
+	}
+}
+
 func TestWebProtocolsCSRF(t *testing.T) {
 	t.Parallel()
 	vulnerable := `package app
@@ -68,14 +79,17 @@ func routes() *http.ServeMux {
 `
 	testutil.RunRulesOnFiles(t, map[string]string{"app.go": vulnerable}, registerWebProtocols)
 
-	protected := vulnerable + `
+	t.Run("CrossOriginProtection", func(t *testing.T) {
+		requireGoRelease(t, "go1.25")
+		protected := vulnerable + `
 func server() http.Handler {
 	cop := http.NewCrossOriginProtection()
 	return cop.Handler(routes())
 }
 `
-	protected = removeWants(protected)
-	testutil.RunRulesOnFiles(t, map[string]string{"app.go": protected}, registerWebProtocols)
+		protected = removeWants(protected)
+		testutil.RunRulesOnFiles(t, map[string]string{"app.go": protected}, registerWebProtocols)
+	})
 
 	testutil.RunRulesOnFiles(t, map[string]string{"app.go": `package app
 

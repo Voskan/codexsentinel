@@ -12,13 +12,20 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The minimum supported release and the one that adds
+        # http.CrossOriginProtection, which the CSRF rule recognizes.
+        go: [ '1.24.x', '1.25.x' ]
+    name: test (Go ${{ matrix.go }})
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.x'
+          go-version: ${{ matrix.go }}
 
       - name: Check formatting
         run: test -z "$(gofmt -l $(go list -f '{{.Dir}}' ./...))"
