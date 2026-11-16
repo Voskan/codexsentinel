@@ -45,6 +45,11 @@ logs/
 reports/
 scan_reports/
 codex-cli
+coverage.out
+
+# Tracked sources that match the report patterns above
+!report/template/report.html
+!.codexsentinel.caps.json
 
 # Temporary files
 *.tmp

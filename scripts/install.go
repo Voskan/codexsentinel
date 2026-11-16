@@ -1,3 +1,8 @@
+//go:build ignore
+
+// Command install builds codex-cli from the current checkout into ./bin.
+//
+//	go run scripts/install.go
 package main
 
 import (
@@ -6,59 +11,41 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 )
 
-// installDir defines where the binary should be installed
-var installDir = filepath.Join(".", "bin")
-
 func main() {
-	fmt.Println("🔧 Installing CodexSentinel...")
-
-	if err := ensureInstallDir(); err != nil {
-		exitWithError("failed to prepare install directory", err)
+	dir := filepath.Join(".", "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		fail("prepare install directory", err)
 	}
-
-	// Install osv-scanner
-	fmt.Println("🔧 Installing osv-scanner (dependency vulnerability scanner)...")
-	osvCmd := exec.Command("go", "install", "github.com/google/osv-scanner/cmd/osv-scanner@latest")
-	osvCmd.Env = os.Environ()
-	osvCmd.Stdout = os.Stdout
-	osvCmd.Stderr = os.Stderr
-	if err := osvCmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  Warning: failed to install osv-scanner: %v\n", err)
-	} else {
-		fmt.Println("✅ osv-scanner installed successfully.")
-	}
-
-	output := filepath.Join(installDir, binaryName("codex"))
-	cmd := exec.Command("go", "build", "-o", output, "./cmd/codex-cli")
-	cmd.Env = os.Environ()
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		exitWithError("build failed", err)
-	}
-
-	fmt.Printf("✅ CodexSentinel installed at: %s\n", output)
-}
-
-func ensureInstallDir() error {
-	if _, err := os.Stat(installDir); os.IsNotExist(err) {
-		return os.MkdirAll(installDir, 0o755)
-	}
-	return nil
-}
-
-func binaryName(name string) string {
+	name := "codex-cli"
 	if runtime.GOOS == "windows" {
-		return name + ".exe"
+		name += ".exe"
 	}
-	return name
+	output := filepath.Join(dir, name)
+	pkg := "github.com/Voskan/codexsentinel/internal/version"
+	ldflags := fmt.Sprintf("-s -w -X %s.Version=%s -X %s.Commit=%s -X %s.BuildDate=%s",
+		pkg, gitOutput("describe", "--tags", "--always", "--dirty"), pkg, gitOutput("rev-parse", "HEAD"), pkg, time.Now().UTC().Format(time.RFC3339))
+	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", ldflags, "-o", output, "./cmd/codex-cli")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		fail("build", err)
+	}
+	fmt.Printf("codex-cli installed at %s\n", output)
 }
 
-func exitWithError(msg string, err error) {
-	fmt.Fprintf(os.Stderr, "❌ %s: %v\n", msg, err)
+func gitOutput(args ...string) string {
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func fail(step string, err error) {
+	fmt.Fprintf(os.Stderr, "%s failed: %v\n", step, err)
 	os.Exit(1)
 }

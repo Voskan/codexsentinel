@@ -5,18 +5,46 @@ import (
 	"strings"
 )
 
-// Issue represents a single detected vulnerability, warning or code smell.
+type TraceStep struct {
+	Location Location `json:"location"`
+	Message  string   `json:"message"`
+	Kind     string   `json:"kind"`
+}
+
+type TextEdit struct {
+	File        string `json:"file"`
+	StartLine   int    `json:"startLine"`
+	StartColumn int    `json:"startColumn"`
+	EndLine     int    `json:"endLine"`
+	EndColumn   int    `json:"endColumn"`
+	StartOffset int    `json:"startOffset"`
+	EndOffset   int    `json:"endOffset"`
+	NewText     string `json:"newText"`
+}
+
+type SuggestedFix struct {
+	Message string     `json:"message"`
+	Edits   []TextEdit `json:"edits"`
+}
+
 type Issue struct {
-	ID          string   `json:"id"`            // Unique identifier of the rule (e.g., "sql-injection")
-	Title       string   `json:"title"`         // Short title of the issue
-	Description string   `json:"description"`   // Detailed description of the issue
-	Severity    Severity `json:"severity"`      // Issue severity
-	Location    Location `json:"location"`      // Where the issue was found
-	Category    string   `json:"category"`      // Category (security, performance, style, etc.)
-	Suggestion  string   `json:"suggestion"`    // Suggested fix
-	References  []string `json:"references"`    // Links to documentation or references
-	FalsePos    bool     `json:"falsePositive"` // Marked as false positive (optional)
-	Ignored     bool     `json:"ignored"`       // Manually ignored via CLI or config
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
+	Description string        `json:"description"`
+	Severity    Severity      `json:"severity"`
+	Confidence  float64       `json:"confidence,omitempty"`
+	CWE         string        `json:"cwe,omitempty"`
+	OWASP       string        `json:"owasp,omitempty"`
+	Location    Location      `json:"location"`
+	Category    string        `json:"category"`
+	Suggestion  string        `json:"suggestion"`
+	References  []string      `json:"references,omitempty"`
+	Trace       []TraceStep   `json:"trace,omitempty"`
+	Fix         *SuggestedFix `json:"fix,omitempty"`
+	Fingerprint string        `json:"fingerprint,omitempty"`
+	Reachable   *bool         `json:"reachable,omitempty"`
+	FalsePos    bool          `json:"falsePositive,omitempty"`
+	Ignored     bool          `json:"ignored,omitempty"`
 }
 
 // String returns a concise human-readable summary of the issue.

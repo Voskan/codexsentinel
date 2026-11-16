@@ -1,17 +1,8 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+# Builds the release binaries with the SLSA3 Go builder, which also publishes
+# signed provenance for each binary, then publishes checksums.txt.
+# Verify a binary with https://github.com/slsa-framework/slsa-verifier.
 
-# This workflow lets you compile your Go project using a SLSA3 compliant builder.
-# This workflow will generate a so-called "provenance" file describing the steps
-# that were performed to generate the final binary.
-# The project is an initiative of the OpenSSF (openssf.org) and is developed at
-# https://github.com/slsa-framework/slsa-github-generator.
-# The provenance file can be verified using https://github.com/slsa-framework/slsa-verifier.
-# For more information about SLSA and how it improves the supply-chain, visit slsa.dev.
-
-name: SLSA Go releaser
+name: Release
 on:
   workflow_dispatch:
   release:
@@ -20,18 +11,49 @@ on:
 permissions: read-all
 
 jobs:
-  # ========================================================================================================================================
-  #     Prerequesite: Create a .slsa-goreleaser.yml in the root directory of your project.
-  #       See format in https://github.com/slsa-framework/slsa-github-generator/blob/main/internal/builders/go/README.md#configuration-file
-  #=========================================================================================================================================
+  args:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.vars.outputs.version }}
+      commit: ${{ steps.vars.outputs.commit }}
+      date: ${{ steps.vars.outputs.date }}
+    steps:
+      - id: vars
+        run: |
+          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "commit=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: args
+    strategy:
+      matrix:
+        platform: [linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64]
     permissions:
-      id-token: write # To sign.
+      id-token: write # To sign the provenance.
       contents: write # To upload release assets.
-      actions: read # To read workflow path.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v1.4.0
+      actions: read # To read the workflow path.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v2.1.0
     with:
-      go-version: 1.24.2
-      # =============================================================================================================
-      #     Optional: For more options, see https://github.com/slsa-framework/slsa-github-generator#golang-projects
-      # =============================================================================================================
+      go-version: "1.24"
+      config-file: .slsa-goreleaser/${{ matrix.platform }}.yml
+      evaluated-envs: "VERSION:${{ needs.args.outputs.version }}, COMMIT:${{ needs.args.outputs.commit }}, BUILD_DATE:${{ needs.args.outputs.date }}"
+      upload-assets: ${{ github.event_name == 'release' }}
+
+  checksums:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # To upload checksums.txt.
+    steps:
+      - name: Publish checksums.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir assets && cd assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'codex-cli-*'
+          rm -f ./*.intoto.jsonl
+          sha256sum codex-cli-* > checksums.txt
+          gh release upload "$TAG" checksums.txt --repo "$GITHUB_REPOSITORY" --clobber

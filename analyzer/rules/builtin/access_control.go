@@ -2,122 +2,101 @@ package builtin
 
 import (
 	"go/ast"
+	"go/types"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
-	"golang.org/x/tools/go/analysis"
 )
 
-// RegisterAccessControlRule registers the access control violation detection rule.
+var idorMeta = ruleMeta{ID: "idor-unscoped-mutation", Title: "Unscoped Resource Mutation (IDOR)", Severity: result.SeverityMedium, CWE: "CWE-639", OWASP: "A01:2025", Confidence: 0.7,
+	Suggestion: "Scope the statement to the caller (e.g. AND owner_id = $2 or tenant_id) or check authorization for the resource before mutating it.",
+	References: []string{"https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html"}}
+
+var (
+	mutationSQL  = regexp.MustCompile(`(?is)^\s*(delete\s+from|update)\s+\S+.*?\swhere\s+(.*)$`)
+	ownerColumn  = regexp.MustCompile(`(?i)\b(user|tenant|org|organization|owner|account|customer|team|workspace|created_by|author)(_?id)?\b`)
+	placeholders = regexp.MustCompile(`\?|\$\d+|@\w+|:\w+`)
+)
+
+// RegisterAccessControlRule reports handlers that delete or update a record
+// selected only by an identifier taken from the URL.
 func RegisterAccessControlRule(ctx *analyzer.AnalyzerContext) {
-	ctx.RegisterRule(&analyzer.Rule{
-		ID:       "broken-access-control",
-		Title:    "Broken Access Control (A01:2025)",
-		Category: "security",
-		Severity: result.SeverityHigh,
-		Summary:  "Missing or insufficient access control checks may lead to unauthorized access.",
-		Matcher:  matchAccessControlViolations,
+	registerRules(ctx, []ruleMeta{idorMeta}, func(r *reporter) {
+		info := r.pass.TypesInfo
+		for _, file := range r.pass.Files {
+			for _, unit := range funcUnits(file) {
+				if isHandlerFunc(info, unit.Type) {
+					checkUnscopedMutation(r, info, unit)
+				}
+			}
+		}
 	})
 }
 
-// matchAccessControlViolations detects access control violations
-func matchAccessControlViolations(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
-	for _, file := range pass.Files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.FuncDecl:
-				// Check for functions that handle sensitive operations without proper auth
-				if isSensitiveOperation(x.Name.Name) {
-					if !hasAuthCheck(x) {
-						pos := ctx.GetFset().Position(x.Pos())
-						ctx.Report(result.Issue{
-							ID:          "broken-access-control",
-							Title:       "Missing Access Control",
-							Description: "Sensitive operation without proper authentication/authorization checks",
-							Severity:    result.SeverityHigh,
-							Location:    result.NewLocationFromPos(pos, "", ""),
-							Category:    "security",
-							Suggestion:  "Add proper authentication and authorization checks before sensitive operations",
-						})
-					}
-				}
-			case *ast.CallExpr:
-				// Check for direct database access without auth
-				if isDirectDBAccess(x) && !hasAuthCheck(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "broken-access-control",
-						Title:       "Unauthorized Database Access",
-						Description: "Direct database access without proper authorization",
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Implement proper authorization checks before database operations",
-					})
-				}
-			}
-			return true
-		})
-	}
+// isPathParam reports whether call extracts a route parameter.
+func isPathParam(fn *types.Func) bool {
+	return isMethod(fn, "net/http", "Request", "PathValue") ||
+		isFunc(fn, "github.com/go-chi/chi", "URLParam") ||
+		isFunc(fn, "github.com/gorilla/mux", "Vars") ||
+		isMethod(fn, "github.com/gin-gonic/gin", "Context", "Param") ||
+		isMethod(fn, "github.com/labstack/echo", "Context", "Param") ||
+		isMethod(fn, "github.com/gofiber/fiber", "Ctx", "Params", "ParamsInt")
 }
 
-// isSensitiveOperation checks if function name suggests sensitive operations
-func isSensitiveOperation(funcName string) bool {
-	sensitiveOps := []string{
-		"delete", "remove", "update", "modify", "create", "add",
-		"admin", "root", "privileged", "sensitive", "confidential",
-		"user", "password", "credential", "token", "session",
+// isAuthzCall reports whether a call looks like an authorization check.
+func isAuthzCall(fn *types.Func) bool {
+	if fn == nil {
+		return false
 	}
-
-	funcNameLower := strings.ToLower(funcName)
-	for _, op := range sensitiveOps {
-		if strings.Contains(funcNameLower, op) {
-			return true
+	name := fn.Name()
+	for _, prefix := range []string{"authorize", "authorise", "can", "check", "require", "ensure", "enforce", "allow", "verify", "has"} {
+		if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) {
+			if len(name) == len(prefix) || unicode.IsUpper(rune(name[len(prefix)])) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// hasAuthCheck checks if function has authentication/authorization checks
-func hasAuthCheck(node ast.Node) bool {
-	var hasAuth bool
-	ast.Inspect(node, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.CallExpr:
-			if fun, ok := x.Fun.(*ast.SelectorExpr); ok {
-				funcName := fun.Sel.Name
-				// Check for common auth patterns
-				authPatterns := []string{
-					"Authenticate", "Authorize", "Validate", "CheckAuth",
-					"RequireAuth", "VerifyToken", "ValidateSession",
-					"IsAdmin", "HasPermission", "CheckRole",
-				}
-				for _, pattern := range authPatterns {
-					if strings.Contains(funcName, pattern) {
-						hasAuth = true
-						return false
-					}
-				}
-			}
+func checkUnscopedMutation(r *reporter, info *types.Info, unit funcUnit) {
+	hasParam, hasAuthz := false, false
+	inspectShallow(unit.Body, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			fn := calleeFunc(info, call)
+			hasParam = hasParam || isPathParam(fn)
+			hasAuthz = hasAuthz || isAuthzCall(fn)
 		}
 		return true
 	})
-	return hasAuth
-}
-
-// isDirectDBAccess checks if call is direct database access
-func isDirectDBAccess(call *ast.CallExpr) bool {
-	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-		if ident, ok := fun.X.(*ast.Ident); ok {
-			// Check for direct database access patterns
-			dbPatterns := []string{"db", "database", "sql", "query", "exec"}
-			for _, pattern := range dbPatterns {
-				if strings.Contains(strings.ToLower(ident.Name), pattern) {
-					return true
-				}
-			}
-		}
+	if !hasParam || hasAuthz {
+		return
 	}
-	return false
+	inspectShallow(unit.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		idx := sqlQueryArg(calleeFunc(info, call))
+		if idx < 0 || idx >= len(call.Args) {
+			return true
+		}
+		query, ok := constString(info, call.Args[idx])
+		if !ok {
+			return true
+		}
+		m := mutationSQL.FindStringSubmatch(query)
+		if m == nil {
+			return true
+		}
+		where := m[2]
+		if ownerColumn.MatchString(where) || len(placeholders.FindAllString(where, -1)) != 1 {
+			return true
+		}
+		r.report(idorMeta, call, "Record is "+strings.ToLower(strings.Fields(m[1])[0])+"d by a URL identifier alone, without an ownership condition or authorization check.")
+		return true
+	})
 }

@@ -1,63 +1,47 @@
-id: go.style.unused_imports
-title: "Unused Imports"
-category: "style"
-severity: "INFO"
-description: |
-  Unused imports detected. These should be removed to improve
-  code clarity and reduce compilation time.
-
-match:
-  pattern: 'import.*"{{unused}}"'
-  filters:
-    - type: file_ext
-      include:
-        - ".go"
-
-suggestion: "Remove unused imports using 'goimports -w' or manually"
+id: go.style.strings-replace-all
+title: Use strings.ReplaceAll
+category: style
+severity: INFO
+description: strings.Replace with n = -1 is clearer as strings.ReplaceAll.
+pattern: "strings.Replace($S, $OLD, $NEW, -1)"
+fix: "strings.ReplaceAll($S, $OLD, $NEW)"
+suggestion: Use strings.ReplaceAll.
 references:
-  - https://golang.org/cmd/goimports/
+  - https://pkg.go.dev/strings#ReplaceAll
 enabled: true
 
 ---
-id: go.style.missing_documentation
-title: "Missing Package Documentation"
-category: "style"
-severity: "INFO"
-description: |
-  Package lacks documentation comment.
-  All packages should have a brief description.
-
-match:
-  pattern: "package {{name}}"
-  filters:
-    - type: file_ext
-      include:
-        - ".go"
-    - type: package
-      exclude:
-        - main
-
-suggestion: "Add package documentation comment"
+id: go.style.time-since
+title: Use time.Since
+category: style
+severity: INFO
+description: time.Now().Sub(t) is clearer as time.Since(t).
+pattern: "time.Now().Sub($T)"
+fix: "time.Since($T)"
+suggestion: Use time.Since.
 references:
-  - https://golang.org/doc/effective_go.html#commentary
+  - https://pkg.go.dev/time#Since
 enabled: true
 
 ---
-id: go.style.naming_convention
-title: "Naming Convention Violation"
-category: "style"
-severity: "LOW"
-description: |
-  Function or variable name doesn't follow Go naming conventions.
-
-match:
-  pattern: "func {{name}}("
-  filters:
-    - type: file_ext
-      include:
-        - ".go"
-
-suggestion: "Use camelCase for function names, PascalCase for exported functions"
+id: go.style.bytes-equal
+title: Use bytes.Equal
+category: style
+severity: INFO
+description: Comparing bytes.Compare with zero is clearer as bytes.Equal.
+pattern: "bytes.Compare($A, $B) == 0"
+fix: "bytes.Equal($A, $B)"
+suggestion: Use bytes.Equal.
 references:
-  - https://golang.org/doc/effective_go.html#mixed-caps
+  - https://pkg.go.dev/bytes#Equal
+enabled: true
+
+---
+id: go.correctness.self-assignment
+title: Self Assignment
+category: correctness
+severity: LOW
+description: A variable is assigned to itself, which has no effect and usually hides a typo.
+pattern: "$X = $X"
+suggestion: Assign the intended value or remove the statement.
 enabled: true

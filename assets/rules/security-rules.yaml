@@ -1,86 +1,60 @@
-id: go.insecure.xss.reflected_input
-title: "XSS via Reflected Input"
-category: "security"
-severity: "HIGH"
+id: go.security.plaintext-http-request
+title: Request Sent over Plaintext HTTP
+category: security
+severity: MEDIUM
+cwe: CWE-319
 description: |
-  Unescaped user input is being written directly into the HTTP response,
-  which can lead to reflected Cross-Site Scripting (XSS) vulnerabilities.
-  Ensure that all user-controlled values are properly escaped before writing
-  to HTML output.
-
+  An outgoing request uses an http:// URL to a non-local host. Credentials,
+  tokens and response data can be read or modified in transit.
 match:
-  pattern: "w.Write([]byte({{input}}))"
+  pattern: "http.Get($URL)"
   filters:
-    - type: param
-      sources:
-        - http.Request.FormValue
-        - http.Request.URL.Query().Get
-        - http.Request.PostFormValue
-        - r.FormValue
-    - type: file_ext
-      include:
-        - ".go"
-    - type: package
-      allow:
-        - net/http
-
-suggestion: "Use html.EscapeString() to sanitize user input"
+    - type: regex
+      var: $URL
+      include: ['^"http://']
+      exclude: ['^"http://(localhost|127\.0\.0\.1|\[::1\])([:/"]|$)']
+suggestion: Use an https:// URL.
 references:
-  - https://owasp.org/www-community/attacks/xss/
-  - https://pkg.go.dev/html/template#HTMLEscapeString
+  - https://cwe.mitre.org/data/definitions/319.html
 enabled: true
 
 ---
-id: go.insecure.sql_injection
-title: "SQL Injection via String Concatenation"
-category: "security"
-severity: "CRITICAL"
+id: go.security.plaintext-http-request-new
+title: Request Built for Plaintext HTTP
+category: security
+severity: MEDIUM
+cwe: CWE-319
 description: |
-  User input is being concatenated directly into SQL queries,
-  which can lead to SQL injection vulnerabilities.
-  Use prepared statements or parameterized queries instead.
-
+  An outgoing request is built for an http:// URL to a non-local host.
+  Credentials, tokens and response data can be read or modified in transit.
 match:
-  pattern: 'fmt.Sprintf("SELECT.*%s.*", {{input}})'
+  pattern: "http.NewRequestWithContext($CTX, $METHOD, $URL, $BODY)"
   filters:
-    - type: param
-      sources:
-        - r.FormValue
-        - r.URL.Query().Get
-        - r.PostFormValue
-    - type: call
-      sources:
-        - database/sql.DB.Query
-        - database/sql.DB.QueryRow
-        - database/sql.DB.Exec
-
-suggestion: "Use prepared statements with parameterized queries"
+    - type: regex
+      var: $URL
+      include: ['^"http://']
+      exclude: ['^"http://(localhost|127\.0\.0\.1|\[::1\])([:/"]|$)']
+suggestion: Use an https:// URL.
 references:
-  - https://owasp.org/www-community/attacks/SQL_Injection
+  - https://cwe.mitre.org/data/definitions/319.html
 enabled: true
 
 ---
-id: go.insecure.command_injection
-title: "Command Injection via exec.Command"
-category: "security"
-severity: "CRITICAL"
+id: go.security.unsafe-pointer-conversion
+title: unsafe.Pointer Conversion
+category: security
+severity: LOW
+cwe: CWE-704
 description: |
-  User input is being passed directly to exec.Command,
-  which can lead to command injection vulnerabilities.
-
+  Converting through unsafe.Pointer bypasses the type system and memory
+  safety guarantees. Review that the conversion follows the rules in the
+  unsafe package documentation.
 match:
-  pattern: "exec.Command({{input}})"
+  pattern: "unsafe.Pointer($X)"
   filters:
-    - type: param
-      sources:
-        - r.FormValue
-        - r.URL.Query().Get
-        - os.Getenv
-    - type: call
-      sources:
-        - os/exec.Command
-
-suggestion: "Validate and sanitize user input before passing to exec.Command"
+    - type: import
+      include: ["unsafe"]
+suggestion: Prefer safe alternatives such as unsafe.String/unsafe.Slice with documented invariants, or avoid unsafe entirely.
 references:
-  - https://owasp.org/www-community/attacks/Command_Injection
+  - https://pkg.go.dev/unsafe#Pointer
 enabled: true

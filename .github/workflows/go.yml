@@ -6,17 +6,67 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
-
-  build:
+  test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The minimum supported release and the one that adds
+        # http.CrossOriginProtection, which the CSRF rule recognizes.
+        go: [ '1.24.x', '1.25.x' ]
+    name: test (Go ${{ matrix.go }})
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.24.2'
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
 
-    - name: Build
-      run: go build -v ./cmd/codex-cli
+      - name: Check formatting
+        run: test -z "$(gofmt -l $(go list -f '{{.Dir}}' ./...))"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -n 1
+
+  self-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+
+      - name: Build
+        run: go build -v -trimpath -o codex-cli ./cmd/codex-cli
+
+      - name: Scan the repository
+        run: ./codex-cli scan . --strict --severity medium --format sarif --out results.sarif
+
+      - name: Verify dependency capabilities
+        run: |
+          if [ -f .codexsentinel.caps.json ]; then
+            ./codex-cli caps verify .
+          fi
+
+      - name: Upload SARIF
+        if: always() && hashFiles('results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: codexsentinel

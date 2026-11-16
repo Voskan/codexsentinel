@@ -1,96 +1,66 @@
-// Package arch provides architectural structure analysis for Go projects.
 package arch
 
 import (
-	"fmt"
 	"go/token"
 	"go/types"
-	"path/filepath"
+	"sort"
 
-	"golang.org/x/tools/go/packages"
+	"github.com/Voskan/codexsentinel/analyzer/workspace"
 )
 
-// GodStruct represents a struct with excessive number of methods.
+// GodStruct is a struct type with too many methods or fields.
 type GodStruct struct {
-	Name      string   // Struct name
-	PkgPath   string   // Package path
-	MethodNum int      // Total method count
-	Methods   []string // List of method names
-	Location  string   // Source file location
+	Name      string
+	PkgPath   string
+	MethodNum int
+	FieldNum  int
+	Methods   []string
+	Pos       token.Position
 }
 
-// AnalyzeGodStructs scans for structs with too many methods.
-func AnalyzeGodStructs(pattern string, methodLimit int) ([]GodStruct, error) {
-	cfg := &packages.Config{
-		Mode:  packages.NeedName | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax | packages.NeedFiles,
-		Dir:   ".",
-		Fset:  token.NewFileSet(),
-		Tests: false,
+// dataRecordMaxMethods is the number of methods up to which a struct is
+// treated as a plain data record (DTO, configuration or report row) whose
+// field count says nothing about accumulated responsibilities.
+const dataRecordMaxMethods = 2
+
+// AnalyzeGodStructs reports struct types of the analyzed packages, exported or
+// not, that declare more than maxMethods methods, or more than maxFields fields
+// while also carrying behavior (more than dataRecordMaxMethods methods).
+func AnalyzeGodStructs(ws *workspace.Workspace, maxMethods, maxFields int) []GodStruct {
+	if maxMethods <= 0 {
+		maxMethods = 15
 	}
-
-	pkgs, err := packages.Load(cfg, pattern)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load packages: %w", err)
+	if maxFields <= 0 {
+		maxFields = 20
 	}
-
-	var results []GodStruct
-
-	for _, pkg := range pkgs {
-		scope := pkg.Types.Scope()
-		if scope == nil {
+	var out []GodStruct
+	for _, pkg := range ws.Packages {
+		if pkg.Types == nil || len(ws.Files(pkg)) == 0 {
 			continue
 		}
-
-		methodsByType := make(map[string][]string)
-		typeFiles := make(map[string]string)
-
+		scope := pkg.Types.Scope()
 		for _, name := range scope.Names() {
-			obj := scope.Lookup(name)
-			if obj == nil || !obj.Exported() {
+			tn, ok := scope.Lookup(name).(*types.TypeName)
+			if !ok || tn.IsAlias() {
 				continue
 			}
-
-			named, ok := obj.Type().(*types.Named)
+			named, ok := tn.Type().(*types.Named)
 			if !ok {
 				continue
 			}
-
-			underlying, ok := named.Underlying().(*types.Struct)
-			if !ok || underlying.NumFields() == 0 {
+			st, ok := named.Underlying().(*types.Struct)
+			if !ok {
 				continue
 			}
-
-			recv := types.NewPointer(named)
-			mset := types.NewMethodSet(recv)
-
-			for i := 0; i < mset.Len(); i++ {
-				sel := mset.At(i)
-				fn := sel.Obj()
-				if !fn.Exported() || fn.Pkg() == nil || fn.Pkg().Path() != pkg.PkgPath {
-					continue
-				}
-				methodsByType[named.Obj().Name()] = append(methodsByType[named.Obj().Name()], fn.Name())
+			var methods []string
+			for i := 0; i < named.NumMethods(); i++ {
+				methods = append(methods, named.Method(i).Name())
 			}
-
-			// Save file location
-			if obj.Pos().IsValid() {
-				pos := cfg.Fset.Position(obj.Pos())
-				typeFiles[named.Obj().Name()] = fmt.Sprintf("%s:%d", filepath.ToSlash(pos.Filename), pos.Line)
-			}
-		}
-
-		for structName, methods := range methodsByType {
-			if len(methods) > methodLimit {
-				results = append(results, GodStruct{
-					Name:      structName,
-					PkgPath:   pkg.PkgPath,
-					MethodNum: len(methods),
-					Methods:   methods,
-					Location:  typeFiles[structName],
-				})
+			sort.Strings(methods)
+			if len(methods) > maxMethods || (st.NumFields() > maxFields && len(methods) > dataRecordMaxMethods) {
+				out = append(out, GodStruct{Name: name, PkgPath: pkg.PkgPath, MethodNum: len(methods), FieldNum: st.NumFields(), Methods: methods, Pos: ws.Fset.Position(tn.Pos())})
 			}
 		}
 	}
-
-	return results, nil
+	return out
 }

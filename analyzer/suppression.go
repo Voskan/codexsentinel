@@ -98,14 +98,14 @@ func (sm *SuppressionManager) isSafeSQLPattern(issue *result.Issue) bool {
 		"INSERT INTO logs", "INSERT INTO audit",
 		"UPDATE config", "UPDATE settings",
 	}
-	
+
 	description := strings.ToLower(issue.Description)
 	for _, pattern := range safePatterns {
 		if strings.Contains(description, strings.ToLower(pattern)) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -117,14 +117,14 @@ func (sm *SuppressionManager) isSafeXSSPattern(issue *result.Issue) bool {
 		"json.Marshal", "xml.Marshal",
 		"text/template", "html/template",
 	}
-	
+
 	description := strings.ToLower(issue.Description)
 	for _, pattern := range safePatterns {
 		if strings.Contains(description, strings.ToLower(pattern)) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -136,14 +136,14 @@ func (sm *SuppressionManager) isSafeCommandPattern(issue *result.Issue) bool {
 		"wc", "sort", "uniq", "cut", "awk", "sed",
 		"ps", "top", "df", "du", "free", "uptime",
 	}
-	
+
 	description := strings.ToLower(issue.Description)
 	for _, pattern := range safePatterns {
 		if strings.Contains(description, pattern) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -154,14 +154,14 @@ func (sm *SuppressionManager) isSafePathPattern(issue *result.Issue) bool {
 		"filepath.Clean", "filepath.Join", "os.Stat",
 		"config/", "static/", "assets/", "templates/",
 	}
-	
+
 	description := strings.ToLower(issue.Description)
 	for _, pattern := range safePatterns {
 		if strings.Contains(description, strings.ToLower(pattern)) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -171,14 +171,14 @@ func (sm *SuppressionManager) isTestFile(filename string) bool {
 		"_test.go", "test_", "_test", "mock_", "_mock",
 		"testdata/", "tests/", "testing/",
 	}
-	
+
 	filenameLower := strings.ToLower(filename)
 	for _, pattern := range testPatterns {
 		if strings.Contains(filenameLower, pattern) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -190,49 +190,49 @@ func (sm *SuppressionManager) isCommonFalsePositive(issue *result.Issue, context
 		"placeholder", "template", "default", "config",
 		"localhost", "127.0.0.1", "0.0.0.0",
 	}
-	
+
 	description := strings.ToLower(issue.Description)
 	for _, pattern := range commonFalsePositives {
 		if strings.Contains(description, pattern) {
 			return true
 		}
 	}
-	
+
 	// Check for low confidence findings
 	if context.Confidence < 0.3 {
 		return true
 	}
-	
+
 	return false
 }
 
 // GetSuppressionReason returns the reason for suppression
 func (sm *SuppressionManager) GetSuppressionReason(issue *result.Issue, context *ContextInfo) string {
 	var reasons []string
-	
+
 	if context.HasValidation {
 		reasons = append(reasons, "validation detected")
 	}
-	
+
 	if context.HasSanitization {
 		reasons = append(reasons, "sanitization detected")
 	}
-	
+
 	if context.IsSafePattern {
 		reasons = append(reasons, "safe pattern detected")
 	}
-	
+
 	if sm.isTestFile(issue.Location.File) {
 		reasons = append(reasons, "test file")
 	}
-	
+
 	if context.Confidence < 0.3 {
 		reasons = append(reasons, "low confidence")
 	}
-	
+
 	if len(reasons) == 0 {
 		return "unknown reason"
 	}
-	
+
 	return strings.Join(reasons, ", ")
-} 
+}

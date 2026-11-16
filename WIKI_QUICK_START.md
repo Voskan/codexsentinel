@@ -1,193 +1,160 @@
-# CodexSentinel Quick Start Guide
+# Quick Start
 
-## 🚀 Get Started in 5 Minutes
+## 1. Install
 
-### 1. Installation
-
-```bash
-# Install CodexSentinel
-go install github.com/Voskan/codexsentinel/cmd/codex@latest
-
-# Verify installation
-codex version
-```
-
-### 2. Your First Scan
+With Go 1.24 or newer:
 
 ```bash
-# Scan current directory
-codex scan .
-
-# Scan specific project
-codex scan /path/to/your/go/project
+go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
 ```
 
-### 3. View Results
+Or with the install script. It verifies release binaries against the
+published checksums and falls back to `go install`:
 
 ```bash
-# JSON output
-codex scan . --format json --out results.json
-
-# Markdown report
-codex scan . --format markdown --out report.md
-
-# HTML report
-codex scan . --format html --out report.html
+curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/install.sh | sh
 ```
 
-### 4. Advanced Scanning
+Check the installation:
 
 ```bash
-# Comprehensive analysis
-codex scan . --enable-ssa --enable-taint --verbose
-
-# Exclude directories
-codex scan . --exclude vendor,node_modules,testdata
-
-# Custom rules
-codex scan . --rules my-custom-rules.yaml
+codex-cli version
 ```
 
-## 📋 What CodexSentinel Detects
+## 2. Scan a module
 
-### Security Vulnerabilities
-
-- ✅ **SQL Injection** - Unsafe query construction
-- ✅ **XSS** - Cross-site scripting vulnerabilities
-- ✅ **CSRF** - Cross-site request forgery
-- ✅ **SSRF** - Server-side request forgery
-- ✅ **Path Traversal** - Directory traversal attacks
-- ✅ **Command Injection** - Unsafe command execution
-- ✅ **Weak Crypto** - Insecure cryptographic algorithms
-- ✅ **Auth Bypass** - Authentication bypass patterns
-- ✅ **Session Issues** - Session management problems
-- ✅ **API Security** - API security misconfigurations
-- ✅ **GraphQL Security** - GraphQL-specific vulnerabilities
-- ✅ **JWT Security** - JWT token security issues
-- ✅ **WebSocket Security** - WebSocket security problems
-
-### Code Quality Issues
-
-- ✅ **High Complexity** - Overly complex functions
-- ✅ **Code Duplication** - Duplicate code blocks
-- ✅ **Large Functions** - Functions that are too large
-- ✅ **Dead Code** - Unused code detection
-- ✅ **Global Variables** - Global state analysis
-
-### Dependency Issues
-
-- ✅ **Vulnerable Dependencies** - Known security vulnerabilities
-- ✅ **License Issues** - License compliance problems
-- ✅ **High Entropy** - Suspicious files detection
-
-## 🛡️ OWASP Top 10 2025 Coverage
-
-| Category | Status  | Description               |
-| -------- | ------- | ------------------------- |
-| A01:2025 | ✅ Full | Broken Access Control     |
-| A02:2025 | ✅ Full | Cryptographic Failures    |
-| A03:2025 | ✅ Full | Injection                 |
-| A04:2025 | ✅ Full | Insecure Design           |
-| A05:2025 | ✅ Full | Security Misconfiguration |
-| A06:2025 | ✅ Full | Vulnerable Components     |
-| A07:2025 | ✅ Full | Authentication Failures   |
-| A08:2025 | ✅ Full | Data Integrity Failures   |
-| A09:2025 | ✅ Full | Logging Failures          |
-| A10:2025 | ✅ Full | SSRF                      |
-
-## 📊 Sample Output
+Run the scan from the module root, or pass its path:
 
 ```bash
-$ codex scan .
-[INFO] Starting CodexSentinel analysis...
-[INFO] Found 15 Go files to analyze
-[INFO] Running AST analysis...
-[INFO] Running SSA analysis...
-[INFO] Running taint analysis...
-[INFO] Running dependency analysis...
-[INFO] Running metrics analysis...
-
-[HIGH] SQL Injection Vulnerability at main.go:42
-    Description: Potential SQL injection: avoid building queries via string concatenation
-    Suggestion: Use parameterized queries instead of raw string concatenation
-    Reference: https://owasp.org/www-project-top-ten/2017/A1_2017-Injection
-
-[MEDIUM] High Cyclomatic Complexity at utils.go:15
-    Description: Function processData has complexity 12 (threshold: 10)
-    Suggestion: Consider breaking down the function into smaller functions
-
-[HIGH] Vulnerable Dependency at go.mod:0
-    Description: Module github.com/go-yaml/yaml@v2.1.0+incompatible has vulnerability: GHSA-r88r-gmrh-7j83
-    Suggestion: Update to a fixed version or apply security patches
-
-Analysis complete! Found 15 issues (8 HIGH, 5 MEDIUM, 2 LOW)
+codex-cli scan .
 ```
 
-## 🔧 Configuration
+The findings are printed as a summary, and a SARIF report is written to
+`scan_reports/codex-report.sarif`. Choose another format or location with
+`--format` and `--out`:
 
-### Basic Configuration
+```bash
+codex-cli scan . --format html --out report.html
+```
 
-Create `codex.yaml` in your project:
+```bash
+codex-cli scan . --format json --out report.json
+```
+
+## 3. Read a finding
+
+A taint finding in the JSON report looks like this:
+
+```json
+{
+  "rule_id": "sql-injection",
+  "severity": "HIGH",
+  "file": "main.go",
+  "line": 12,
+  "description": "Untrusted data flows into a SQL query (untrusted input returned by (net/http.Request).FormValue)",
+  "cwe": "CWE-89",
+  "owasp": "A05:2025",
+  "confidence": 1,
+  "trace": [
+    {"location": {"file": "main.go", "line": 12, "column": 72}, "message": "untrusted input returned by (net/http.Request).FormValue", "kind": "source"},
+    {"location": {"file": "main.go", "line": 12, "column": 21}, "message": "reaches (database/sql.DB).Query", "kind": "sink"}
+  ],
+  "fingerprint": "1f025e3a…",
+  "suggestion": "Use parameterized queries with placeholders ($1 or ?) instead of building SQL from untrusted input."
+}
+```
+
+- `trace` lists the steps from the untrusted source to the sink. In SARIF it
+  becomes a code flow that GitHub code scanning displays step by step.
+- `fingerprint` identifies the finding across line shifts. Baselines use it.
+
+## 4. Narrow the results
+
+```bash
+codex-cli scan . --severity high       # high and critical only
+codex-cli scan . --diff origin/main    # only lines changed since origin/main
+```
+
+To adopt the tool on an existing code base, record today's findings and fail
+only on new ones:
+
+```bash
+codex-cli baseline create . --out .codexsentinel.baseline.json
+```
+
+```bash
+codex-cli scan . --baseline .codexsentinel.baseline.json --strict
+```
+
+## 5. Configure
+
+Create `.codexsentinel.yaml` in the module root. Only the keys you change are
+needed; everything else keeps its default:
 
 ```yaml
-analysis:
-  enable_ssa: true
-  enable_taint: true
-  enable_ast: true
-
-output:
-  format: json
-  file: results.json
-  verbose: false
-
-exclude:
-  - vendor/
-  - node_modules/
-  - testdata/
+version: 1
+rules:
+  disabled: [context-propagation-missing]
+  severity_overrides:
+    ssrf: high
+metrics:
+  max_cyclomatic: 20
+dependencies:
+  enable: true            # queries OSV and the Go vulnerability database
+suppression:
+  require_ignore_reason: true
 ```
 
-### CI/CD Integration
+See the [configuration reference](WIKI_DOCUMENTATION.md#configuration-reference).
 
-#### GitHub Actions
+## 6. Suppress a false positive
+
+```go
+resp, err := client.Do(req) //codex:ignore ssrf -- the URL is the configured API endpoint
+```
+
+## 7. Add it to CI
 
 ```yaml
-name: Security Scan
+name: CodexSentinel
 on: [push, pull_request]
+permissions:
+  contents: read
+  security-events: write
 jobs:
-  security:
+  scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Setup Go
-        uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
         with:
-          go-version: "1.24"
-      - name: Install CodexSentinel
-        run: go install github.com/Voskan/codexsentinel/cmd/codex@latest
-      - name: Run Security Scan
-        run: codex scan . --format sarif --out results.sarif
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v2
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - run: go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+      - run: codex-cli scan . --strict --severity high --format sarif --out results.sarif
+      - if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
 ```
 
-## 📚 Next Steps
+`--strict` makes the job fail (exit code 1) when findings at or above the
+`--severity` level remain. The SARIF upload shows them in the repository's
+code scanning alerts.
 
-1. **Read the Full Documentation**: [Wiki Documentation](WIKI_DOCUMENTATION.md)
-2. **Explore Advanced Features**: Custom rules, CI/CD integration
-3. **Join the Community**: [GitHub Discussions](https://github.com/Voskan/codexsentinel/discussions)
-4. **Report Issues**: [GitHub Issues](https://github.com/Voskan/codexsentinel/issues)
-5. **Get Support**: [voskan1989@gmail.com](mailto:voskan1989@gmail.com)
+To guard dependency upgrades as well, commit a capability lock file and verify
+it in CI:
 
-## 🎯 Pro Tips
+```bash
+codex-cli caps lock .
+```
 
-- **Regular Scans**: Run security scans on every commit
-- **Custom Rules**: Create project-specific security rules
-- **Team Training**: Educate your team on security best practices
-- **Stay Updated**: Keep CodexSentinel updated for latest security rules
-- **Integration**: Integrate with your existing CI/CD pipeline
+```bash
+codex-cli caps verify .
+```
 
----
+## Next steps
 
-_Ready to secure your Go codebase? Start scanning now!_ 🚀
+- [Documentation](WIKI_DOCUMENTATION.md): how each analysis works.
+- [Examples](WIKI_EXAMPLES.md): code that triggers each main rule, and its fix.

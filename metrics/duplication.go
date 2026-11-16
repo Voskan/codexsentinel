@@ -5,19 +5,17 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/printer"
 	"go/token"
-	"os"
-	"path/filepath"
+	"sort"
 )
 
-// DuplicateBlock represents two or more identical function bodies across files.
+// DuplicateBlock represents two or more identical function bodies.
 type DuplicateBlock struct {
-	Hash  string  // Hash of normalized function body
-	Funcs []DupFn // All functions that share this body
+	Hash  string  // Hash of the normalized function body
+	LOC   int     // Lines spanned by each copy of the body
+	Funcs []DupFn // All functions that share this body, ordered by location
 }
 
 // DupFn describes a single function instance within a duplicate block.
@@ -27,74 +25,61 @@ type DupFn struct {
 	Line int    // Line number
 }
 
-// AnalyzeDuplicatedFunctions scans a list of Go files and reports duplicated function bodies.
-func AnalyzeDuplicatedFunctions(files []string) ([]DuplicateBlock, error) {
-	type hashKey string
-	hashToFuncs := make(map[hashKey][]DupFn)
-
-	fset := token.NewFileSet()
-
+// AnalyzeDuplicates reports function bodies that occur more than once in files.
+// Bodies shorter than minLOC lines (getters, trivial constructors) are ignored.
+func AnalyzeDuplicates(fset *token.FileSet, files []*ast.File, minLOC int) []DuplicateBlock {
+	groups := map[string]*DuplicateBlock{}
 	for _, file := range files {
-		node, err := parseFile(fset, file)
-		if err != nil {
-			continue
-		}
-
-		ast.Inspect(node, func(n ast.Node) bool {
-			fn, ok := n.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				return true
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || len(fn.Body.List) == 0 {
+				continue
 			}
-
+			loc := bodyLines(fset, fn.Body)
+			if loc < minLOC {
+				continue
+			}
 			hash, err := hashFuncBody(fset, fn.Body)
 			if err != nil {
-				return true
+				continue
 			}
-
 			pos := fset.Position(fn.Pos())
-			entry := DupFn{
-				Name: fn.Name.Name,
-				File: filepath.ToSlash(pos.Filename),
-				Line: pos.Line,
+			block := groups[hash]
+			if block == nil {
+				block = &DuplicateBlock{Hash: hash, LOC: loc}
+				groups[hash] = block
 			}
-
-			hashToFuncs[hashKey(hash)] = append(hashToFuncs[hashKey(hash)], entry)
-			return false
-		})
-	}
-
-	var duplicates []DuplicateBlock
-	for h, funcs := range hashToFuncs {
-		if len(funcs) > 1 {
-			duplicates = append(duplicates, DuplicateBlock{
-				Hash:  string(h),
-				Funcs: funcs,
-			})
+			block.Funcs = append(block.Funcs, DupFn{Name: funcName(fn), File: pos.Filename, Line: pos.Line})
 		}
 	}
-
-	return duplicates, nil
+	var duplicates []DuplicateBlock
+	for _, block := range groups {
+		if len(block.Funcs) < 2 {
+			continue
+		}
+		sort.Slice(block.Funcs, func(i, j int) bool {
+			if block.Funcs[i].File != block.Funcs[j].File {
+				return block.Funcs[i].File < block.Funcs[j].File
+			}
+			return block.Funcs[i].Line < block.Funcs[j].Line
+		})
+		duplicates = append(duplicates, *block)
+	}
+	sort.Slice(duplicates, func(i, j int) bool {
+		a, b := duplicates[i].Funcs[0], duplicates[j].Funcs[0]
+		if a.File != b.File {
+			return a.File < b.File
+		}
+		return a.Line < b.Line
+	})
+	return duplicates
 }
 
-// parseFile parses a Go file from disk.
-func parseFile(fset *token.FileSet, path string) (*ast.File, error) {
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("cannot read file %s: %w", path, err)
-	}
-
-	node, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution)
-	if err != nil {
-		return nil, fmt.Errorf("cannot parse file %s: %w", path, err)
-	}
-	return node, nil
-}
-
-// hashFuncBody returns a normalized hash of a function body using SHA-256.
+// hashFuncBody returns a hash of the printed function body. Comments and
+// formatting differences are not part of the printed form.
 func hashFuncBody(fset *token.FileSet, body *ast.BlockStmt) (string, error) {
 	var buf bytes.Buffer
-	err := printer.Fprint(&buf, fset, body)
-	if err != nil {
+	if err := printer.Fprint(&buf, fset, body); err != nil {
 		return "", err
 	}
 	hash := sha256.Sum256(buf.Bytes())

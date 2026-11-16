@@ -7,15 +7,20 @@ import (
 
 // Location represents the position in the source code where an issue was found.
 type Location struct {
-	File        string `json:"file"`     // Path to the file
-	Line        int    `json:"line"`     // Line number in the file (1-based)
-	Column      int    `json:"column"`   // Column number in the line (1-based)
+	File        string `json:"file"`   // Path to the file
+	Line        int    `json:"line"`   // Line number in the file (1-based)
+	Column      int    `json:"column"` // Column number in the line (1-based)
+	EndLine     int    `json:"endLine,omitempty"`
+	EndColumn   int    `json:"endColumn,omitempty"`
 	Function    string `json:"function"` // Function or method name (optional)
 	PackagePath string `json:"package"`  // Go package path (e.g., github.com/user/project/foo)
 }
 
 // NewLocationFromPos creates a Location from a token.Position and optional metadata.
 func NewLocationFromPos(pos token.Position, fallbackFile, fallbackPkg string) Location {
+	if pos.Filename == "" {
+		pos.Filename = fallbackFile
+	}
 	return Location{
 		File:        pos.Filename,
 		Line:        pos.Line,

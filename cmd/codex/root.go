@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -12,17 +13,20 @@ import (
 // NewRootCmd returns the root command of the CLI application.
 func NewRootCmd(ctx context.Context) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "codex",
+		Use:           "codex-cli",
 		Short:         "CodexSentinel - Static code and dependency security scanner",
-		Long:          `CodexSentinel is a powerful SAST and dependency analysis tool for Go projects.`,
+		Long:          `CodexSentinel finds security vulnerabilities, architecture violations, code quality problems and risky dependencies in Go modules.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 
+	cmd.SetContext(ctx)
 	cmd.AddCommand(
 		NewScanCmd(),
 		NewVersionCmd(),
 		NewMarkCmd(),
+		NewCapsCmd(),
+		NewBaselineCmd(),
 	)
 
 	cmd.PersistentFlags().SortFlags = false
@@ -60,7 +64,10 @@ func normalizeFlags(flags *pflag.FlagSet) {
 func Execute(ctx context.Context) {
 	rootCmd := NewRootCmd(ctx)
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		var issuesErr *IssuesFoundError
+		if !errors.As(err, &issuesErr) {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
 		os.Exit(1)
 	}
 }

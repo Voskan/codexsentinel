@@ -1,15 +1,24 @@
 package analyzer
 
 import (
+	"go/ast"
 	"go/token"
 	"go/types"
+	"path/filepath"
+	"sync"
 
 	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/config"
 	"golang.org/x/tools/go/ssa"
 )
 
 // AnalyzerContext represents the shared context used during all analysis phases.
 type AnalyzerContext struct {
+	mu      sync.Mutex
+	Cfg     *config.Config
+	RootDir string
+	Files   []*ast.File
+
 	// Fset holds the parsed file set for position information.
 	Fset *token.FileSet
 
@@ -62,12 +71,19 @@ func NewAnalyzerContext(
 
 // GetCustom retrieves a value from the CustomData map.
 func (ctx *AnalyzerContext) GetCustom(key string) (any, bool) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
 	v, ok := ctx.CustomData[key]
 	return v, ok
 }
 
 // SetCustom sets a value in the CustomData map.
 func (ctx *AnalyzerContext) SetCustom(key string, value any) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	if ctx.CustomData == nil {
+		ctx.CustomData = make(map[string]any)
+	}
 	ctx.CustomData[key] = value
 }
 
@@ -83,6 +99,44 @@ func (ctx *AnalyzerContext) GetFset() *token.FileSet {
 
 // Report reports an issue found during analysis.
 func (ctx *AnalyzerContext) Report(issue result.Issue) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	if issue.Confidence == 0 {
+		issue.Confidence = 1
+	}
+	if ctx.Cfg != nil && issue.Confidence < ctx.Cfg.Suppression.MinConfidence {
+		return
+	}
+	if issue.Location.File == "" {
+		issue.Location.File = ctx.Filename
+	}
+	if issue.Location.PackagePath == "" {
+		issue.Location.PackagePath = ctx.PackageName
+	}
+	if ctx.Fset != nil && issue.Location.Function == "" {
+		for _, file := range ctx.Files {
+			if filepath.Clean(ctx.Fset.Position(file.Pos()).Filename) != filepath.Clean(issue.Location.File) {
+				continue
+			}
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok {
+					continue
+				}
+				start, end := ctx.Fset.Position(fn.Pos()), ctx.Fset.Position(fn.End())
+				if issue.Location.Line >= start.Line && issue.Location.Line <= end.Line {
+					issue.Location.Function = fn.Name.Name
+					break
+				}
+			}
+		}
+	}
+	if ctx.RootDir != "" && filepath.IsAbs(issue.Location.File) {
+		if rel, err := filepath.Rel(ctx.RootDir, issue.Location.File); err == nil {
+			issue.Location.File = rel
+		}
+	}
+	issue.Location.File = filepath.ToSlash(issue.Location.File)
 	ctx.Issues = append(ctx.Issues, issue)
 }
 
@@ -93,10 +147,14 @@ func (ctx *AnalyzerContext) Info() *types.Info {
 
 // GetIssues returns all reported issues.
 func (ctx *AnalyzerContext) GetIssues() []result.Issue {
-	return ctx.Issues
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	return append([]result.Issue(nil), ctx.Issues...)
 }
 
 // ClearIssues clears all reported issues.
 func (ctx *AnalyzerContext) ClearIssues() {
-	ctx.Issues = make([]result.Issue, 0)
-} 
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	ctx.Issues = nil
+}

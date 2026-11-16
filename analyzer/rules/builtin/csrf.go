@@ -6,202 +6,87 @@ import (
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
-	"golang.org/x/tools/go/analysis"
 )
 
-// RegisterCSRFRule registers the CSRF detection rule.
-func RegisterCSRFRule(ctx *analyzer.AnalyzerContext) {
-	ctx.RegisterRule(&analyzer.Rule{
-		ID:       "csrf-vulnerability",
-		Title:    "Cross-Site Request Forgery (CSRF)",
-		Category: "security",
-		Severity: result.SeverityHigh,
-		Summary:  "Missing CSRF protection in state-changing operations may lead to unauthorized actions.",
-		Matcher:  matchCSRFVulnerability,
-	})
-}
+var csrfMeta = ruleMeta{ID: "csrf-missing-protection", Title: "Missing CSRF Protection", Severity: result.SeverityMedium, CWE: "CWE-352", OWASP: "A01:2025", Confidence: 0.7,
+	Suggestion: "Wrap the router with http.NewCrossOriginProtection().Handler(mux) (Go 1.25+) or a CSRF middleware such as gorilla/csrf.",
+	References: []string{"https://cwe.mitre.org/data/definitions/352.html", "https://pkg.go.dev/net/http#CrossOriginProtection"}}
 
-// matchCSRFVulnerability detects CSRF vulnerabilities in HTTP handlers.
-func matchCSRFVulnerability(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
-	for _, file := range pass.Files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.FuncDecl:
-				// Check for HTTP handlers that handle state-changing operations
-				if isHTTPHandler(x) && isStateChangingOperation(x) {
-					if !hasCSRFProtection(x) {
-						pos := ctx.GetFset().Position(x.Pos())
-						ctx.Report(result.Issue{
-							ID:          "csrf-vulnerability",
-							Title:       "Missing CSRF Protection",
-							Description: "State-changing HTTP handler lacks CSRF protection",
-							Severity:    result.SeverityHigh,
-							Location:    result.NewLocationFromPos(pos, "", ""),
-							Category:    "security",
-							Suggestion:  "Implement CSRF protection using tokens, SameSite cookies, or referrer validation",
-							References:  []string{"https://owasp.org/www-community/attacks/csrf"},
-						})
+var csrfMiddlewarePackages = []string{"github.com/gorilla/csrf", "github.com/justinas/nosurf", "github.com/utrack/gin-csrf", "github.com/gofiber/fiber/v2/middleware/csrf", "github.com/gofiber/fiber/v3/middleware/csrf"}
+
+var mutatingMethods = []string{"POST", "PUT", "PATCH", "DELETE"}
+
+// RegisterCSRFRule reports packages that register state-changing routes on an
+// http.ServeMux, rely on cookies for authentication and apply no cross-origin
+// or CSRF protection.
+func RegisterCSRFRule(ctx *analyzer.AnalyzerContext) {
+	registerRules(ctx, []ruleMeta{csrfMeta}, func(r *reporter) {
+		info := r.pass.TypesInfo
+		var mutating []*ast.CallExpr
+		usesCookies, protected := false, false
+		for _, file := range r.pass.Files {
+			for _, imp := range file.Imports {
+				path := strings.Trim(imp.Path.Value, `"`)
+				for _, p := range csrfMiddlewarePackages {
+					if path == p {
+						protected = true
 					}
 				}
-			case *ast.CallExpr:
-				// Check for database operations without CSRF protection
-				if isDatabaseOperation(x) && !hasCSRFProtection(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "csrf-vulnerability",
-						Title:       "Database Operation Without CSRF Protection",
-						Description: "Database write operation performed without CSRF protection",
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Add CSRF token validation before database write operations",
-						References:  []string{"https://owasp.org/www-community/attacks/csrf"},
-					})
+				if strings.HasSuffix(path, "/middleware") && strings.Contains(path, "labstack/echo") {
+					protected = protected || fileUsesIdent(file, "CSRF", "CSRFWithConfig")
 				}
 			}
-			return true
-		})
-	}
-}
-
-// isHTTPHandler checks if function is likely an HTTP handler
-func isHTTPHandler(fn *ast.FuncDecl) bool {
-	if fn.Recv == nil {
-		return false
-	}
-
-	// Check for common HTTP handler patterns
-	handlerPatterns := []string{
-		"Handler", "ServeHTTP", "Handle", "Process",
-		"Create", "Update", "Delete", "Post", "Put",
-		"Login", "Logout", "Register", "Reset",
-	}
-
-	funcName := strings.ToLower(fn.Name.Name)
-	for _, pattern := range handlerPatterns {
-		if strings.Contains(funcName, strings.ToLower(pattern)) {
-			return true
-		}
-	}
-
-	// Check for http.ResponseWriter parameter
-	for _, param := range fn.Type.Params.List {
-		if sel, ok := param.Type.(*ast.SelectorExpr); ok {
-			if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "http" {
-				if sel.Sel.Name == "ResponseWriter" {
+			ast.Inspect(file, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
 					return true
 				}
-			}
+				fn := calleeFunc(info, call)
+				switch {
+				case isMethod(fn, "net/http", "ServeMux", "HandleFunc", "Handle") || isFunc(fn, "net/http", "HandleFunc", "Handle"):
+					if len(call.Args) > 0 {
+						if pattern, ok := constString(info, call.Args[0]); ok && mutatingPattern(pattern) {
+							mutating = append(mutating, call)
+						}
+					}
+				case isMethod(fn, "net/http", "Request", "Cookie", "Cookies", "CookiesNamed") || isFunc(fn, "net/http", "SetCookie"):
+					usesCookies = true
+				case isFunc(fn, "net/http", "NewCrossOriginProtection"):
+					protected = true
+				}
+				return true
+			})
 		}
-	}
-
-	return false
+		if protected || !usesCookies {
+			return
+		}
+		for _, call := range mutating {
+			pattern, _ := constString(info, call.Args[0])
+			r.report(csrfMeta, call, "State-changing route "+`"`+pattern+`"`+" uses cookie-based sessions without cross-origin request protection.")
+		}
+	})
 }
 
-// isStateChangingOperation checks if function performs state-changing operations
-func isStateChangingOperation(fn *ast.FuncDecl) bool {
-	stateChangingPatterns := []string{
-		"create", "update", "delete", "remove", "modify",
-		"insert", "save", "store", "write", "set",
-		"login", "logout", "register", "reset", "change",
-		"transfer", "payment", "order", "purchase",
+func mutatingPattern(pattern string) bool {
+	method, _, ok := strings.Cut(strings.TrimSpace(pattern), " ")
+	if !ok {
+		return false
 	}
-
-	funcName := strings.ToLower(fn.Name.Name)
-	for _, pattern := range stateChangingPatterns {
-		if strings.Contains(funcName, pattern) {
+	for _, m := range mutatingMethods {
+		if method == m {
 			return true
 		}
 	}
-
-	// Check for database write operations in function body
-	var hasWriteOp bool
-	ast.Inspect(fn, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.CallExpr:
-			if isDatabaseWriteOperation(x) {
-				hasWriteOp = true
-				return false
-			}
-		}
-		return true
-	})
-
-	return hasWriteOp
-}
-
-// isDatabaseWriteOperation checks if call is a database write operation
-func isDatabaseWriteOperation(call *ast.CallExpr) bool {
-	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(sel.Sel.Name)
-		writePatterns := []string{
-			"exec", "execute", "queryrow", "query",
-			"insert", "update", "delete", "create",
-			"save", "store", "write", "set",
-		}
-		for _, pattern := range writePatterns {
-			if strings.Contains(funcName, pattern) {
-				return true
-			}
-		}
-	}
 	return false
 }
 
-// isDatabaseOperation checks if call is any database operation
-func isDatabaseOperation(call *ast.CallExpr) bool {
-	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(sel.Sel.Name)
-		dbPatterns := []string{
-			"exec", "execute", "query", "queryrow",
-			"insert", "update", "delete", "select",
-			"create", "drop", "alter", "save",
+func fileUsesIdent(file *ast.File, names ...string) bool {
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok && nameIn(sel.Sel.Name, names) {
+			found = true
 		}
-		for _, pattern := range dbPatterns {
-			if strings.Contains(funcName, pattern) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// hasCSRFProtection checks if function has CSRF protection
-func hasCSRFProtection(node ast.Node) bool {
-	var hasProtection bool
-	ast.Inspect(node, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.CallExpr:
-			if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
-				funcName := strings.ToLower(sel.Sel.Name)
-				// Check for CSRF protection patterns
-				csrfPatterns := []string{
-					"validatecsrf", "checkcsrf", "verifycsrf",
-					"validatetoken", "checktoken", "verifytoken",
-					"csrf", "xsrf", "antiforgery",
-				}
-				for _, pattern := range csrfPatterns {
-					if strings.Contains(funcName, pattern) {
-						hasProtection = true
-						return false
-					}
-				}
-			}
-		case *ast.Ident:
-			// Check for CSRF-related variable names
-			varName := strings.ToLower(x.Name)
-			csrfVars := []string{
-				"csrftoken", "xsrftoken", "antiforgerytoken",
-				"csrf_token", "xsrf_token", "antiforgery_token",
-			}
-			for _, pattern := range csrfVars {
-				if strings.Contains(varName, pattern) {
-					hasProtection = true
-					return false
-				}
-			}
-		}
-		return true
+		return !found
 	})
-	return hasProtection
-} 
+	return found
+}

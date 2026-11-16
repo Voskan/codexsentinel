@@ -1,0 +1,12 @@
+.git
+.github
+build
+dist
+bin
+scan_reports
+reports
+**/*.test
+**/*.out
+coverage.*
+Dockerfile
+.dockerignore

@@ -8,9 +8,9 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/Voskan/codexsentinel/analyzer/result"
 	reporttpl "github.com/Voskan/codexsentinel/report/template"
 )
 
@@ -27,26 +27,40 @@ const (
 
 // Issue represents a single security/code issue found during analysis.
 type Issue struct {
-	RuleID      string        `json:"rule_id"`
-	Title       string        `json:"title"`
-	Description string        `json:"description"`
-	Severity    SeverityLevel `json:"severity"`
-	File        string        `json:"file"`
-	Line        int           `json:"line"`
-	Code        string        `json:"code"`
-	Package     string        `json:"package"`
-	Reference   string        `json:"reference,omitempty"`
-	Suggestion  string        `json:"suggestion,omitempty"`
+	EndLine     int                  `json:"end_line,omitempty"`
+	EndColumn   int                  `json:"end_column,omitempty"`
+	Confidence  float64              `json:"confidence,omitempty"`
+	CWE         string               `json:"cwe,omitempty"`
+	OWASP       string               `json:"owasp,omitempty"`
+	Trace       []result.TraceStep   `json:"trace,omitempty"`
+	Fix         *result.SuggestedFix `json:"fix,omitempty"`
+	Fingerprint string               `json:"fingerprint,omitempty"`
+	Reachable   *bool                `json:"reachable,omitempty"`
+	RuleID      string               `json:"rule_id"`
+	Title       string               `json:"title"`
+	Description string               `json:"description"`
+	Severity    SeverityLevel        `json:"severity"`
+	File        string               `json:"file"`
+	Column      int                  `json:"column,omitempty"`
+	Category    string               `json:"category"`
+	References  []string             `json:"references,omitempty"`
+	Line        int                  `json:"line"`
+	Code        string               `json:"code"`
+	Package     string               `json:"package"`
+	Reference   string               `json:"reference,omitempty"`
+	Suggestion  string               `json:"suggestion,omitempty"`
 }
 
 // Summary aggregates issue counts per severity level.
 type Summary struct {
-	Total    int `json:"total"`
-	Critical int `json:"critical"`
-	High     int `json:"high"`
-	Medium   int `json:"medium"`
-	Low      int `json:"low"`
-	Info     int `json:"info"`
+	Architecture int `json:"architecture"`
+	SupplyChain  int `json:"supply_chain"`
+	Total        int `json:"total"`
+	Critical     int `json:"critical"`
+	High         int `json:"high"`
+	Medium       int `json:"medium"`
+	Low          int `json:"low"`
+	Info         int `json:"info"`
 	// Category counts for charts
 	Security int `json:"security"`
 	Style    int `json:"style"`
@@ -77,7 +91,7 @@ type ReportData struct {
 
 // GenerateReport creates a report in the specified format (json, html).
 func GenerateReport(issues []Issue, format, outPath string, gitMeta *GitMetadata) error {
-	summary := computeSummary(issues)
+	summary := ComputeSummary(issues)
 	data := ReportData{
 		Summary:     summary,
 		Issues:      issues,
@@ -98,8 +112,8 @@ func GenerateReport(issues []Issue, format, outPath string, gitMeta *GitMetadata
 	}
 }
 
-// computeSummary calculates issue counts by severity.
-func computeSummary(issues []Issue) Summary {
+// ComputeSummary counts findings by severity and explicit category.
+func ComputeSummary(issues []Issue) Summary {
 	s := Summary{Total: len(issues)}
 	for _, i := range issues {
 		// Count by severity
@@ -116,32 +130,22 @@ func computeSummary(issues []Issue) Summary {
 			s.Info++
 		}
 
-		// Count by category (based on rule ID patterns)
-		switch {
-		case contains(i.RuleID, "sql-injection", "xss", "command-exec", "ssrf", "access-control", "taint"):
+		switch i.Category {
+		case "security":
 			s.Security++
-		case contains(i.RuleID, "global-variable", "unused-import", "naming", "style"):
+		case "style":
 			s.Style++
-		case contains(i.RuleID, "complexity", "size", "dead-code", "duplication"):
+		case "metrics":
 			s.Metrics++
-		case contains(i.RuleID, "license", "dependency"):
+		case "license":
 			s.License++
-		default:
-			// Default to security if no specific category matches
-			s.Security++
+		case "architecture":
+			s.Architecture++
+		case "supply-chain":
+			s.SupplyChain++
 		}
 	}
 	return s
-}
-
-// contains checks if any of the patterns match the rule ID
-func contains(ruleID string, patterns ...string) bool {
-	for _, pattern := range patterns {
-		if strings.Contains(ruleID, pattern) {
-			return true
-		}
-	}
-	return false
 }
 
 // writeJSONReport serializes report to JSON file.

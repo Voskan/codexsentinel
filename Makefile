@@ -1,12 +1,12 @@
 # CodexSentinel Makefile
 
 # Variables
-BINARY_NAME=codex
+BINARY_NAME=codex-cli
 BUILD_DIR=build
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_COMMIT=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
-LDFLAGS=-ldflags "-X github.com/Voskan/codexsentinel/internal/version.Version=$(VERSION) -X github.com/Voskan/codexsentinel/internal/version.BuildDate=$(BUILD_TIME) -X github.com/Voskan/codexsentinel/internal/version.Commit=$(GIT_COMMIT)"
+LDFLAGS=-trimpath -ldflags "-s -w -X github.com/Voskan/codexsentinel/internal/version.Version=$(VERSION) -X github.com/Voskan/codexsentinel/internal/version.BuildDate=$(BUILD_TIME) -X github.com/Voskan/codexsentinel/internal/version.Commit=$(GIT_COMMIT)"
 
 # Default target
 .PHONY: all
@@ -35,7 +35,6 @@ build-all: clean
 	
 	# Windows
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd/codex-cli
-	GOOS=windows GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-arm64.exe ./cmd/codex-cli
 
 # Install the application
 .PHONY: install
@@ -47,7 +46,7 @@ install:
 .PHONY: test
 test:
 	@echo "Running tests..."
-	go test -v ./...
+	go test -race ./...
 
 # Run tests with coverage
 .PHONY: test-coverage
@@ -116,7 +115,7 @@ help:
 	@echo "  build          - Build the application"
 	@echo "  build-all      - Build for multiple platforms"
 	@echo "  install        - Install the application"
-	@echo "  test           - Run tests"
+	@echo "  test           - Run tests with the race detector"
 	@echo "  test-coverage  - Run tests with coverage"
 	@echo "  test-race      - Run tests with race detection"
 	@echo "  benchmark      - Run benchmarks"
@@ -130,7 +129,7 @@ help:
 	@echo "  release        - Release preparation (clean + fmt + lint + test + build-all)"
 	@echo "  deps           - Download and tidy dependencies"
 	@echo "  deps-update    - Update dependencies"
-	@echo "  audit          - Security audit with nancy"
+	@echo "  audit          - Dependency audit with codex-cli"
 	@echo "  docker-build   - Build Docker image"
 	@echo "  docker-run     - Run Docker container"
 	@echo "  scan           - Scan current project (full analysis)"
@@ -152,8 +151,6 @@ deps:
 	@echo "Downloading dependencies..."
 	go mod download
 	go mod tidy
-	@echo "Installing osv-scanner..."
-	GO111MODULE=on go install github.com/google/osv-scanner/cmd/osv-scanner@latest
 
 # Update dependencies
 .PHONY: deps-update
@@ -162,24 +159,24 @@ deps-update:
 	go get -u ./...
 	go mod tidy
 
-# Security audit
+# Security audit of the dependencies (advisories, reachability, licenses)
 .PHONY: audit
-audit:
-	@echo "Running security audit..."
-	go list -json -deps ./... | nancy sleuth
+audit: build
+	@echo "Running dependency audit..."
+	./$(BUILD_DIR)/$(BINARY_NAME) scan . --deps --format json --out scan_reports/deps.json
 
 # Docker build
 .PHONY: docker-build
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t codexsentinel:$(VERSION) .
+	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(GIT_COMMIT) --build-arg BUILD_DATE=$(BUILD_TIME) -t codexsentinel:$(VERSION) .
 	docker tag codexsentinel:$(VERSION) codexsentinel:latest
 
 # Docker run
 .PHONY: docker-run
 docker-run:
 	@echo "Running Docker container..."
-	docker run --rm -v $(PWD):/workspace codexsentinel:latest scan /workspace
+	docker run --rm -v $(CURDIR):/workspace codexsentinel:latest scan /workspace
 
 # Scan current project
 .PHONY: scan

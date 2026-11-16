@@ -1,50 +1,31 @@
-id: go.insecure.xss.reflected_input_example
-title: Reflected Input in HTML Response
+# Example rule showing the pattern syntax. It is disabled because the built-in
+# taint-based "xss" rule already covers this case with data-flow tracking.
+id: go.example.reflected-write
+title: Raw Value Written to HTTP Response
+category: security
 severity: HIGH
+cwe: CWE-79
+enabled: false
 description: |
-  Unescaped user input is being written directly into the HTTP response,
-  which can lead to reflected Cross-Site Scripting (XSS) vulnerabilities.
-  Ensure that all user-controlled values are properly escaped before writing
-  to HTML output.
+  A non-constant value is written to an http.ResponseWriter without HTML
+  escaping, which can lead to reflected cross-site scripting.
 
 match:
-  pattern: "w.Write([]byte({{input}}))"
+  # $W and $X are metavariables; they match any expression.
+  pattern: "$W.Write([]byte($X))"
+  # Matches containing an escaping call are not reported.
+  not_pattern:
+    - "html.EscapeString($Y)"
+    - "template.HTMLEscapeString($Y)"
   filters:
-    - type: param
-      sources:
-        - http.Request.FormValue
-        - http.Request.URL.Query().Get
-        - http.Request.PostFormValue
-        - r.FormValue
-    - type: file_ext
-      include:
-        - ".go"
-    - type: package
-      allow:
-        - net/http
+    - type: type
+      var: $W
+      include: ["net/http.ResponseWriter"]
+    - type: non_const
+      var: $X
 
-examples:
-  - bad: |
-      func handler(w http.ResponseWriter, r *http.Request) {
-          input := r.FormValue("name")
-          w.Write([]byte(input)) // ❌ vulnerable to reflected XSS
-      }
-  - good: |
-      import "html/template"
-
-      func handler(w http.ResponseWriter, r *http.Request) {
-          input := r.FormValue("name")
-          safe := template.HTMLEscapeString(input)
-          w.Write([]byte(safe)) // ✅ properly escaped
-      }
-
+suggestion: Render HTML with html/template or escape the value with html.EscapeString.
 references:
   - https://owasp.org/www-community/attacks/xss/
-  - https://pkg.go.dev/html/template#HTMLEscapeString
-  - https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html
-
-tags:
-  - xss
-  - security
-  - input-validation
-  - go
+  - https://pkg.go.dev/html/template
+tags: [xss, example]

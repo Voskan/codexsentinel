@@ -15,6 +15,9 @@ import (
 // WriteHTMLReport generates a static HTML report from the given issues and writes it to the provided path.
 func WriteHTMLReport(issues []report.Issue, outPath string, gitMeta *report.GitMetadata) error {
 	summary := computeSummary(issues)
+	if gitMeta == nil {
+		gitMeta = &report.GitMetadata{}
+	}
 
 	data := struct {
 		Issues      []report.Issue
@@ -46,21 +49,4 @@ func WriteHTMLReport(issues []report.Issue, outPath string, gitMeta *report.GitM
 }
 
 // computeSummary aggregates issue severity counts.
-func computeSummary(issues []report.Issue) report.Summary {
-	s := report.Summary{Total: len(issues)}
-	for _, i := range issues {
-		switch i.Severity {
-		case report.SeverityCritical:
-			s.Critical++
-		case report.SeverityHigh:
-			s.High++
-		case report.SeverityMedium:
-			s.Medium++
-		case report.SeverityLow:
-			s.Low++
-		case report.SeverityInfo:
-			s.Info++
-		}
-	}
-	return s
-}
+func computeSummary(issues []report.Issue) report.Summary { return report.ComputeSummary(issues) }

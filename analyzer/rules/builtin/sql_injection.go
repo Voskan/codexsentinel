@@ -3,234 +3,202 @@ package builtin
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
-	"golang.org/x/tools/go/analysis"
 )
 
-// RegisterSQLInjectionRule registers the SQL injection detection rule.
+var sqlInjectionMeta = ruleMeta{
+	ID: "sql-injection", Title: "SQL Injection", Severity: result.SeverityHigh, CWE: "CWE-89", OWASP: "A05:2025",
+	Confidence: 0.8,
+	Suggestion: "Use parameterized queries with placeholders ($1 or ?) instead of concatenating or formatting values into SQL.",
+	References: []string{"https://cwe.mitre.org/data/definitions/89.html", "https://go.dev/doc/database/sql-injection"},
+}
+
+// RegisterSQLInjectionRule reports SQL statements built dynamically from
+// non-constant text and passed to a real database API.
 func RegisterSQLInjectionRule(ctx *analyzer.AnalyzerContext) {
-	ctx.RegisterRule(&analyzer.Rule{
-		ID:       "sql-injection",
-		Title:    "Injection (A03:2025)",
-		Category: "security",
-		Severity: result.SeverityHigh,
-		Summary:  "SQL injection vulnerabilities allow attackers to execute malicious SQL queries.",
-		Matcher:  matchSQLInjection,
+	registerRules(ctx, []ruleMeta{sqlInjectionMeta}, func(r *reporter) {
+		info := r.pass.TypesInfo
+		for _, file := range r.pass.Files {
+			for _, unit := range funcUnits(file) {
+				assigns := assignments(info, unit.Body)
+				inspectShallow(unit.Body, func(n ast.Node) bool {
+					call, ok := n.(*ast.CallExpr)
+					if !ok {
+						return true
+					}
+					idx := sqlQueryArg(calleeFunc(info, call))
+					if idx < 0 || idx >= len(call.Args) {
+						return true
+					}
+					arg := call.Args[idx]
+					if dynamicSQL(info, arg, assigns, 0) {
+						r.report(sqlInjectionMeta, arg, "SQL statement is built from non-constant text and passed to "+callName(call)+".")
+					}
+					return true
+				})
+			}
+		}
 	})
 }
 
-// matchSQLInjection detects SQL injection vulnerabilities with improved accuracy
-func matchSQLInjection(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
-	for _, file := range pass.Files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			callExpr, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-
-			selector, ok := callExpr.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-
-			funcName := selector.Sel.Name
-			if !isQueryFunc(funcName) {
-				return true
-			}
-
-			if len(callExpr.Args) == 0 {
-				return true
-			}
-
-			// Enhanced check for SQL injection with context analysis
-			if isSQLInjectionVulnerable(callExpr.Args[0], pass) {
-				pos := ctx.GetFset().Position(callExpr.Pos())
-				ctx.Report(result.Issue{
-					ID:          "sql-injection",
-					Title:       "SQL Injection Vulnerability",
-					Description: "Potential SQL injection: avoid building queries via string concatenation",
-					Severity:    result.SeverityHigh,
-					Location:    result.NewLocationFromPos(pos, "", ""),
-					Category:    "security",
-					Suggestion:  "Use parameterized queries instead of raw string concatenation",
-					References:  []string{"https://owasp.org/www-project-top-ten/2017/A1_2017-Injection"},
-				})
-			}
-
-			return true
-		})
+// sqlQueryArg returns the index of the query argument of a SQL API call, or -1.
+func sqlQueryArg(fn *types.Func) int {
+	if fn == nil {
+		return -1
 	}
+	name := fn.Name()
+	switch {
+	case isMethod(fn, "database/sql", "DB") || isMethod(fn, "database/sql", "Tx") || isMethod(fn, "database/sql", "Conn"):
+		switch name {
+		case "Query", "QueryRow", "Exec", "Prepare":
+			return 0
+		case "QueryContext", "QueryRowContext", "ExecContext", "PrepareContext":
+			return 1
+		}
+	case isMethod(fn, "github.com/jmoiron/sqlx", "DB") || isMethod(fn, "github.com/jmoiron/sqlx", "Tx"):
+		switch name {
+		case "Queryx", "QueryRowx", "MustExec", "NamedExec", "NamedQuery", "Preparex", "PrepareNamed":
+			return 0
+		case "Get", "Select", "QueryxContext", "QueryRowxContext", "MustExecContext", "NamedExecContext", "PreparexContext":
+			return 1
+		case "GetContext", "SelectContext":
+			return 2
+		}
+	case fn.Pkg() != nil && (pkgMatches(fn.Pkg().Path(), "github.com/jackc/pgx") || strings.HasPrefix(fn.Pkg().Path(), "github.com/jackc/pgx/")):
+		switch name {
+		case "Query", "QueryRow", "Exec":
+			return 1
+		}
+	case isMethod(fn, "gorm.io/gorm", "DB"):
+		switch name {
+		case "Raw", "Exec", "Where", "Or", "Not", "Order", "Having", "Group", "Joins":
+			return 0
+		}
+	}
+	return -1
 }
 
-// isQueryFunc checks if the function name is a known SQL execution function.
-func isQueryFunc(name string) bool {
-	switch strings.ToLower(name) {
-	case "query", "exec", "queryrow", "prepare":
-		return true
-	default:
+func callName(call *ast.CallExpr) string {
+	switch f := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		return exprName(f.X) + "." + f.Sel.Name
+	case *ast.Ident:
+		return f.Name
+	}
+	return "the call"
+}
+
+// dynamicSQL reports whether e builds SQL by concatenating or formatting a
+// non-constant, non-numeric value. Local variables are followed to their assignments.
+func dynamicSQL(info *types.Info, e ast.Expr, assigns map[types.Object][]ast.Expr, depth int) bool {
+	if depth > 6 || isConst(info, e) {
 		return false
 	}
-}
-
-// isSQLInjectionVulnerable checks if an expression is vulnerable to SQL injection
-func isSQLInjectionVulnerable(expr ast.Expr, pass *analysis.Pass) bool {
-	// Check for string concatenation with user input
-	if containsStringConcatWithUserInput(expr, pass) {
-		return true
+	switch x := e.(type) {
+	case *ast.ParenExpr:
+		return dynamicSQL(info, x.X, assigns, depth+1)
+	case *ast.BinaryExpr:
+		if x.Op != token.ADD {
+			return false
+		}
+		return nonConstText(info, x.X, assigns, depth) || nonConstText(info, x.Y, assigns, depth) ||
+			dynamicSQL(info, x.X, assigns, depth+1) || dynamicSQL(info, x.Y, assigns, depth+1)
+	case *ast.CallExpr:
+		fn := calleeFunc(info, x)
+		if isFunc(fn, "fmt", "Sprintf") && len(x.Args) > 1 {
+			for _, arg := range x.Args[1:] {
+				if nonConstText(info, arg, assigns, depth) {
+					return true
+				}
+			}
+		}
+		if isFunc(fn, "strings", "Join", "Replace", "ReplaceAll") && len(x.Args) > 0 {
+			for _, arg := range x.Args {
+				if !isConst(info, arg) && isTextType(typeOf(info, arg)) {
+					return true
+				}
+			}
+		}
+	case *ast.Ident:
+		obj, ok := info.Uses[x].(*types.Var)
+		if !ok {
+			return false
+		}
+		for _, rhs := range assigns[obj] {
+			if dynamicSQL(info, rhs, assigns, depth+1) {
+				return true
+			}
+		}
 	}
-
-	// Check for fmt.Sprintf with user input
-	if containsFmtSprintfWithUserInput(expr, pass) {
-		return true
-	}
-
-	// Check for template string with user input
-	if containsTemplateStringWithUserInput(expr, pass) {
-		return true
-	}
-
 	return false
 }
 
-// containsStringConcatWithUserInput checks for string concatenation with user input
-func containsStringConcatWithUserInput(expr ast.Expr, pass *analysis.Pass) bool {
-	binExpr, ok := expr.(*ast.BinaryExpr)
-	if !ok {
+// nonConstText reports whether e is a non-constant textual operand. Operands
+// that are themselves constant SQL fragments or numeric values are ignored.
+func nonConstText(info *types.Info, e ast.Expr, assigns map[types.Object][]ast.Expr, depth int) bool {
+	if isConst(info, e) {
 		return false
 	}
-	
-	if binExpr.Op == token.ADD {
-		// Check if either side contains user input
-		leftHasUserInput := containsUserInput(binExpr.X, pass)
-		rightHasUserInput := containsUserInput(binExpr.Y, pass)
-		
-		// Only report if at least one side contains user input
-		if leftHasUserInput || rightHasUserInput {
-			// Additional check: if both sides are string literals, it's safe
-			_, leftIsString := binExpr.X.(*ast.BasicLit)
-			_, rightIsString := binExpr.Y.(*ast.BasicLit)
-			
-			// If both are string literals, it's safe
-			if leftIsString && rightIsString {
+	t := typeOf(info, e)
+	if !isTextType(t) {
+		return false
+	}
+	if call, ok := e.(*ast.CallExpr); ok {
+		fn := calleeFunc(info, call)
+		if fn != nil && (sanitizes(fn, "sql-injection") || isFunc(fn, "strconv", "Itoa", "FormatInt", "FormatUint", "FormatFloat", "FormatBool")) {
+			return false
+		}
+	}
+	if id, ok := e.(*ast.Ident); ok {
+		if obj, ok := info.Uses[id].(*types.Var); ok {
+			rhs := assigns[obj]
+			if len(rhs) > 0 {
+				for _, r := range rhs {
+					if !isConst(info, r) && !builtFromConstants(info, r, assigns, map[types.Object]bool{obj: true}) {
+						return true
+					}
+				}
 				return false
 			}
-			
-			return true
-		}
-		
-		// Recursively check nested expressions
-		return containsStringConcatWithUserInput(binExpr.X, pass) || 
-			   containsStringConcatWithUserInput(binExpr.Y, pass)
-	}
-	
-	return false
-}
-
-// containsFmtSprintfWithUserInput checks for fmt.Sprintf with user input
-func containsFmtSprintfWithUserInput(expr ast.Expr, pass *analysis.Pass) bool {
-	callExpr, ok := expr.(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-
-	selector, ok := callExpr.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-
-	// Check for fmt.Sprintf
-	if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "fmt" {
-		if selector.Sel.Name == "Sprintf" && len(callExpr.Args) > 1 {
-			// Check if any argument after the format string contains user input
-			for _, arg := range callExpr.Args[1:] {
-				if containsUserInput(arg, pass) {
-					return true
-				}
-			}
 		}
 	}
-
-	return false
+	return true
 }
 
-// containsTemplateStringWithUserInput checks for template strings with user input
-func containsTemplateStringWithUserInput(expr ast.Expr, pass *analysis.Pass) bool {
-	// This is a simplified check - in a real implementation, you'd need more sophisticated parsing
-	// to detect template strings like `SELECT * FROM users WHERE name = '${userInput}'`
-	return false
-}
-
-// containsUserInput checks if an expression contains user input
-func containsUserInput(expr ast.Expr, pass *analysis.Pass) bool {
-	switch e := expr.(type) {
+// builtFromConstants reports whether e is composed solely of constants and
+// local variables holding constants (e.g. a query assembled from fixed fragments).
+func builtFromConstants(info *types.Info, e ast.Expr, assigns map[types.Object][]ast.Expr, visiting map[types.Object]bool) bool {
+	if len(visiting) > 8 {
+		return false
+	}
+	if isConst(info, e) {
+		return true
+	}
+	switch x := e.(type) {
+	case *ast.ParenExpr:
+		return builtFromConstants(info, x.X, assigns, visiting)
+	case *ast.BinaryExpr:
+		return x.Op == token.ADD && builtFromConstants(info, x.X, assigns, visiting) && builtFromConstants(info, x.Y, assigns, visiting)
 	case *ast.Ident:
-		return isUserInputVariable(e.Name)
-	case *ast.SelectorExpr:
-		return isUserInputSelector(e, pass)
-	case *ast.CallExpr:
-		return isUserInputCall(e, pass)
-	case *ast.BasicLit:
-		// String literals are not user input
-		return false
-	}
-	return false
-}
-
-// isUserInputVariable checks if a variable name suggests user input
-func isUserInputVariable(name string) bool {
-	name = strings.ToLower(name)
-	userInputPatterns := []string{
-		"input", "param", "user", "query", "data", "value", 
-		"body", "form", "arg", "cmd", "filename", "search",
-		"id", "name", "email", "username", "password",
-	}
-	
-	for _, pattern := range userInputPatterns {
-		if strings.Contains(name, pattern) {
+		obj, ok := info.Uses[x].(*types.Var)
+		if !ok || len(assigns[obj]) == 0 {
+			return false
+		}
+		if visiting[obj] {
 			return true
 		}
-	}
-	return false
-}
-
-// isUserInputSelector checks if a selector expression suggests user input
-func isUserInputSelector(selector *ast.SelectorExpr, pass *analysis.Pass) bool {
-	// Check for HTTP request methods that return user input
-	if pkg, ok := selector.X.(*ast.Ident); ok {
-		if pkg.Name == "r" { // HTTP request
-			userInputMethods := []string{
-				"FormValue", "PostFormValue", "URL", "Query",
-			}
-			for _, method := range userInputMethods {
-				if selector.Sel.Name == method {
-					return true
-				}
+		visiting[obj] = true
+		defer delete(visiting, obj)
+		for _, r := range assigns[obj] {
+			if !builtFromConstants(info, r, assigns, visiting) {
+				return false
 			}
 		}
-	}
-	return false
-}
-
-// isUserInputCall checks if a function call returns user input
-func isUserInputCall(call *ast.CallExpr, pass *analysis.Pass) bool {
-	if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
-		// Check for os.Getenv
-		if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "os" {
-			if selector.Sel.Name == "Getenv" {
-				return true
-			}
-		}
-		
-		// Check for other user input sources
-		if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "flag" {
-			if strings.HasPrefix(selector.Sel.Name, "String") || 
-			   strings.HasPrefix(selector.Sel.Name, "Arg") {
-				return true
-			}
-		}
+		return true
 	}
 	return false
 }

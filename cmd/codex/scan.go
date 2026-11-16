@@ -3,19 +3,21 @@ package codex
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
-	"go/token"
-
+	"github.com/Voskan/codexsentinel/analyzer/baseline"
 	"github.com/Voskan/codexsentinel/analyzer/engine"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules/yaml"
+	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
-	"github.com/Voskan/codexsentinel/internal/fsutil"
 	"github.com/Voskan/codexsentinel/internal/git"
-	"github.com/Voskan/codexsentinel/internal/ignore"
 	"github.com/Voskan/codexsentinel/internal/logx"
 	"github.com/Voskan/codexsentinel/report"
 	"github.com/Voskan/codexsentinel/report/formats"
@@ -25,48 +27,60 @@ import (
 
 // NewScanCmd returns the `scan` command that analyzes the target source code.
 func NewScanCmd() *cobra.Command {
-	var (
-		path       string
-		format     string
-		outPath    string
-		strict     bool
-		ignoreFile string
-		depsOnly   bool
-		configFile string
-		severity   string
-		exitCode   int
-	)
+	var opts scanOptions
 
 	cmd := &cobra.Command{
 		Use:   "scan [path]",
 		Short: "Run static analysis on the target source code",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runScan(path, args, format, outPath, strict, ignoreFile, depsOnly, configFile, severity, exitCode)
+			if !cmd.Flags().Changed("ignore-file") {
+				opts.ignoreFile = ""
+			}
+			if len(args) > 0 {
+				opts.path = args[0]
+			}
+			return runScan(cmd.Context(), opts)
 		},
 	}
 
-	cmd.Flags().StringVarP(&path, "path", "p", ".", "Target directory or file to scan")
-	cmd.Flags().StringVarP(&format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json")
-	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Path to write the output report to")
-	cmd.Flags().BoolVar(&strict, "strict", false, "Exit with code 1 if issues are found")
-	cmd.Flags().StringVar(&ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file")
-	cmd.Flags().BoolVar(&depsOnly, "deps", false, "Run dependency analysis only")
-	cmd.Flags().StringVar(&configFile, "config", "", "Path to a custom config file")
-	cmd.Flags().StringVar(&severity, "severity", "", "Filter issues by severity (low, medium, high, critical)")
+	cmd.Flags().StringVarP(&opts.path, "path", "p", ".", "Target directory or file to scan")
+	cmd.Flags().StringVarP(&opts.format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json")
+	cmd.Flags().StringVarP(&opts.outPath, "out", "o", "", "Path to write the output report to")
+	cmd.Flags().BoolVar(&opts.strict, "strict", false, "Exit with code 1 if issues are found")
+	cmd.Flags().StringVar(&opts.ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file (default: suppression.ignore_file from the config, relative to the project root)")
+	cmd.Flags().BoolVar(&opts.depsOnly, "deps", false, "Run dependency analysis only")
+	cmd.Flags().StringVar(&opts.configFile, "config", "", "Path to a custom config file")
+	cmd.Flags().StringVar(&opts.severity, "severity", "", "Filter issues by severity (low, medium, high, critical)")
+	cmd.Flags().BoolVar(&opts.fix, "fix", false, "Apply suggested fixes to the source files")
+	cmd.Flags().StringVar(&opts.baseline, "baseline", "", "Report only findings that are not recorded in this baseline file")
+	cmd.Flags().StringVar(&opts.diffRef, "diff", "", "Report only findings on lines changed since this git reference (e.g. origin/main)")
 
 	return cmd
 }
 
-// runScan handles the main scan logic
-func runScan(path string, args []string, format, outPath string, strict bool, ignoreFile string, depsOnly bool, configFile, severity string, exitCode int) error {
-	ctx := context.Background()
+// scanOptions holds the flags of the scan command.
+type scanOptions struct {
+	path       string
+	format     string
+	outPath    string
+	strict     bool
+	ignoreFile string
+	depsOnly   bool
+	configFile string
+	severity   string
+	fix        bool
+	baseline   string
+	diffRef    string
+}
 
-	// Use path from args if provided, otherwise use flag
-	targetPath := path
-	if len(args) > 0 {
-		targetPath = args[0]
+// runScan handles the main scan logic
+func runScan(ctx context.Context, opts scanOptions) error {
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	targetPath := normalizeTargetPath(opts.path)
+	format, outPath, strict, severity := opts.format, opts.outPath, opts.strict, opts.severity
 
 	// Initialize logger
 	if err := logx.Init(true); err != nil {
@@ -82,23 +96,43 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 
 	var results []result.Issue
 	var err error
+	cfg, err := loadConfig(opts.configFile, logger)
+	if err != nil {
+		return err
+	}
+	if outPath == "" && cfg.Report.OutputDir != "" {
+		outPath = filepath.Join(cfg.Report.OutputDir, defaultOutputPath(format))
+	}
 
-	if depsOnly {
+	if opts.depsOnly {
 		// Run only dependency analysis
 		logger.Infof("Running dependency analysis only")
-		results, err = runDependencyAnalysis(targetPath)
+		results, err = runDependencyAnalysis(ctx, targetPath, cfg, logger)
 		if err != nil {
 			return fmt.Errorf("dependency analysis failed: %w", err)
 		}
 	} else {
 		// Run full analysis
-		results, err = runFullAnalysis(ctx, targetPath, ignoreFile, configFile, severity, logger)
+		results, err = runFullAnalysis(ctx, targetPath, opts.ignoreFile, cfg, severity, logger)
 		if err != nil {
 			return fmt.Errorf("analysis failed: %w", err)
 		}
 	}
+	if results, err = applyBaselineAndDiff(ctx, targetPath, opts, results, logger); err != nil {
+		return err
+	}
 
 	logger.Infof("Analysis completed, found %d issues", len(results))
+
+	if opts.fix {
+		changed, err := yaml.ApplyFixes(results)
+		for _, file := range changed {
+			logger.Infof("Applied fixes to %s", file)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to apply fixes: %w", err)
+		}
+	}
 
 	// Generate report
 	if err := generateReport(results, format, outPath, gitMetadata, logger); err != nil {
@@ -106,14 +140,68 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 	}
 
 	// Display result summary
-	printSummary(results)
+	summaryOutput := io.Writer(os.Stdout)
+	if outPath == "-" {
+		summaryOutput = os.Stderr
+	}
+	printSummary(summaryOutput, results)
 
 	// Exit code control
-	if strict && len(results) > 0 {
-		exitCode = 1
+	if count := failingIssues(results, strict, cfg.Report.FailOnSeverity); count > 0 {
+		return &IssuesFoundError{Count: count}
 	}
-	os.Exit(exitCode)
 	return nil
+}
+
+// applyBaselineAndDiff removes findings recorded in the baseline file and,
+// in diff mode, findings outside the lines changed since the git reference.
+// The analysis itself always covers the whole project.
+func applyBaselineAndDiff(ctx context.Context, targetPath string, opts scanOptions, results []result.Issue, logger *zap.SugaredLogger) ([]result.Issue, error) {
+	if opts.baseline != "" {
+		known, err := baseline.Load(opts.baseline)
+		if err != nil {
+			return nil, err
+		}
+		var removed int
+		results, removed = known.Filter(results)
+		logger.Infof("Baseline %s suppressed %d known issues", opts.baseline, removed)
+	}
+	if opts.diffRef != "" {
+		root, err := workspace.ProjectRoot(targetPath)
+		if err != nil {
+			return nil, err
+		}
+		changed, err := git.Diff(ctx, root, opts.diffRef)
+		if err != nil {
+			return nil, fmt.Errorf("diff mode: %w", err)
+		}
+		results = filterByDiff(results, changed)
+		logger.Infof("Diff against %s: %d issues on changed lines", opts.diffRef, len(results))
+	}
+	return results, nil
+}
+
+// filterByDiff keeps findings on changed lines. Module-level findings are kept
+// when go.mod or go.sum changed; findings without a line when their file changed.
+func filterByDiff(results []result.Issue, changed git.ChangedLines) []result.Issue {
+	out := make([]result.Issue, 0, len(results))
+	for _, issue := range results {
+		file := filepath.ToSlash(issue.Location.File)
+		keep := false
+		switch {
+		case filepath.Base(file) == "go.mod" || filepath.Base(file) == "go.sum":
+			dir := filepath.ToSlash(filepath.Dir(file))
+			keep = changed.Touched(file) || changed.Touched(path.Join(dir, "go.mod")) || changed.Touched(path.Join(dir, "go.sum"))
+		case issue.Location.Line <= 0:
+			keep = changed.Touched(file)
+		default:
+			keep = changed.Contains(file, issue.Location.Line)
+		}
+		if keep {
+			out = append(out, issue)
+		}
+	}
+	return out
 }
 
 // getGitMetadata retrieves and logs Git metadata
@@ -143,129 +231,59 @@ func getGitMetadata(logger *zap.SugaredLogger) *report.GitMetadata {
 	return nil
 }
 
-// runDependencyAnalysis performs dependency analysis and returns issues
-func runDependencyAnalysis(targetPath string) ([]result.Issue, error) {
-	var issues []result.Issue
-
-	// Find go.mod file
+// runDependencyAnalysis audits the dependencies of the module at targetPath.
+// With reachability enabled, the module is loaded to build a call graph.
+func runDependencyAnalysis(ctx context.Context, targetPath string, cfg *config.Config, logger *zap.SugaredLogger) ([]result.Issue, error) {
 	goModPath := filepath.Join(targetPath, "go.mod")
-	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
+	if _, err := os.Stat(goModPath); err != nil {
 		return nil, fmt.Errorf("go.mod file not found in %s", targetPath)
 	}
-
-	// Default license lists
-	allowLicenses := []string{"MIT", "Apache-2.0", "BSD-3-Clause"}
-	denyLicenses := []string{"AGPL-3.0", "GPL-3.0", "BSL-1.1"}
-
-	// Run dependency analysis
-	reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
+	opts := deps.ScanOptions{
+		AllowLicenses:        cfg.Dependencies.AllowLicenses,
+		DenyLicenses:         cfg.Dependencies.DenyLicenses,
+		CheckLicenses:        cfg.Dependencies.CheckLicenses,
+		CheckVulnerabilities: cfg.Dependencies.CheckVulnerabilities,
+	}
+	if cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability {
+		if ws, err := workspace.Load(ctx, targetPath, cfg); err != nil {
+			logger.Warnf("Reachability analysis skipped: %v", err)
+		} else if bundle, err := codessa.BuildFromWorkspace(ws); err != nil {
+			logger.Warnf("Reachability analysis skipped: %v", err)
+		} else {
+			opts.Bundle = bundle
+		}
+	}
+	reports, err := deps.ScanDependencies(ctx, goModPath, opts)
 	if err != nil {
-		return nil, fmt.Errorf("dependency analysis failed: %w", err)
+		if len(reports) == 0 {
+			return nil, err
+		}
+		logger.Warnf("Dependency analysis incomplete: %v", err)
 	}
-
-	// Convert dependency reports to issues
-	for _, report := range reports {
-		// License issues
-		if report.LicenseStatus == "DENIED" {
-			issues = append(issues, result.Issue{
-				ID:          "license-denied",
-				Title:       "Denied License Detected",
-				Description: fmt.Sprintf("Module %s uses denied license: %s", report.Module, report.License),
-				Severity:    result.SeverityHigh,
-				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
-				Category:    "license",
-				Suggestion:  "Consider using a different dependency with an allowed license",
-			})
-		}
-
-		// Vulnerability issues
-		for _, vuln := range report.Vulnerabilities {
-			issues = append(issues, result.Issue{
-				ID:          "dependency-vulnerability",
-				Title:       "Vulnerable Dependency",
-				Description: fmt.Sprintf("Module %s@%s has vulnerability: %s\nDetails: %s", report.Module, report.Version, vuln.ID, vuln.Details),
-				Severity:    result.SeverityHigh,
-				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
-				Category:    "security",
-				Suggestion:  fmt.Sprintf("Update to a fixed version: %s or apply security patches", vuln.FixedVersion),
-				References:  []string{vuln.Reference},
-			})
-		}
-
-		// Entropy findings (potential secrets)
-		for _, entropy := range report.SuspiciousFiles {
-			issues = append(issues, result.Issue{
-				ID:          "high-entropy-string",
-				Title:       "High Entropy String Detected",
-				Description: fmt.Sprintf("Potential secret found in %s at line %d", entropy.File, entropy.Line),
-				Severity:    result.SeverityMedium,
-				Location:    result.NewLocationFromPos(token.Position{Filename: entropy.File, Line: entropy.Line}, "", ""),
-				Category:    "security",
-				Suggestion:  "Review and remove hardcoded secrets from the codebase",
-			})
-		}
-	}
-
-	return issues, nil
+	return deps.ReportIssues(reports, goModPath), nil
 }
 
 // runFullAnalysis performs the complete analysis workflow
-func runFullAnalysis(ctx context.Context, targetPath, ignoreFile, configFile, severity string, logger *zap.SugaredLogger) ([]result.Issue, error) {
-	// Use fsutil for safe file walking
-	fileOpts := fsutil.WalkOptions{
-		RootDir:            targetPath,
-		AllowedExtensions:  []string{".go"},
-		MaxFileSizeBytes:   10 * 1024 * 1024, // 10MB limit
-		FollowSymlinks:     false,
-		IncludeHiddenFiles: false,
-		ExcludedPaths:      []string{"vendor", "node_modules", ".git"},
-	}
-
-	files, err := fsutil.Walk(fileOpts)
-	if err != nil {
-		logger.Warnf("Failed to walk files: %v", err)
-	} else {
-		logger.Infof("Found %d Go files to analyze", len(files))
-	}
-
-	// Load ignore rules if specified
-	ignoreManager := loadIgnoreManager(ignoreFile, logger)
-
-	// Load config
-	cfg, err := loadConfig(configFile, logger)
-	if err != nil {
-		return nil, err
+func runFullAnalysis(ctx context.Context, targetPath, ignoreFile string, cfg *config.Config, severity string, logger *zap.SugaredLogger) ([]result.Issue, error) {
+	if ignoreFile != "" {
+		abs, err := filepath.Abs(ignoreFile)
+		if err != nil {
+			return nil, fmt.Errorf("resolve ignore file: %w", err)
+		}
+		cfg.Suppression.IgnoreFile = abs
+		logger.Infof("Using ignore rules from: %s", abs)
 	}
 
 	// Load YAML rules
 	loadYAMLRules(cfg, logger)
 
-	// Run analysis
+	// Run analysis; suppressions are applied by the engine
 	results, err := engine.Run(ctx, targetPath, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("analysis failed: %w", err)
 	}
 
-	// Filter results
-	results = filterResults(results, ignoreManager, severity, logger)
-
-	return results, nil
-}
-
-// loadIgnoreManager loads ignore rules from file
-func loadIgnoreManager(ignoreFile string, logger *zap.SugaredLogger) *ignore.Manager {
-	if ignoreFile == "" {
-		return nil
-	}
-
-	ignoreManager := ignore.NewManager()
-	if err := ignoreManager.LoadFile(ignoreFile); err != nil {
-		logger.Warnf("Failed to load ignore file: %v", err)
-		return nil
-	}
-
-	logger.Infof("Loaded ignore rules from: %s", ignoreFile)
-	return ignoreManager
+	return filterResults(results, severity, logger), nil
 }
 
 // loadConfig loads configuration from file or default
@@ -321,25 +339,8 @@ func loadYAMLRules(cfg *config.Config, logger *zap.SugaredLogger) {
 	}
 }
 
-// filterResults filters results based on ignore rules and severity
-func filterResults(results []result.Issue, ignoreManager *ignore.Manager, severity string, logger *zap.SugaredLogger) []result.Issue {
-	// Filter out ignored issues
-	if ignoreManager != nil {
-		filteredResults := make([]result.Issue, 0)
-		ignoredCount := 0
-		for _, issue := range results {
-			if !ignoreManager.IsIgnored(issue.Location.File, issue.Location.Line, issue.ID) {
-				filteredResults = append(filteredResults, issue)
-			} else {
-				ignoredCount++
-			}
-		}
-		if ignoredCount > 0 {
-			logger.Infof("Ignored %d issues based on ignore rules", ignoredCount)
-		}
-		results = filteredResults
-	}
-
+// filterResults filters results by minimum severity
+func filterResults(results []result.Issue, severity string, logger *zap.SugaredLogger) []result.Issue {
 	// Filter by severity if specified
 	if severity != "" {
 		filteredResults := make([]result.Issue, 0)
@@ -358,17 +359,8 @@ func filterResults(results []result.Issue, ignoreManager *ignore.Manager, severi
 
 // generateReport creates and writes the analysis report
 func generateReport(results []result.Issue, format, outPath string, gitMetadata *report.GitMetadata, logger *zap.SugaredLogger) error {
-	// Determine output path
-	reportDir := "scan_reports"
-	if _, err := os.Stat(reportDir); os.IsNotExist(err) {
-		if err := os.Mkdir(reportDir, 0755); err != nil {
-			return fmt.Errorf("failed to create report directory: %w", err)
-		}
-	}
 	if outPath == "" {
-		outPath = filepath.Join(reportDir, defaultOutputPath(format))
-	} else {
-		outPath = filepath.Join(reportDir, filepath.Base(outPath))
+		outPath = filepath.Join("scan_reports", defaultOutputPath(format))
 	}
 
 	// Generate report
@@ -398,9 +390,13 @@ func defaultOutputPath(format string) string {
 
 // writeReport writes the analysis results in the requested format to the given path.
 func writeReport(results []result.Issue, format, outPath string, gitMetadata *report.GitMetadata) error {
-	dir := filepath.Dir(outPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
+	if outPath == "-" && format != "json" && format != "sarif" && format != "markdown" {
+		return fmt.Errorf("stdout output is not supported for format: %s", format)
+	}
+	if outPath != "-" {
+		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+			return fmt.Errorf("failed to create output directory: %w", err)
+		}
 	}
 
 	// Convert result.Issue to report.Issue
@@ -413,7 +409,17 @@ func writeReport(results []result.Issue, format, outPath string, gitMetadata *re
 			Severity:    report.SeverityLevel(issue.Severity.String()),
 			File:        issue.Location.File,
 			Line:        issue.Location.Line,
+			Column:      issue.Location.Column,
+			Category:    issue.Category,
+			Package:     issue.Location.PackagePath,
+			References:  issue.References,
 			Suggestion:  issue.Suggestion,
+			EndLine:     issue.Location.EndLine, EndColumn: issue.Location.EndColumn,
+			Confidence: issue.Confidence, CWE: issue.CWE, OWASP: issue.OWASP,
+			Trace: issue.Trace, Fix: issue.Fix, Fingerprint: issue.Fingerprint, Reachable: issue.Reachable,
+		}
+		if len(issue.References) > 0 {
+			reportIssues[i].Reference = issue.References[0]
 		}
 	}
 
@@ -432,26 +438,51 @@ func writeReport(results []result.Issue, format, outPath string, gitMetadata *re
 }
 
 // printSummary prints a summary of the analysis results.
-func printSummary(results []result.Issue) {
-	fmt.Printf("Analysis complete. Found %d issues.\n", len(results))
+func printSummary(w io.Writer, results []result.Issue) {
+	fmt.Fprintf(w, "Analysis complete. Found %d issues.\n", len(results))
 
 	if len(results) > 0 {
-		fmt.Println("\nIssues found:")
+		fmt.Fprintln(w, "\nIssues found:")
 		for _, issue := range results {
-			fmt.Printf("  [%s] %s at %s:%d\n",
+			fmt.Fprintf(w, "  [%s] %s at %s:%d\n",
 				issue.Severity.String(),
 				issue.Title,
 				issue.Location.File,
 				issue.Location.Line)
 			if issue.Description != "" {
-				fmt.Printf("      Description: %s\n", issue.Description)
+				fmt.Fprintf(w, "      Description: %s\n", issue.Description)
 			}
 			if issue.Suggestion != "" {
-				fmt.Printf("      Remediation: %s\n", issue.Suggestion)
+				fmt.Fprintf(w, "      Remediation: %s\n", issue.Suggestion)
 			}
 			if len(issue.References) > 0 && issue.References[0] != "" {
-				fmt.Printf("      Reference:   %s\n", issue.References[0])
+				fmt.Fprintf(w, "      Reference:   %s\n", issue.References[0])
 			}
 		}
 	}
+}
+
+// IssuesFoundError indicates a completed scan that failed the severity policy.
+type IssuesFoundError struct{ Count int }
+
+func (e *IssuesFoundError) Error() string { return fmt.Sprintf("scan found %d issues", e.Count) }
+
+func normalizeTargetPath(path string) string {
+	if strings.HasSuffix(filepath.ToSlash(path), "/...") {
+		path = strings.TrimSuffix(filepath.ToSlash(path), "/...")
+		if path == "" {
+			return string(filepath.Separator)
+		}
+	}
+	return path
+}
+
+func failingIssues(issues []result.Issue, strict bool, threshold string) int {
+	count := 0
+	for _, issue := range issues {
+		if strict || (threshold != "" && issue.Severity.GreaterThanOrEqual(result.ParseSeverity(threshold))) {
+			count++
+		}
+	}
+	return count
 }

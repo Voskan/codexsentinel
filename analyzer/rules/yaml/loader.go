@@ -1,15 +1,26 @@
 package yaml
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"go/ast"
+	"go/printer"
+	"go/token"
+	"go/types"
+	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules"
-	"github.com/go-yaml/yaml"
+	"gopkg.in/yaml.v3"
 )
 
 // LoadFromDir loads all YAML rule files from the given directory.
@@ -18,7 +29,7 @@ func LoadFromDir(dir string) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if d.IsDir() || filepath.Ext(path) != ".yaml" {
+		if ext := filepath.Ext(path); d.IsDir() || (ext != ".yaml" && ext != ".yml") {
 			return nil
 		}
 		return loadFile(path)
@@ -29,173 +40,369 @@ func LoadFromDir(dir string) error {
 	return nil
 }
 
-// LoadFromFile loads a single YAML rule file.
+// LoadFromFile loads a YAML rule file.
 func LoadFromFile(path string) error {
 	return loadFile(path)
 }
 
-// loadFile reads and parses a single YAML rule file.
+// loadFile parses, compiles and registers every rule in a YAML file.
 func loadFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("failed to read rule file %q: %w", path, err)
 	}
-
-	rule, err := parseRuleYAML(data, path)
+	parsed, err := ParseRules(data, path)
 	if err != nil {
 		return err
 	}
-
-	if err := validateRule(rule, path); err != nil {
-		return err
+	for _, rule := range parsed {
+		compiled, err := Compile(rule)
+		if err != nil {
+			return fmt.Errorf("invalid rule %q in %q: %w", rule.ID, path, err)
+		}
+		if err := rules.Register(compiled.Registration()); err != nil {
+			return fmt.Errorf("rule %q in %q: %w", rule.ID, path, err)
+		}
 	}
-
-	yamlRule := createYAMLRule(rule)
-	setDefaultValues(rule)
-
-	// Register into global rule registry
-	return rules.Register(&rules.Rule{
-		ID:          rule.ID,
-		Title:       rule.Title,
-		Category:    rule.Category,
-		Severity:    rule.Severity,
-		Description: rule.Description,
-		Suggestion:  rule.Suggestion,
-		References:  rule.References,
-		YAML:        yamlRule,
-		Enabled:     rule.Enabled,
-		Engine:      createYAMLRuleEngine(*rule), // Create engine function for YAML rule
-	})
-}
-
-// parseRuleYAML parses YAML data into a RuleYAML struct
-func parseRuleYAML(data []byte, path string) (*RuleYAML, error) {
-	var rule RuleYAML
-	if err := yaml.Unmarshal(data, &rule); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML in %q: %w", path, err)
-	}
-	return &rule, nil
-}
-
-// validateRule validates the rule structure
-func validateRule(rule *RuleYAML, path string) error {
-	if rule.ID == "" {
-		return fmt.Errorf("invalid rule in %q: missing required field 'id'", path)
-	}
-
-	pattern := getRulePattern(rule)
-	if pattern == "" {
-		return fmt.Errorf("invalid rule in %q: missing required field 'pattern' or 'match.pattern'", path)
-	}
-
 	return nil
 }
 
-// getRulePattern extracts the pattern from rule configuration
-func getRulePattern(rule *RuleYAML) string {
-	pattern := rule.Pattern
-	if rule.Match != nil && rule.Match.Pattern != "" {
-		pattern = rule.Match.Pattern
+// ParseRules decodes a rule file. A file holds one rule per YAML document, or
+// a document with a top-level "rules" list.
+func ParseRules(data []byte, path string) ([]RuleYAML, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	var out []RuleYAML
+	for {
+		var node yaml.Node
+		err := dec.Decode(&node)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse YAML in %q: %w", path, err)
+		}
+		if len(node.Content) == 0 {
+			continue
+		}
+		var list struct {
+			Rules []RuleYAML `yaml:"rules"`
+		}
+		if err := node.Decode(&list); err == nil && len(list.Rules) > 0 {
+			out = append(out, list.Rules...)
+			continue
+		}
+		var rule RuleYAML
+		if err := node.Decode(&rule); err != nil {
+			return nil, fmt.Errorf("failed to parse YAML in %q: %w", path, err)
+		}
+		out = append(out, rule)
 	}
-	return pattern
-}
-
-// createYAMLRule creates a YAMLRule with pattern and filters
-func createYAMLRule(rule *RuleYAML) *rules.YAMLRule {
-	yamlRule := &rules.YAMLRule{
-		Pattern: getRulePattern(rule),
-		Filters: make(map[string]string),
+	if len(out) == 0 {
+		return nil, fmt.Errorf("invalid rule file %q: no rules found", path)
 	}
-
-	if rule.Match != nil {
-		processFilters(rule.Match.Filters, yamlRule.Filters)
-	}
-
-	return yamlRule
-}
-
-// processFilters processes match filters and adds them to the filters map
-func processFilters(filters []Filter, filtersMap map[string]string) {
-	for _, filter := range filters {
-		switch filter.Type {
-		case "param":
-			processParamFilter(filter, filtersMap)
-		case "call":
-			processCallFilter(filter, filtersMap)
-		case "file_ext":
-			processFileExtFilter(filter, filtersMap)
-		case "package":
-			processPackageFilter(filter, filtersMap)
+	for _, r := range out {
+		if r.ID == "" {
+			return nil, fmt.Errorf("invalid rule in %q: missing required field 'id'", path)
+		}
+		if r.pattern() == "" {
+			return nil, fmt.Errorf("invalid rule %q in %q: missing required field 'pattern' or 'match.pattern'", r.ID, path)
 		}
 	}
+	return out, nil
 }
 
-// processParamFilter processes parameter filters
-func processParamFilter(filter Filter, filtersMap map[string]string) {
-	for _, source := range filter.Sources {
-		filtersMap["param_"+source] = "true"
+func (r RuleYAML) pattern() string {
+	if r.Match != nil && r.Match.Pattern != "" {
+		return r.Match.Pattern
 	}
+	return r.Pattern
 }
 
-// processCallFilter processes call filters
-func processCallFilter(filter Filter, filtersMap map[string]string) {
-	for _, source := range filter.Sources {
-		filtersMap["call_"+source] = "true"
-	}
+// CompiledRule is a YAML rule with its patterns parsed and filters validated.
+type CompiledRule struct {
+	Rule     RuleYAML
+	Pattern  *Pattern
+	Not      []*Pattern
+	filters  []compiledFilter
+	severity result.Severity
 }
 
-// processFileExtFilter processes file extension filters
-func processFileExtFilter(filter Filter, filtersMap map[string]string) {
-	for _, ext := range filter.Include {
-		filtersMap["file_ext_"+ext] = "true"
-	}
+type compiledFilter struct {
+	Filter
+	name    string
+	include []*regexp.Regexp
+	exclude []*regexp.Regexp
 }
 
-// processPackageFilter processes package filters
-func processPackageFilter(filter Filter, filtersMap map[string]string) {
-	for _, pkg := range filter.Allow {
-		filtersMap["package_"+pkg] = "true"
-	}
-}
-
-// setDefaultValues sets default values for rule fields
-func setDefaultValues(rule *RuleYAML) {
-	if !rule.Enabled {
-		rule.Enabled = true // Default to enabled
-	}
+// Compile parses the rule's patterns and filters once.
+func Compile(rule RuleYAML) (*CompiledRule, error) {
 	if rule.Category == "" {
-		rule.Category = "security" // Default category
+		rule.Category = "security"
 	}
 	if rule.Severity == "" {
-		rule.Severity = "MEDIUM" // Default severity
+		rule.Severity = "MEDIUM"
+	}
+	p, err := CompilePattern(rule.pattern())
+	if err != nil {
+		return nil, err
+	}
+	c := &CompiledRule{Rule: rule, Pattern: p, severity: result.ParseSeverity(rule.Severity)}
+	if rule.Match != nil {
+		for _, src := range rule.Match.NotPattern {
+			np, err := CompilePattern(src)
+			if err != nil {
+				return nil, fmt.Errorf("not_pattern: %w", err)
+			}
+			c.Not = append(c.Not, np)
+		}
+		for _, f := range rule.Match.Filters {
+			cf := compiledFilter{Filter: f, name: strings.TrimPrefix(strings.Trim(strings.TrimSpace(f.Var), "{}"), "$")}
+			switch f.Type {
+			case "import", "package":
+			case "type", "non_const":
+				if cf.name == "" {
+					return nil, fmt.Errorf("%s filter needs 'var'", f.Type)
+				}
+			case "regex":
+				if cf.name == "" {
+					return nil, errors.New("regex filter needs 'var'")
+				}
+				for _, list := range []struct {
+					src []string
+					dst *[]*regexp.Regexp
+				}{{f.Include, &cf.include}, {f.Exclude, &cf.exclude}} {
+					for _, expr := range list.src {
+						re, err := regexp.Compile(expr)
+						if err != nil {
+							return nil, fmt.Errorf("regex filter: %w", err)
+						}
+						*list.dst = append(*list.dst, re)
+					}
+				}
+			case "file_ext", "param", "call":
+				// Accepted for compatibility with older rule files; Go sources only.
+				continue
+			default:
+				return nil, fmt.Errorf("unknown filter type %q", f.Type)
+			}
+			c.filters = append(c.filters, cf)
+		}
+	}
+	if rule.Fix != "" {
+		if _, err := CompilePattern(rule.Fix); err != nil {
+			return nil, fmt.Errorf("fix: %w", err)
+		}
+	}
+	return c, nil
+}
+
+// Registration returns the registry entry for the rule.
+func (c *CompiledRule) Registration() *rules.Rule {
+	r := c.Rule
+	return &rules.Rule{
+		ID:          r.ID,
+		Title:       r.Title,
+		Category:    r.Category,
+		Severity:    r.Severity,
+		Description: r.Description,
+		Suggestion:  r.Suggestion,
+		References:  r.References,
+		YAML:        &rules.YAMLRule{Pattern: r.pattern()},
+		Enabled:     r.IsEnabled(),
+		Engine:      c.Run,
 	}
 }
 
-// createYAMLRuleEngine creates a rule engine function for YAML-based rules
-func createYAMLRuleEngine(rule RuleYAML) rules.RuleFunc {
-	return func(ctx *analyzer.AnalyzerContext) ([]result.Issue, error) {
-		var issues []result.Issue
-
-		// This is a placeholder implementation
-		// In a real implementation, you would:
-		// 1. Parse the pattern using AST
-		// 2. Apply filters
-		// 3. Match against the code
-		// 4. Generate issues
-
-		// For now, create a simple issue to demonstrate
-		if rule.Enabled {
-			issues = append(issues, result.Issue{
-				ID:          rule.ID,
-				Title:       rule.Title,
-				Description: rule.Description,
-				Severity:    result.ParseSeverity(rule.Severity),
-				Location:    result.NewLocationFromPos(ctx.GetFset().Position(0), ctx.Filename, ""),
-				Category:    rule.Category,
-				Suggestion:  rule.Suggestion,
-			})
-		}
-
-		return issues, nil
+// Run matches the rule against the files of one package.
+func (c *CompiledRule) Run(ac *analyzer.AnalyzerContext) ([]result.Issue, error) {
+	if ac == nil || ac.Fset == nil {
+		return nil, nil
 	}
+	var issues []result.Issue
+	for _, file := range ac.Files {
+		if !c.fileAllowed(ac, file) {
+			continue
+		}
+		for _, m := range c.Pattern.FindAll(ac.Types, file) {
+			if !c.accept(ac, m) {
+				continue
+			}
+			issues = append(issues, c.issue(ac, m))
+		}
+	}
+	return issues, nil
+}
+
+func (c *CompiledRule) fileAllowed(ac *analyzer.AnalyzerContext, file *ast.File) bool {
+	for _, f := range c.filters {
+		switch f.Type {
+		case "import":
+			if !importsAny(file, f.Include) {
+				return false
+			}
+		case "package":
+			names := []string{file.Name.Name, ac.PackageName}
+			if len(f.Allow) > 0 && !packageMatches(f.Allow, names) {
+				return false
+			}
+			if packageMatches(f.Exclude, names) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func importsAny(file *ast.File, paths []string) bool {
+	for _, imp := range file.Imports {
+		p, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			continue
+		}
+		for _, want := range paths {
+			if p == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// packageMatches reports whether a glob matches a package name or any
+// trailing segment sequence of a package path ("service/*" matches
+// "example.com/app/service/user").
+func packageMatches(globs, names []string) bool {
+	for _, glob := range globs {
+		for _, name := range names {
+			if name == "" {
+				continue
+			}
+			segs := strings.Split(name, "/")
+			for i := range segs {
+				if ok, _ := path.Match(glob, strings.Join(segs[i:], "/")); ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (c *CompiledRule) accept(ac *analyzer.AnalyzerContext, m Match) bool {
+	for _, f := range c.filters {
+		node, ok := m.Bindings[f.name]
+		switch f.Type {
+		case "type":
+			expr, isExpr := node.(ast.Expr)
+			if !ok || !isExpr || ac.Types == nil {
+				return false
+			}
+			t := ac.Types.TypeOf(expr)
+			if t == nil || !typeListed(t, f.Include) {
+				return false
+			}
+		case "non_const":
+			expr, isExpr := node.(ast.Expr)
+			if !ok || !isExpr || isConstant(ac.Types, expr) {
+				return false
+			}
+		case "regex":
+			if !ok {
+				return false
+			}
+			text := nodeText(ac.Fset, node)
+			if len(f.include) > 0 && !anyMatch(f.include, text) || anyMatch(f.exclude, text) {
+				return false
+			}
+		}
+	}
+	for _, np := range c.Not {
+		suppressed := false
+		ast.Inspect(m.Node, func(n ast.Node) bool {
+			if suppressed || n == nil {
+				return false
+			}
+			if _, ok := np.Match(ac.Types, n, m.Bindings); ok {
+				suppressed = true
+			}
+			return !suppressed
+		})
+		if suppressed {
+			return false
+		}
+	}
+	return true
+}
+
+func typeListed(t types.Type, names []string) bool {
+	s := types.TypeString(t, nil)
+	for _, n := range names {
+		if s == n {
+			return true
+		}
+	}
+	return false
+}
+
+func isConstant(info *types.Info, e ast.Expr) bool {
+	if info == nil {
+		_, ok := e.(*ast.BasicLit)
+		return ok
+	}
+	tv, ok := info.Types[e]
+	return ok && tv.Value != nil
+}
+
+func anyMatch(res []*regexp.Regexp, s string) bool {
+	for _, re := range res {
+		if re.MatchString(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// nodeText prints a node as Go source.
+func nodeText(fset *token.FileSet, n ast.Node) string {
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, n); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
+func (c *CompiledRule) issue(ac *analyzer.AnalyzerContext, m Match) result.Issue {
+	r := c.Rule
+	pos, end := ac.Fset.Position(m.Node.Pos()), ac.Fset.Position(m.Node.End())
+	loc := result.NewLocationFromPos(pos, "", ac.PackageName)
+	loc.EndLine, loc.EndColumn = end.Line, end.Column
+	desc := strings.TrimSpace(r.Description)
+	if desc == "" {
+		desc = r.Title
+	}
+	issue := result.Issue{
+		ID:          r.ID,
+		Title:       r.Title,
+		Description: desc,
+		Severity:    c.severity,
+		Confidence:  1,
+		CWE:         r.CWE,
+		Location:    loc,
+		Category:    r.Category,
+		Suggestion:  r.Suggestion,
+		References:  r.References,
+	}
+	if r.Fix != "" {
+		issue.Fix = buildFix(ac.Fset, m, r.Fix, firstNonEmpty(r.Suggestion, r.Title, "Apply suggested fix"))
+	}
+	return issue
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

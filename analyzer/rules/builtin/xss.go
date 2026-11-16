@@ -2,254 +2,130 @@ package builtin
 
 import (
 	"go/ast"
-	"strings"
+	"go/types"
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
-	"golang.org/x/tools/go/analysis"
 )
 
-// RegisterXSSRule registers the XSS detection rule.
+var xssMeta = ruleMeta{
+	ID: "xss", Title: "Cross-Site Scripting", Severity: result.SeverityHigh, CWE: "CWE-79", OWASP: "A05:2025",
+	Confidence: 0.7,
+	Suggestion: "Render HTML with html/template or escape dynamic values with html.EscapeString before writing them to the response.",
+	References: []string{"https://cwe.mitre.org/data/definitions/79.html"},
+}
+
+var trustedTemplateTypes = map[string]bool{"HTML": true, "HTMLAttr": true, "JS": true, "JSStr": true, "CSS": true, "URL": true, "Srcset": true}
+
+// RegisterXSSRule reports unescaped dynamic text written to an HTTP response,
+// text/template rendering into a response, and conversions of dynamic text to
+// trusted html/template types.
 func RegisterXSSRule(ctx *analyzer.AnalyzerContext) {
-	ctx.RegisterRule(&analyzer.Rule{
-		ID:       "xss-vulnerability-builtin",
-		Title:    "Potential Cross-Site Scripting (XSS)",
-		Category: "security",
-		Severity: result.SeverityHigh,
-		Summary:  "Unescaped user input written to HTTP response may lead to XSS attacks.",
-		Matcher:  matchXSSVulnerabilityBuiltin,
+	registerRules(ctx, []ruleMeta{xssMeta}, func(r *reporter) {
+		info := r.pass.TypesInfo
+		for _, file := range r.pass.Files {
+			ast.Inspect(file, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				if tv, ok := info.Types[call.Fun]; ok && tv.IsType() {
+					if pkg, name := namedOf(tv.Type); pkg == "html/template" && trustedTemplateTypes[name] && len(call.Args) == 1 && !isConst(info, call.Args[0]) {
+						r.report(xssMeta, call, "Dynamic value converted to trusted template."+name+" bypasses contextual escaping.")
+					}
+					return true
+				}
+				fn := calleeFunc(info, call)
+				switch {
+				case isMethod(fn, "net/http", "ResponseWriter", "Write") && len(call.Args) == 1:
+					if unescapedText(info, call.Args[0]) {
+						r.report(xssMeta, call.Args[0], "Unescaped dynamic text is written to the HTTP response.")
+					}
+				case isFunc(fn, "io", "WriteString") && len(call.Args) == 2 && responseWriter(info, call.Args[0]):
+					if unescapedText(info, call.Args[1]) {
+						r.report(xssMeta, call.Args[1], "Unescaped dynamic text is written to the HTTP response.")
+					}
+				case isFunc(fn, "fmt", "Fprint", "Fprintf", "Fprintln") && len(call.Args) > 1 && responseWriter(info, call.Args[0]):
+					start := 1
+					if fn.Name() == "Fprintf" {
+						start = 2
+					}
+					for _, arg := range call.Args[start:] {
+						if unescapedText(info, arg) {
+							r.report(xssMeta, arg, "Unescaped dynamic text is formatted into the HTTP response.")
+							break
+						}
+					}
+				case isMethod(fn, "text/template", "Template", "Execute", "ExecuteTemplate") && len(call.Args) > 1 && responseWriter(info, call.Args[0]):
+					r.report(xssMeta, call, "text/template does not escape HTML; rendering it into an HTTP response enables XSS. Use html/template.")
+				}
+				return true
+			})
+		}
 	})
 }
 
-// matchXSSVulnerabilityBuiltin detects XSS vulnerabilities in HTTP handlers with improved accuracy
-func matchXSSVulnerabilityBuiltin(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
-	for _, file := range pass.Files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-
-			// Detect w.Write([]byte(userInput)) with context analysis
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-				if sel.Sel.Name == "Write" {
-					if len(call.Args) == 1 {
-						if isUnescapedUserInputInWrite(call.Args[0], pass) {
-							pos := pass.Fset.Position(call.Pos())
-							ctx.Report(result.Issue{
-								ID:          "xss-vulnerability-builtin",
-								Title:       "Potential Cross-Site Scripting (XSS)",
-								Description: "User input written to HTTP response without escaping.",
-								Severity:    result.SeverityHigh,
-								Location:    result.NewLocationFromPos(pos, "", ""),
-								Category:    "security",
-								Suggestion:  "Use html.EscapeString or html/template to escape user input before writing to response.",
-							})
-						}
-					}
-				}
-			}
-
-			// Detect fmt.Fprintf(w, ...userInput...) with improved context
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-				if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "fmt" && (sel.Sel.Name == "Fprintf" || sel.Sel.Name == "Fprint") {
-					if len(call.Args) > 1 {
-						for _, arg := range call.Args[1:] {
-							if isUnescapedUserInputInFmt(arg, pass) {
-								pos := pass.Fset.Position(arg.Pos())
-								ctx.Report(result.Issue{
-									ID:          "xss-vulnerability-builtin",
-									Title:       "Potential Cross-Site Scripting (XSS)",
-									Description: "User input written to HTTP response via fmt.Fprintf without escaping.",
-									Severity:    result.SeverityHigh,
-									Location:    result.NewLocationFromPos(pos, "", ""),
-									Category:    "security",
-									Suggestion:  "Use html.EscapeString or html/template to escape user input before writing to response.",
-								})
-							}
-						}
-					}
-				}
-			}
-
-			// Detect template.Execute(w, data) with improved analysis
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-				if sel.Sel.Name == "Execute" && len(call.Args) == 2 {
-					if isUnsafeTemplateExecute(call.Args[1], pass) {
-						pos := pass.Fset.Position(call.Args[1].Pos())
-						ctx.Report(result.Issue{
-							ID:          "xss-vulnerability-builtin",
-							Title:       "Potential Cross-Site Scripting (XSS) in template.Execute",
-							Description: "User input passed to template.Execute may be unsafe if not using html/template.",
-							Severity:    result.SeverityHigh,
-							Location:    result.NewLocationFromPos(pos, "", ""),
-							Category:    "security",
-							Suggestion:  "Use html/template (not text/template) and ensure autoescaping is enabled.",
-						})
-					}
-				}
-			}
-
-			return true
-		})
-	}
-}
-
-// isUnescapedUserInputInWrite checks if the expression is user input and not escaped in Write call
-func isUnescapedUserInputInWrite(expr ast.Expr, pass *analysis.Pass) bool {
-	switch e := expr.(type) {
-	case *ast.CallExpr:
-		// Check for []byte(userInput)
-		if fun, ok := e.Fun.(*ast.Ident); ok && fun.Name == "[]byte" && len(e.Args) == 1 {
-			return isUnescapedUserInput(e.Args[0], pass)
-		}
-		// Check for html.EscapeString(userInput) - this is safe
-		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
-			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "html" && sel.Sel.Name == "EscapeString" {
-				return false // Escaped
-			}
-			// Check for template.HTMLEscapeString
-			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "template" && sel.Sel.Name == "HTMLEscapeString" {
-				return false // Escaped
-			}
-		}
-		// Recursively check arguments
-		for _, arg := range e.Args {
-			if isUnescapedUserInput(arg, pass) {
-				return true
-			}
-		}
+// responseWriter reports whether e is an http.ResponseWriter (or implements it).
+func responseWriter(info *types.Info, e ast.Expr) bool {
+	t := typeOf(info, e)
+	if t == nil {
 		return false
-	case *ast.BasicLit:
-		return false // string literal, not user input
-	case *ast.Ident:
-		return isLikelyUserInput(e.Name)
-	case *ast.SelectorExpr:
-		return isLikelyUserInput(exprString(e))
 	}
-	return false
-}
-
-// isUnescapedUserInputInFmt checks if the expression is user input and not escaped in fmt call
-func isUnescapedUserInputInFmt(expr ast.Expr, pass *analysis.Pass) bool {
-	switch e := expr.(type) {
-	case *ast.CallExpr:
-		// Check for html.EscapeString(userInput) - this is safe
-		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
-			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "html" && sel.Sel.Name == "EscapeString" {
-				return false // Escaped
-			}
-			// Check for template.HTMLEscapeString
-			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "template" && sel.Sel.Name == "HTMLEscapeString" {
-				return false // Escaped
-			}
-		}
-		// Recursively check arguments
-		for _, arg := range e.Args {
-			if isUnescapedUserInput(arg, pass) {
-				return true
-			}
-		}
-		return false
-	case *ast.BasicLit:
-		return false // string literal, not user input
-	case *ast.Ident:
-		return isLikelyUserInput(e.Name)
-	case *ast.SelectorExpr:
-		return isLikelyUserInput(exprString(e))
+	if typeIs(t, "net/http", "ResponseWriter") {
+		return true
 	}
-	return false
-}
-
-// isUnsafeTemplateExecute checks if template.Execute is unsafe
-func isUnsafeTemplateExecute(expr ast.Expr, pass *analysis.Pass) bool {
-	// Check if we're using text/template instead of html/template
-	// This is a simplified check - in a real implementation, you'd need to track imports
-	return isUnescapedUserInput(expr, pass)
-}
-
-// isUnescapedUserInput checks if the expression is user input and not escaped.
-func isUnescapedUserInput(expr ast.Expr, pass *analysis.Pass) bool {
-	switch e := expr.(type) {
-	case *ast.CallExpr:
-		// Check for html.EscapeString(userInput)
-		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
-			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "html" && sel.Sel.Name == "EscapeString" {
-				return false // Escaped
-			}
-			// Check for template.HTMLEscapeString
-			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "template" && sel.Sel.Name == "HTMLEscapeString" {
-				return false // Escaped
-			}
-		}
-		// Recursively check arguments
-		for _, arg := range e.Args {
-			if isUnescapedUserInput(arg, pass) {
-				return true
-			}
-		}
-		return false
-	case *ast.BasicLit:
-		return false // string literal, not user input
-	case *ast.Ident:
-		return isLikelyUserInput(e.Name)
-	case *ast.SelectorExpr:
-		return isLikelyUserInput(exprString(e))
-	}
-	return false
-}
-
-// isLikelyUserInput uses improved heuristics to detect user input variables
-func isLikelyUserInput(name string) bool {
-	name = strings.ToLower(name)
-	
-	// More specific patterns to reduce false positives
-	userInputKeywords := []string{
-		"input", "param", "user", "query", "data", "value", 
-		"body", "form", "arg", "cmd", "filename", "search",
-		"id", "name", "email", "username", "password",
-		"content", "text", "message", "comment", "title",
-		"description", "url", "link", "href", "src",
-	}
-	
-	// Exclude common safe patterns
-	safePatterns := []string{
-		"template", "html", "css", "js", "json", "xml",
-		"config", "setting", "option", "default", "constant",
-		"static", "fixed", "hardcoded", "literal",
-	}
-	
-	// Check for user input patterns
-	for _, keyword := range userInputKeywords {
-		if strings.Contains(name, keyword) {
-			// Double-check it's not a safe pattern
-			for _, safe := range safePatterns {
-				if strings.Contains(name, safe) {
-					return false
-				}
-			}
-			return true
-		}
-	}
-	return false
-}
-
-// exprString returns a string representation of an expression.
-func exprString(expr ast.Expr) string {
-	var sb strings.Builder
-	ast.Inspect(expr, func(n ast.Node) bool {
-		if n == nil {
+	for _, m := range []string{"Header", "WriteHeader", "Write"} {
+		obj, _, _ := types.LookupFieldOrMethod(t, true, nil, m)
+		if _, ok := obj.(*types.Func); !ok {
 			return false
 		}
-		switch v := n.(type) {
-		case *ast.Ident:
-			sb.WriteString(v.Name)
-		case *ast.SelectorExpr:
-			sb.WriteString(exprString(v.X))
-			sb.WriteString(".")
-			sb.WriteString(v.Sel.Name)
+	}
+	return true
+}
+
+// unescapedText reports whether e is dynamic string or byte data that was not
+// produced by an escaping or encoding function.
+func unescapedText(info *types.Info, e ast.Expr) bool {
+	if isConst(info, e) {
+		return false
+	}
+	switch x := e.(type) {
+	case *ast.ParenExpr:
+		return unescapedText(info, x.X)
+	case *ast.CallExpr:
+		if tv, ok := info.Types[x.Fun]; ok && tv.IsType() {
+			return len(x.Args) == 1 && unescapedText(info, x.Args[0])
 		}
-		return true
-	})
-	return sb.String()
+		fn := calleeFunc(info, x)
+		if fn != nil && sanitizes(fn, "xss") {
+			return false
+		}
+		if isFunc(fn, "fmt", "Sprintf", "Sprint", "Sprintln") {
+			for _, arg := range x.Args {
+				if unescapedText(info, arg) && !isConst(info, arg) {
+					if _, isCall := arg.(*ast.CallExpr); !isCall || unescapedText(info, arg) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		if isFunc(fn, "strings", "Join", "Repeat", "ToUpper", "ToLower", "TrimSpace", "Trim") {
+			for _, arg := range x.Args {
+				if unescapedText(info, arg) {
+					return true
+				}
+			}
+			return false
+		}
+		return false
+	case *ast.BinaryExpr:
+		return unescapedText(info, x.X) || unescapedText(info, x.Y)
+	case *ast.Ident, *ast.SelectorExpr, *ast.IndexExpr:
+		t := typeOf(info, e)
+		if b, ok := t.Underlying().(*types.Basic); ok {
+			return b.Info()&types.IsString != 0
+		}
+	}
+	return false
 }

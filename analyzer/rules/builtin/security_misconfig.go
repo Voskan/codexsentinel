@@ -1,409 +1,238 @@
 package builtin
 
 import (
+	"fmt"
 	"go/ast"
+	"go/types"
 	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
-	"golang.org/x/tools/go/analysis"
 )
 
-// RegisterSecurityMisconfigRule registers the Security Misconfiguration detection rule.
+var (
+	serverTimeoutMeta = ruleMeta{ID: "http-server-missing-timeout", Title: "HTTP Server Without Read Timeouts", Severity: result.SeverityHigh, CWE: "CWE-400", OWASP: "A02:2025",
+		Suggestion: "Use an http.Server with ReadHeaderTimeout (e.g. 5 * time.Second) and ReadTimeout instead of http.ListenAndServe.",
+		References: []string{"https://cwe.mitre.org/data/definitions/400.html"}}
+	debugEndpointMeta = ruleMeta{ID: "debug-endpoint-exposed", Title: "Debug Endpoint Exposed", Severity: result.SeverityMedium, CWE: "CWE-489", OWASP: "A02:2025",
+		Suggestion: "Serve net/http/pprof only on a separate internal listener, never on the public mux.",
+		References: []string{"https://cwe.mitre.org/data/definitions/489.html"}}
+	corsMeta = ruleMeta{ID: "cors-wildcard-credentials", Title: "CORS Allows Credentials From Any Origin", Severity: result.SeverityHigh, CWE: "CWE-942", OWASP: "A02:2025",
+		Suggestion: "Reflect only origins from an explicit allowlist when Access-Control-Allow-Credentials is true.",
+		References: []string{"https://cwe.mitre.org/data/definitions/942.html"}}
+	filePermMeta = ruleMeta{ID: "insecure-file-permissions", Title: "Insecure File Permissions", Severity: result.SeverityMedium, CWE: "CWE-732", OWASP: "A02:2025",
+		Suggestion: "Use 0600/0644 for files and 0700/0755 for directories; avoid group- or world-writable modes.",
+		References: []string{"https://cwe.mitre.org/data/definitions/732.html"}}
+)
+
+// RegisterSecurityMisconfigRule reports HTTP servers without timeouts, exposed
+// profiling endpoints, permissive CORS with credentials and writable file modes.
 func RegisterSecurityMisconfigRule(ctx *analyzer.AnalyzerContext) {
-	ctx.RegisterRule(&analyzer.Rule{
-		ID:       "security-misconfiguration",
-		Title:    "Security Misconfiguration (A05:2025)",
-		Category: "security",
-		Severity: result.SeverityHigh,
-		Summary:  "Debug endpoints, unsafe settings, and security misconfigurations may expose sensitive information or create vulnerabilities.",
-		Matcher:  matchSecurityMisconfiguration,
-	})
-}
-
-// matchSecurityMisconfiguration detects security misconfigurations
-func matchSecurityMisconfiguration(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
-	for _, file := range pass.Files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.CallExpr:
-				// Check for debug endpoints
-				if isDebugEndpoint(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "security-misconfiguration",
-						Title:       "Debug Endpoint Exposed",
-						Description: "Debug endpoint detected in production code",
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Remove debug endpoints from production code or secure them properly",
-						References:  []string{"https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration"},
-					})
-				}
-
-				// Check for unsafe CORS settings
-				if isUnsafeCORSSetting(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "security-misconfiguration",
-						Title:       "Unsafe CORS Configuration",
-						Description: "Unsafe CORS configuration detected (wildcard origin or missing security headers)",
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Configure CORS with specific allowed origins and proper security headers",
-						References:  []string{"https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration"},
-					})
-				}
-
-				// Check for debug mode enabled
-				if isDebugModeEnabled(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "security-misconfiguration",
-						Title:       "Debug Mode Enabled",
-						Description: "Debug mode is enabled in production code",
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Disable debug mode in production environments",
-						References:  []string{"https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration"},
-					})
-				}
-
-				// Check for verbose error messages
-				if isVerboseErrorEnabled(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "security-misconfiguration",
-						Title:       "Verbose Error Messages",
-						Description: "Verbose error messages may expose sensitive information",
-						Severity:    result.SeverityMedium,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Use generic error messages in production to avoid information disclosure",
-						References:  []string{"https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration"},
-					})
-				}
-
-				// Check for insecure default settings
-				if isInsecureDefaultSetting(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "security-misconfiguration",
-						Title:       "Insecure Default Setting",
-						Description: "Insecure default configuration detected",
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Change default settings to secure values",
-						References:  []string{"https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration"},
-					})
-				}
-
-				// Check for missing security headers
-				if isMissingSecurityHeader(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "security-misconfiguration",
-						Title:       "Missing Security Header",
-						Description: "Security header is missing from HTTP response",
-						Severity:    result.SeverityMedium,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Add appropriate security headers (X-Frame-Options, X-Content-Type-Options, etc.)",
-						References:  []string{"https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration"},
-					})
-				}
-
-				// Check for exposed configuration
-				if isExposedConfiguration(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "security-misconfiguration",
-						Title:       "Exposed Configuration",
-						Description: "Sensitive configuration is exposed to users",
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Hide sensitive configuration from user responses",
-						References:  []string{"https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration"},
-					})
-				}
-
-				// Check for development tools in production
-				if isDevelopmentToolInProduction(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "security-misconfiguration",
-						Title:       "Development Tool in Production",
-						Description: "Development tool or debug utility detected in production code",
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Remove development tools and debug utilities from production code",
-						References:  []string{"https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration"},
-					})
+	registerRules(ctx, []ruleMeta{serverTimeoutMeta, debugEndpointMeta, corsMeta, filePermMeta}, func(r *reporter) {
+		info := r.pass.TypesInfo
+		defaultMux := false
+		var pprofImports []*ast.ImportSpec
+		for _, file := range r.pass.Files {
+			for _, imp := range file.Imports {
+				if strings.Trim(imp.Path.Value, `"`) == "net/http/pprof" && imp.Name != nil && imp.Name.Name == "_" {
+					pprofImports = append(pprofImports, imp)
 				}
 			}
-			return true
-		})
-	}
-}
-
-// isDebugEndpoint checks if call is a debug endpoint
-func isDebugEndpoint(call *ast.CallExpr) bool {
-	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(fun.Sel.Name)
-		
-		// Check for debug endpoint patterns
-		debugPatterns := []string{
-			"debug", "dev", "test", "admin", "internal", "management",
-			"health", "status", "info", "metrics", "profiling",
-		}
-
-		for _, pattern := range debugPatterns {
-			if strings.Contains(funcName, pattern) {
-				// Check if it's an HTTP handler
-				if sel, ok := fun.X.(*ast.SelectorExpr); ok {
-					if ident, ok := sel.X.(*ast.Ident); ok {
-						if ident.Name == "http" || ident.Name == "mux" || ident.Name == "router" {
-							return true
+			for _, unit := range funcUnits(file) {
+				later := literalFieldAssignments(info, unit.Body)
+				checkCORS(r, info, unit)
+				inspectShallow(unit.Body, func(n ast.Node) bool {
+					switch x := n.(type) {
+					case *ast.CallExpr:
+						fn := calleeFunc(info, x)
+						switch {
+						case isFunc(fn, "net/http", "ListenAndServe", "ListenAndServeTLS"):
+							r.report(serverTimeoutMeta, x, fmt.Sprintf("http.%s starts a server without read timeouts (Slowloris).", fn.Name()))
+							if h := len(x.Args) - 1; h >= 0 && isNil(info, x.Args[h]) {
+								defaultMux = true
+							}
+						case isMethod(fn, "net/http", "ServeMux", "Handle", "HandleFunc") || isFunc(fn, "net/http", "Handle", "HandleFunc"):
+							if len(x.Args) == 2 && pprofHandler(info, x.Args[1]) {
+								r.report(debugEndpointMeta, x, "Profiling handler from net/http/pprof is registered on an application router.")
+							}
+						default:
+							checkFileMode(r, info, x, fn)
 						}
-					}
-				}
-				
-				// Check for direct package usage
-				if ident, ok := fun.X.(*ast.Ident); ok {
-					if ident.Name == "debug" || ident.Name == "dev" || ident.Name == "admin" {
-						return true
-					}
-				}
-			}
-		}
-
-		// Check for specific debug function calls
-		if sel, ok := fun.X.(*ast.SelectorExpr); ok {
-			if ident, ok := sel.X.(*ast.Ident); ok {
-				if ident.Name == "debug" || ident.Name == "dev" {
-					debugFuncs := []string{"Handler", "Endpoint", "Route", "HandlerFunc"}
-					for _, funcName := range debugFuncs {
-						if fun.Sel.Name == funcName {
-							return true
-						}
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
-// isUnsafeCORSSetting checks if call is an unsafe CORS setting
-func isUnsafeCORSSetting(call *ast.CallExpr) bool {
-	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(fun.Sel.Name)
-		
-		// Check for CORS-related patterns
-		corsPatterns := []string{
-			"cors", "origin", "alloworigin", "allowcredentials",
-		}
-
-		for _, pattern := range corsPatterns {
-			if strings.Contains(funcName, pattern) {
-				// Check for wildcard origin
-				if len(call.Args) > 0 {
-					if lit, ok := call.Args[0].(*ast.BasicLit); ok {
-						if strings.Contains(lit.Value, "*") {
-							return true
-						}
-					}
-				}
-				
-				// Check for CORS package usage
-				if sel, ok := fun.X.(*ast.SelectorExpr); ok {
-					if ident, ok := sel.X.(*ast.Ident); ok {
-						if ident.Name == "cors" || ident.Name == "middleware" {
-							return true
-						}
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
-// isDebugModeEnabled checks if debug mode is enabled
-func isDebugModeEnabled(call *ast.CallExpr) bool {
-	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(fun.Sel.Name)
-		
-		// Check for debug mode patterns
-		debugModePatterns := []string{
-			"debug", "dev", "development", "verbose", "trace",
-		}
-
-		for _, pattern := range debugModePatterns {
-			if strings.Contains(funcName, pattern) {
-				// Check if it's setting debug mode to true
-				if len(call.Args) > 0 {
-					if lit, ok := call.Args[0].(*ast.BasicLit); ok {
-						if lit.Value == "true" || lit.Value == "1" {
-							return true
-						}
-					}
-				}
-				
-				// Check for debug package usage
-				if sel, ok := fun.X.(*ast.SelectorExpr); ok {
-					if ident, ok := sel.X.(*ast.Ident); ok {
-						if ident.Name == "debug" || ident.Name == "config" {
-							return true
-						}
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
-// isVerboseErrorEnabled checks if verbose error messages are enabled
-func isVerboseErrorEnabled(call *ast.CallExpr) bool {
-	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(fun.Sel.Name)
-		
-		// Check for verbose error patterns
-		verbosePatterns := []string{
-			"verbose", "detailed", "trace", "debug", "stack",
-		}
-
-		for _, pattern := range verbosePatterns {
-			if strings.Contains(funcName, pattern) {
-				// Check if it's enabling verbose errors
-				if len(call.Args) > 0 {
-					if lit, ok := call.Args[0].(*ast.BasicLit); ok {
-						if lit.Value == "true" || lit.Value == "1" {
-							return true
-						}
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
-// isInsecureDefaultSetting checks if insecure default settings are used
-func isInsecureDefaultSetting(call *ast.CallExpr) bool {
-	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(fun.Sel.Name)
-		
-		// Check for insecure default patterns
-		insecurePatterns := []string{
-			"default", "basic", "simple", "none", "empty",
-		}
-
-		for _, pattern := range insecurePatterns {
-			if strings.Contains(funcName, pattern) {
-				// Check for security-related settings
-				if sel, ok := fun.X.(*ast.SelectorExpr); ok {
-					if ident, ok := sel.X.(*ast.Ident); ok {
-						if ident.Name == "security" || ident.Name == "auth" || ident.Name == "config" {
-							return true
-						}
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
-// isMissingSecurityHeader checks if security headers are missing
-func isMissingSecurityHeader(call *ast.CallExpr) bool {
-	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(fun.Sel.Name)
-		
-		// Check for header-related patterns
-		headerPatterns := []string{
-			"header", "setheader", "addheader",
-		}
-
-		for _, pattern := range headerPatterns {
-			if strings.Contains(funcName, pattern) {
-				// Check if it's setting security headers
-				if len(call.Args) > 0 {
-					if lit, ok := call.Args[0].(*ast.BasicLit); ok {
-						headerName := strings.ToLower(lit.Value)
-						securityHeaders := []string{
-							"x-frame-options", "x-content-type-options", "x-xss-protection",
-							"strict-transport-security", "content-security-policy",
-						}
-						for _, securityHeader := range securityHeaders {
-							if strings.Contains(headerName, securityHeader) {
-								return false // Security header is present
+					case *ast.CompositeLit:
+						if typeIs(typeOf(info, x), "net/http", "Server") {
+							fields := literalFields(x)
+							for k, v := range later[x] {
+								fields[k] = v
+							}
+							if fields["ReadHeaderTimeout"] == nil && fields["ReadTimeout"] == nil {
+								r.report(serverTimeoutMeta, x, "http.Server has neither ReadHeaderTimeout nor ReadTimeout (Slowloris).")
+							}
+							if h, ok := fields["Handler"]; !ok || isNil(info, h) {
+								defaultMux = true
 							}
 						}
 					}
+					return true
+				})
+			}
+		}
+		if r.pass.Pkg.Name() == "main" && defaultMux {
+			for _, imp := range pprofImports {
+				r.report(debugEndpointMeta, imp, "net/http/pprof registers /debug/pprof on http.DefaultServeMux, which this program serves publicly.")
+			}
+		}
+	})
+}
+
+func literalFields(lit *ast.CompositeLit) map[string]ast.Expr {
+	fields := map[string]ast.Expr{}
+	for _, elt := range lit.Elts {
+		if kv, ok := elt.(*ast.KeyValueExpr); ok {
+			fields[exprName(kv.Key)] = kv.Value
+		}
+	}
+	return fields
+}
+
+func isNil(info *types.Info, e ast.Expr) bool {
+	tv, ok := info.Types[e]
+	return ok && tv.IsNil()
+}
+
+func pprofHandler(info *types.Info, e ast.Expr) bool {
+	if call, ok := e.(*ast.CallExpr); ok {
+		e = call.Fun
+	}
+	obj := objOf(info, e)
+	return obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == "net/http/pprof"
+}
+
+// checkFileMode reports permission arguments that grant group or world write access.
+func checkFileMode(r *reporter, info *types.Info, call *ast.CallExpr, fn *types.Func) {
+	idx := -1
+	switch {
+	case isFunc(fn, "os", "Chmod", "Mkdir", "MkdirAll"):
+		idx = 1
+	case isFunc(fn, "os", "WriteFile", "OpenFile"), isFunc(fn, "io/ioutil", "WriteFile"):
+		idx = 2
+	case isMethod(fn, "os", "File", "Chmod"):
+		idx = 0
+	}
+	if idx < 0 || idx >= len(call.Args) {
+		return
+	}
+	mode, ok := constInt(info, call.Args[idx])
+	if !ok || mode&0o022 == 0 {
+		return
+	}
+	r.reportWith(filePermMeta, call.Args[idx], fmt.Sprintf("Permission %#o makes the path writable by group or other users.", mode&0o7777), "", nil)
+}
+
+// checkCORS reports handlers that allow credentials together with a wildcard
+// or reflected, unvalidated Origin.
+func checkCORS(r *reporter, info *types.Info, unit funcUnit) {
+	var credentials ast.Node
+	var origin ast.Expr
+	var originNode ast.Node
+	inspectShallow(unit.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.CallExpr:
+			if !isMethod(calleeFunc(info, x), "net/http", "Header", "Set", "Add") || len(x.Args) != 2 {
+				return true
+			}
+			key, _ := constString(info, x.Args[0])
+			switch strings.ToLower(key) {
+			case "access-control-allow-credentials":
+				if v, _ := constString(info, x.Args[1]); strings.EqualFold(v, "true") {
+					credentials = x
+				}
+			case "access-control-allow-origin":
+				origin, originNode = x.Args[1], x
+			}
+		case *ast.CompositeLit:
+			t := typeOf(info, x)
+			if typeIs(t, "github.com/rs/cors", "Options") || typeIs(t, "github.com/gin-contrib/cors", "Config") {
+				f := literalFields(x)
+				creds, _ := constBool(info, f["AllowCredentials"])
+				all, _ := constBool(info, f["AllowAllOrigins"])
+				if creds && (all || wildcardList(info, f["AllowedOrigins"]) || wildcardList(info, f["AllowOrigins"])) {
+					r.report(corsMeta, x, "CORS configuration allows credentials for any origin.")
 				}
 			}
+		}
+		return true
+	})
+	if credentials == nil || origin == nil {
+		return
+	}
+	if v, ok := constString(info, origin); ok && v == "*" {
+		r.report(corsMeta, originNode, "Access-Control-Allow-Origin '*' is combined with Access-Control-Allow-Credentials: true.")
+		return
+	}
+	if reflectsOrigin(info, origin, unit.Body) {
+		r.report(corsMeta, originNode, "The request Origin is reflected without validation while credentials are allowed.")
+	}
+}
+
+func wildcardList(info *types.Info, e ast.Expr) bool {
+	lit, ok := e.(*ast.CompositeLit)
+	if !ok {
+		return false
+	}
+	for _, elt := range lit.Elts {
+		if s, ok := constString(info, elt); ok && s == "*" {
+			return true
 		}
 	}
 	return false
 }
 
-// isExposedConfiguration checks if sensitive configuration is exposed
-func isExposedConfiguration(call *ast.CallExpr) bool {
-	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(fun.Sel.Name)
-		
-		// Check for configuration exposure patterns
-		exposurePatterns := []string{
-			"config", "setting", "env", "secret", "key", "password",
-		}
-
-		for _, pattern := range exposurePatterns {
-			if strings.Contains(funcName, pattern) {
-				// Check if it's writing to response
-				if sel, ok := fun.X.(*ast.SelectorExpr); ok {
-					if ident, ok := sel.X.(*ast.Ident); ok {
-						if ident.Name == "w" || ident.Name == "response" {
-							return true
-						}
-					}
-				}
-			}
-		}
+func isOriginHeader(info *types.Info, e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok || !isMethod(calleeFunc(info, call), "net/http", "Header", "Get") || len(call.Args) != 1 {
+		return false
 	}
-	return false
+	s, _ := constString(info, call.Args[0])
+	return strings.EqualFold(s, "origin")
 }
 
-// isDevelopmentToolInProduction checks if development tools are used in production
-func isDevelopmentToolInProduction(call *ast.CallExpr) bool {
-	if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-		funcName := strings.ToLower(fun.Sel.Name)
-		
-		// Check for development tool patterns
-		devToolPatterns := []string{
-			"pprof", "trace", "debugger", "profiler", "monitor",
-			"hotreload", "livereload", "devserver", "development",
-		}
-
-		for _, pattern := range devToolPatterns {
-			if strings.Contains(funcName, pattern) {
-				// Check for development package usage
-				if sel, ok := fun.X.(*ast.SelectorExpr); ok {
-					if ident, ok := sel.X.(*ast.Ident); ok {
-						if ident.Name == "pprof" || ident.Name == "debug" || ident.Name == "dev" {
-							return true
-						}
+// reflectsOrigin reports whether e is the request Origin header, directly or
+// through a variable that is never compared or looked up before use.
+func reflectsOrigin(info *types.Info, e ast.Expr, body ast.Node) bool {
+	if isOriginHeader(info, e) {
+		return true
+	}
+	obj := objOf(info, e)
+	if obj == nil {
+		return false
+	}
+	fromHeader, checked := false, false
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			for i, lhs := range x.Lhs {
+				if objOf(info, lhs) == obj && i < len(x.Rhs) && isOriginHeader(info, x.Rhs[i]) {
+					fromHeader = true
+				}
+			}
+		case *ast.BinaryExpr:
+			if objOf(info, x.X) == obj || objOf(info, x.Y) == obj {
+				checked = true
+			}
+		case *ast.IndexExpr:
+			if objOf(info, x.Index) == obj {
+				checked = true
+			}
+		case *ast.CallExpr:
+			if !isMethod(calleeFunc(info, x), "net/http", "Header", "Set", "Add") {
+				for _, arg := range x.Args {
+					if objOf(info, arg) == obj {
+						checked = true
 					}
 				}
 			}
 		}
-	}
-	return false
-} 
+		return true
+	})
+	return fromHeader && !checked
+}
