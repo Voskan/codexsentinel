@@ -13,9 +13,9 @@ type ConfidenceScorer struct {
 
 // ConfidenceConfig holds configuration for confidence scoring
 type ConfidenceConfig struct {
-	EnableContextAnalysis   bool    `yaml:"enable_context_analysis"`
-	EnableValidationChecks  bool    `yaml:"enable_validation_checks"`
-	EnableSafePatterns      bool    `yaml:"enable_safe_patterns"`
+	EnableContextAnalysis  bool    `yaml:"enable_context_analysis"`
+	EnableValidationChecks bool    `yaml:"enable_validation_checks"`
+	EnableSafePatterns     bool    `yaml:"enable_safe_patterns"`
 	MinConfidence          float64 `yaml:"min_confidence"`
 	MaxFalsePositiveRate   float64 `yaml:"max_false_positive_rate"`
 }
@@ -232,4 +232,4 @@ func (cs *ConfidenceScorer) GetRecommendation(confidence float64, context *Conte
 	}
 
 	return strings.Join(recommendations, "; ")
-} 
+}

@@ -29,12 +29,12 @@ func NewContextAnalyzer() *ContextAnalyzer {
 // AnalyzeContext analyzes the context around a potential vulnerability
 func (ca *ContextAnalyzer) AnalyzeContext(node ast.Node, pass *analysis.Pass) *ContextInfo {
 	info := &ContextInfo{
-		HasValidation:    false,
-		HasSanitization:  false,
-		IsSafePattern:    false,
-		Confidence:       1.0,
-		ContextType:      "unknown",
-		Recommendation:   "",
+		HasValidation:   false,
+		HasSanitization: false,
+		IsSafePattern:   false,
+		Confidence:      1.0,
+		ContextType:     "unknown",
+		Recommendation:  "",
 	}
 
 	// Analyze the context around the node
@@ -108,19 +108,27 @@ func (ca *ContextAnalyzer) calculateConfidence(info *ContextInfo) {
 	}
 }
 
-// findContainingFunction finds the function that contains the given node
+// findContainingFunction finds the function declaration that contains node,
+// searching the file of the package that node belongs to.
 func (ca *ContextAnalyzer) findContainingFunction(node ast.Node, pass *analysis.Pass) *ast.FuncDecl {
-	var funcDecl *ast.FuncDecl
-	ast.Inspect(pass.Files[0], func(n ast.Node) bool {
-		if fd, ok := n.(*ast.FuncDecl); ok {
-			if fd.Pos() <= node.Pos() && node.Pos() <= fd.End() {
-				funcDecl = fd
-				return false
+	if node == nil || pass == nil || pass.Fset == nil {
+		return nil
+	}
+	tf := pass.Fset.File(node.Pos())
+	if tf == nil {
+		return nil
+	}
+	for _, file := range pass.Files {
+		if pass.Fset.File(file.Pos()) != tf {
+			continue
+		}
+		for _, decl := range file.Decls {
+			if fd, ok := decl.(*ast.FuncDecl); ok && fd.Pos() <= node.Pos() && node.Pos() <= fd.End() {
+				return fd
 			}
 		}
-		return true
-	})
-	return funcDecl
+	}
+	return nil
 }
 
 // isValidationFunction checks if a function call is a validation function
@@ -196,12 +204,12 @@ func (ca *ContextAnalyzer) isSafeFunctionCall(call *ast.CallExpr) bool {
 
 // ContextInfo holds information about the context of a potential vulnerability
 type ContextInfo struct {
-	HasValidation    bool    // Whether validation functions are present
-	HasSanitization  bool    // Whether sanitization functions are present
-	IsSafePattern    bool    // Whether the code follows safe patterns
-	Confidence       float64 // Confidence score (0.0 to 1.0)
-	ContextType      string  // Type of context (e.g., "validation", "sanitization")
-	Recommendation   string  // Recommendation for the finding
+	HasValidation   bool    // Whether validation functions are present
+	HasSanitization bool    // Whether sanitization functions are present
+	IsSafePattern   bool    // Whether the code follows safe patterns
+	Confidence      float64 // Confidence score (0.0 to 1.0)
+	ContextType     string  // Type of context (e.g., "validation", "sanitization")
+	Recommendation  string  // Recommendation for the finding
 }
 
 // ShouldSuppress determines if a finding should be suppressed based on context

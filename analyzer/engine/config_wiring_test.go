@@ -2,11 +2,13 @@ package engine
 
 import (
 	"context"
+	"go/token"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"github.com/Voskan/codexsentinel/config"
 )
 
@@ -40,7 +42,7 @@ func TestRuleConfiguration(t *testing.T) {
 func TestSeverityOverride(t *testing.T) {
 	cfg := config.DefaultConfig
 	cfg.Rules.SeverityOverrides = map[string]string{"high-complexity": "HIGH"}
-	got := configureIssues([]result.Issue{{ID: "high-complexity", Severity: result.SeverityMedium}}, &cfg)
+	got := postProcess(&workspace.Workspace{Fset: token.NewFileSet()}, &cfg, []result.Issue{{ID: "high-complexity", Severity: result.SeverityMedium}})
 	if len(got) != 1 || got[0].Severity != result.SeverityHigh {
 		t.Fatalf("override not applied: %+v", got)
 	}

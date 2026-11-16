@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"sync"
 
 	"github.com/Voskan/codexsentinel/analyzer"
@@ -129,20 +128,7 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 		}
 		issues = append(issues, found...)
 	}
-	issues = configureIssues(issues, cfg)
-	sort.SliceStable(issues, func(i, j int) bool {
-		a, b := issues[i], issues[j]
-		if a.Location.File != b.Location.File {
-			return a.Location.File < b.Location.File
-		}
-		if a.Location.Line != b.Location.Line {
-			return a.Location.Line < b.Location.Line
-		}
-		if a.Location.Column != b.Location.Column {
-			return a.Location.Column < b.Location.Column
-		}
-		return a.ID < b.ID
-	})
+	issues = postProcess(ws, cfg, issues)
 	return issues, nil
 }
 
@@ -174,26 +160,6 @@ func relativePath(root, file string) string {
 
 func ruleEnabled(id string, cfg *config.Config) bool {
 	return (len(cfg.Rules.Enabled) == 0 || matcher.New(cfg.Rules.Enabled).Match(id)) && !matcher.New(cfg.Rules.Disabled).Match(id)
-}
-
-func configureIssues(issues []result.Issue, cfg *config.Config) []result.Issue {
-	out := make([]result.Issue, 0, len(issues))
-	for _, issue := range issues {
-		if !ruleEnabled(issue.ID, cfg) {
-			continue
-		}
-		if severity, ok := cfg.Rules.SeverityOverrides[issue.ID]; ok {
-			issue.Severity = result.ParseSeverity(severity)
-		}
-		if issue.Confidence == 0 {
-			issue.Confidence = 1
-		}
-		if issue.Confidence < cfg.Suppression.MinConfidence {
-			continue
-		}
-		out = append(out, issue)
-	}
-	return out
 }
 
 // runDependencyAnalysis audits module dependencies for known vulnerabilities

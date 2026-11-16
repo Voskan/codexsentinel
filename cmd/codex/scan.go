@@ -16,7 +16,6 @@ import (
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/git"
-	"github.com/Voskan/codexsentinel/internal/ignore"
 	"github.com/Voskan/codexsentinel/internal/logx"
 	"github.com/Voskan/codexsentinel/report"
 	"github.com/Voskan/codexsentinel/report/formats"
@@ -43,6 +42,9 @@ func NewScanCmd() *cobra.Command {
 		Short: "Run static analysis on the target source code",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !cmd.Flags().Changed("ignore-file") {
+				ignoreFile = ""
+			}
 			return runScan(path, args, format, outPath, strict, ignoreFile, depsOnly, configFile, severity, fix)
 		},
 	}
@@ -51,7 +53,7 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Path to write the output report to")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Exit with code 1 if issues are found")
-	cmd.Flags().StringVar(&ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file")
+	cmd.Flags().StringVar(&ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file (default: suppression.ignore_file from the config, relative to the project root)")
 	cmd.Flags().BoolVar(&depsOnly, "deps", false, "Run dependency analysis only")
 	cmd.Flags().StringVar(&configFile, "config", "", "Path to a custom config file")
 	cmd.Flags().StringVar(&severity, "severity", "", "Filter issues by severity (low, medium, high, critical)")
@@ -201,38 +203,25 @@ func runDependencyAnalysis(ctx context.Context, targetPath string, cfg *config.C
 
 // runFullAnalysis performs the complete analysis workflow
 func runFullAnalysis(ctx context.Context, targetPath, ignoreFile string, cfg *config.Config, severity string, logger *zap.SugaredLogger) ([]result.Issue, error) {
-	// Load ignore rules if specified
-	ignoreManager := loadIgnoreManager(ignoreFile, logger)
+	if ignoreFile != "" {
+		abs, err := filepath.Abs(ignoreFile)
+		if err != nil {
+			return nil, fmt.Errorf("resolve ignore file: %w", err)
+		}
+		cfg.Suppression.IgnoreFile = abs
+		logger.Infof("Using ignore rules from: %s", abs)
+	}
 
 	// Load YAML rules
 	loadYAMLRules(cfg, logger)
 
-	// Run analysis
+	// Run analysis; suppressions are applied by the engine
 	results, err := engine.Run(ctx, targetPath, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("analysis failed: %w", err)
 	}
 
-	// Filter results
-	results = filterResults(results, ignoreManager, severity, logger)
-
-	return results, nil
-}
-
-// loadIgnoreManager loads ignore rules from file
-func loadIgnoreManager(ignoreFile string, logger *zap.SugaredLogger) *ignore.Manager {
-	if ignoreFile == "" {
-		return nil
-	}
-
-	ignoreManager := ignore.NewManager()
-	if err := ignoreManager.LoadFile(ignoreFile); err != nil {
-		logger.Warnf("Failed to load ignore file: %v", err)
-		return nil
-	}
-
-	logger.Infof("Loaded ignore rules from: %s", ignoreFile)
-	return ignoreManager
+	return filterResults(results, severity, logger), nil
 }
 
 // loadConfig loads configuration from file or default
@@ -288,25 +277,8 @@ func loadYAMLRules(cfg *config.Config, logger *zap.SugaredLogger) {
 	}
 }
 
-// filterResults filters results based on ignore rules and severity
-func filterResults(results []result.Issue, ignoreManager *ignore.Manager, severity string, logger *zap.SugaredLogger) []result.Issue {
-	// Filter out ignored issues
-	if ignoreManager != nil {
-		filteredResults := make([]result.Issue, 0)
-		ignoredCount := 0
-		for _, issue := range results {
-			if !ignoreManager.IsIgnored(issue.Location.File, issue.Location.Line, issue.ID) {
-				filteredResults = append(filteredResults, issue)
-			} else {
-				ignoredCount++
-			}
-		}
-		if ignoredCount > 0 {
-			logger.Infof("Ignored %d issues based on ignore rules", ignoredCount)
-		}
-		results = filteredResults
-	}
-
+// filterResults filters results by minimum severity
+func filterResults(results []result.Issue, severity string, logger *zap.SugaredLogger) []result.Issue {
 	// Filter by severity if specified
 	if severity != "" {
 		filteredResults := make([]result.Issue, 0)

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/internal/matcher"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
 )
@@ -188,21 +189,12 @@ func excluded(path string, cfg *config.Config) bool {
 		}
 	}
 	for _, pattern := range cfg.Scan.ExcludedPaths {
-		pattern = strings.Trim(filepath.ToSlash(pattern), "/")
-		if pattern == "" || (pattern == "vendor" && cfg.Scan.IncludeVendor) {
+		pattern = filepath.ToSlash(pattern)
+		if name := strings.Trim(pattern, "/"); name == "" || (name == "vendor" && cfg.Scan.IncludeVendor) {
 			continue
 		}
-		if !strings.Contains(pattern, "/") {
-			for _, part := range parts {
-				if match, _ := filepath.Match(pattern, part); match {
-					return true
-				}
-			}
-		}
-		for candidate := path; candidate != "."; candidate = filepath.ToSlash(filepath.Dir(candidate)) {
-			if match, _ := filepath.Match(pattern, candidate); match {
-				return true
-			}
+		if matcher.New([]string{pattern}).Match(path) {
+			return true
 		}
 	}
 	return false
