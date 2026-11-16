@@ -38,11 +38,13 @@ func analyzeDirectoryMetrics(filename string) ([]*result.Issue, error) {
 
 // getDirectoryPath returns the directory path for analysis
 func getDirectoryPath(filename string) string {
-	dir := filepath.Dir(filename)
 	if filename == "" {
-		dir = "."
+		return "."
 	}
-	return dir
+	if info, err := os.Stat(filename); err == nil && info.IsDir() {
+		return filename
+	}
+	return filepath.Dir(filename)
 }
 
 // findGoFiles finds all Go files in the directory

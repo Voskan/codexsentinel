@@ -3,7 +3,6 @@ package formats
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/Voskan/codexsentinel/report"
 )
@@ -164,7 +163,7 @@ func WriteSARIFReport(issues []report.Issue, path string, gitMeta *report.GitMet
 		return fmt.Errorf("failed to marshal SARIF report: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return writeOutput(path, data)
 }
 
 // severityToLevel converts internal severity into SARIF level.

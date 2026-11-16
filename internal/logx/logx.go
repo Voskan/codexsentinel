@@ -31,7 +31,7 @@ func Init(dev bool) error {
 		cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	}
 
-	cfg.OutputPaths = []string{"stdout"}
+	cfg.OutputPaths = []string{"stderr"}
 	cfg.ErrorOutputPaths = []string{"stderr"}
 
 	logger, err := cfg.Build()

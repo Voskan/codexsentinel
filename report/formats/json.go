@@ -3,7 +3,6 @@ package formats
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/Voskan/codexsentinel/report"
@@ -28,7 +27,7 @@ func WriteJSONReport(issues []report.Issue, path string, gitMeta *report.GitMeta
 		return fmt.Errorf("failed to marshal report to JSON: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := writeOutput(path, data); err != nil {
 		return fmt.Errorf("failed to write JSON report to file: %w", err)
 	}
 

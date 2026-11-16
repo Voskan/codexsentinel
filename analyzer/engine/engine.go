@@ -162,7 +162,7 @@ func runYAMLRules(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*resul
 			ruleIssues, err := rule.Engine(proj)
 			if err != nil {
 				// Log error but continue with other rules
-				fmt.Printf("Warning: YAML rule %s failed: %v\n", rule.ID, err)
+				fmt.Fprintf(os.Stderr, "Warning: YAML rule %s failed: %v\n", rule.ID, err)
 				continue
 			}
 
@@ -192,7 +192,7 @@ func runSSAAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 		builder, err := codessa.BuildSSA([]string{dir})
 		if err != nil {
 			// Log error but don't fail the entire analysis
-			fmt.Printf("Warning: SSA analysis skipped due to error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Warning: SSA analysis skipped due to error: %v\n", err)
 			return nil, nil
 		}
 		if len(builder.Packages) == 0 {
@@ -216,7 +216,7 @@ func runTaintAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*r
 		builder, err := codessa.BuildSSA([]string{dir})
 		if err != nil {
 			// Log error but don't fail the entire analysis
-			fmt.Printf("Warning: Taint analysis skipped due to error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Warning: Taint analysis skipped due to error: %v\n", err)
 			return nil, nil
 		}
 		if len(builder.Packages) == 0 {
@@ -282,7 +282,7 @@ func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) 
 	reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
 	if err != nil {
 		// Log error but don't fail the entire analysis
-		fmt.Printf("Warning: Dependency analysis skipped due to error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: Dependency analysis skipped due to error: %v\n", err)
 		return nil, nil
 	}
 
@@ -365,7 +365,7 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 	for _, file := range files {
 		issues, err := analyzeSingleFile(ctx, file, cfg)
 		if err != nil {
-			fmt.Printf("Warning: Failed to analyze %s: %v\n", file, err)
+			fmt.Fprintf(os.Stderr, "Warning: Failed to analyze %s: %v\n", file, err)
 			continue
 		}
 		allIssues = append(allIssues, issues...)
@@ -381,7 +381,7 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 		// Run dependency analysis
 		reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
 		if err != nil {
-			fmt.Printf("Warning: Dependency analysis failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Warning: Dependency analysis failed: %v\n", err)
 		} else {
 			// Convert dependency reports to issues
 			for _, report := range reports {
@@ -430,7 +430,7 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 	// Run metrics analysis for the entire project
 	metricsIssues, err := runMetricsAnalysis(ctx, &analyzer.AnalyzerContext{Filename: root})
 	if err != nil {
-		fmt.Printf("Warning: Metrics analysis failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: Metrics analysis failed: %v\n", err)
 	} else {
 		// Convert metrics issues to result.Issue
 		for _, issue := range metricsIssues {

@@ -32,6 +32,9 @@ type Issue struct {
 	Description string        `json:"description"`
 	Severity    SeverityLevel `json:"severity"`
 	File        string        `json:"file"`
+	Column      int           `json:"column,omitempty"`
+	Category    string        `json:"category"`
+	References  []string      `json:"references,omitempty"`
 	Line        int           `json:"line"`
 	Code        string        `json:"code"`
 	Package     string        `json:"package"`

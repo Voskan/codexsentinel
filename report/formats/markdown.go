@@ -2,7 +2,6 @@ package formats
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -15,7 +14,7 @@ func WriteMarkdownReport(issues []report.Issue, outPath string, gitMeta *report.
 
 	content := generateMarkdownContent(issues, summary, gitMeta)
 
-	return os.WriteFile(outPath, []byte(content), 0644)
+	return writeOutput(outPath, []byte(content))
 }
 
 // generateMarkdownContent creates the markdown content
@@ -140,7 +139,7 @@ func generateMarkdownContent(issues []report.Issue, summary report.Summary, gitM
 			content.WriteString("| File | Line | Rule | Description |\n")
 			content.WriteString("|------|------|------|-------------|\n")
 			for _, issue := range criticalIssues {
-				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n", 
+				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n",
 					issue.File, issue.Line, issue.RuleID, issue.Description))
 			}
 			content.WriteString("\n")
@@ -152,7 +151,7 @@ func generateMarkdownContent(issues []report.Issue, summary report.Summary, gitM
 			content.WriteString("| File | Line | Rule | Description |\n")
 			content.WriteString("|------|------|------|-------------|\n")
 			for _, issue := range highIssues {
-				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n", 
+				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n",
 					issue.File, issue.Line, issue.RuleID, issue.Description))
 			}
 			content.WriteString("\n")
@@ -164,7 +163,7 @@ func generateMarkdownContent(issues []report.Issue, summary report.Summary, gitM
 			content.WriteString("| File | Line | Rule | Description |\n")
 			content.WriteString("|------|------|------|-------------|\n")
 			for _, issue := range mediumIssues {
-				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n", 
+				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n",
 					issue.File, issue.Line, issue.RuleID, issue.Description))
 			}
 			content.WriteString("\n")
@@ -176,7 +175,7 @@ func generateMarkdownContent(issues []report.Issue, summary report.Summary, gitM
 			content.WriteString("| File | Line | Rule | Description |\n")
 			content.WriteString("|------|------|------|-------------|\n")
 			for _, issue := range lowIssues {
-				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n", 
+				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n",
 					issue.File, issue.Line, issue.RuleID, issue.Description))
 			}
 			content.WriteString("\n")
@@ -188,7 +187,7 @@ func generateMarkdownContent(issues []report.Issue, summary report.Summary, gitM
 			content.WriteString("| File | Line | Rule | Description |\n")
 			content.WriteString("|------|------|------|-------------|\n")
 			for _, issue := range infoIssues {
-				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n", 
+				content.WriteString(fmt.Sprintf("| `%s` | %d | `%s` | %s |\n",
 					issue.File, issue.Line, issue.RuleID, issue.Description))
 			}
 			content.WriteString("\n")
@@ -202,15 +201,15 @@ func generateMarkdownContent(issues []report.Issue, summary report.Summary, gitM
 			content.WriteString(fmt.Sprintf("**File:** `%s:%d`\n\n", issue.File, issue.Line))
 			content.WriteString(fmt.Sprintf("**Rule ID:** `%s`\n\n", issue.RuleID))
 			content.WriteString(fmt.Sprintf("**Description:** %s\n\n", issue.Description))
-			
+
 			if issue.Suggestion != "" {
 				content.WriteString(fmt.Sprintf("**💡 Suggestion:** %s\n\n", issue.Suggestion))
 			}
-			
+
 			if issue.Reference != "" {
 				content.WriteString(fmt.Sprintf("**📚 Reference:** [%s](%s)\n\n", issue.Reference, issue.Reference))
 			}
-			
+
 			content.WriteString("---\n\n")
 		}
 	} else {

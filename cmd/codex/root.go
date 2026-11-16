@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -19,6 +20,7 @@ func NewRootCmd(ctx context.Context) *cobra.Command {
 		SilenceErrors: true,
 	}
 
+	cmd.SetContext(ctx)
 	cmd.AddCommand(
 		NewScanCmd(),
 		NewVersionCmd(),
@@ -60,7 +62,10 @@ func normalizeFlags(flags *pflag.FlagSet) {
 func Execute(ctx context.Context) {
 	rootCmd := NewRootCmd(ctx)
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		var issuesErr *IssuesFoundError
+		if !errors.As(err, &issuesErr) {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
 		os.Exit(1)
 	}
 }

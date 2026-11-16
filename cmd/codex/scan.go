@@ -3,8 +3,10 @@ package codex
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go/token"
 
@@ -13,7 +15,6 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer/rules/yaml"
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
-	"github.com/Voskan/codexsentinel/internal/fsutil"
 	"github.com/Voskan/codexsentinel/internal/git"
 	"github.com/Voskan/codexsentinel/internal/ignore"
 	"github.com/Voskan/codexsentinel/internal/logx"
@@ -34,7 +35,6 @@ func NewScanCmd() *cobra.Command {
 		depsOnly   bool
 		configFile string
 		severity   string
-		exitCode   int
 	)
 
 	cmd := &cobra.Command{
@@ -42,7 +42,7 @@ func NewScanCmd() *cobra.Command {
 		Short: "Run static analysis on the target source code",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runScan(path, args, format, outPath, strict, ignoreFile, depsOnly, configFile, severity, exitCode)
+			return runScan(path, args, format, outPath, strict, ignoreFile, depsOnly, configFile, severity)
 		},
 	}
 
@@ -59,7 +59,7 @@ func NewScanCmd() *cobra.Command {
 }
 
 // runScan handles the main scan logic
-func runScan(path string, args []string, format, outPath string, strict bool, ignoreFile string, depsOnly bool, configFile, severity string, exitCode int) error {
+func runScan(path string, args []string, format, outPath string, strict bool, ignoreFile string, depsOnly bool, configFile, severity string) error {
 	ctx := context.Background()
 
 	// Use path from args if provided, otherwise use flag
@@ -67,6 +67,8 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 	if len(args) > 0 {
 		targetPath = args[0]
 	}
+
+	targetPath = normalizeTargetPath(targetPath)
 
 	// Initialize logger
 	if err := logx.Init(true); err != nil {
@@ -106,13 +108,16 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 	}
 
 	// Display result summary
-	printSummary(results)
+	summaryOutput := io.Writer(os.Stdout)
+	if outPath == "-" {
+		summaryOutput = os.Stderr
+	}
+	printSummary(summaryOutput, results)
 
 	// Exit code control
 	if strict && len(results) > 0 {
-		exitCode = 1
+		return &IssuesFoundError{Count: len(results)}
 	}
-	os.Exit(exitCode)
 	return nil
 }
 
@@ -211,23 +216,6 @@ func runDependencyAnalysis(targetPath string) ([]result.Issue, error) {
 
 // runFullAnalysis performs the complete analysis workflow
 func runFullAnalysis(ctx context.Context, targetPath, ignoreFile, configFile, severity string, logger *zap.SugaredLogger) ([]result.Issue, error) {
-	// Use fsutil for safe file walking
-	fileOpts := fsutil.WalkOptions{
-		RootDir:            targetPath,
-		AllowedExtensions:  []string{".go"},
-		MaxFileSizeBytes:   10 * 1024 * 1024, // 10MB limit
-		FollowSymlinks:     false,
-		IncludeHiddenFiles: false,
-		ExcludedPaths:      []string{"vendor", "node_modules", ".git"},
-	}
-
-	files, err := fsutil.Walk(fileOpts)
-	if err != nil {
-		logger.Warnf("Failed to walk files: %v", err)
-	} else {
-		logger.Infof("Found %d Go files to analyze", len(files))
-	}
-
 	// Load ignore rules if specified
 	ignoreManager := loadIgnoreManager(ignoreFile, logger)
 
@@ -358,17 +346,8 @@ func filterResults(results []result.Issue, ignoreManager *ignore.Manager, severi
 
 // generateReport creates and writes the analysis report
 func generateReport(results []result.Issue, format, outPath string, gitMetadata *report.GitMetadata, logger *zap.SugaredLogger) error {
-	// Determine output path
-	reportDir := "scan_reports"
-	if _, err := os.Stat(reportDir); os.IsNotExist(err) {
-		if err := os.Mkdir(reportDir, 0755); err != nil {
-			return fmt.Errorf("failed to create report directory: %w", err)
-		}
-	}
 	if outPath == "" {
-		outPath = filepath.Join(reportDir, defaultOutputPath(format))
-	} else {
-		outPath = filepath.Join(reportDir, filepath.Base(outPath))
+		outPath = filepath.Join("scan_reports", defaultOutputPath(format))
 	}
 
 	// Generate report
@@ -398,9 +377,13 @@ func defaultOutputPath(format string) string {
 
 // writeReport writes the analysis results in the requested format to the given path.
 func writeReport(results []result.Issue, format, outPath string, gitMetadata *report.GitMetadata) error {
-	dir := filepath.Dir(outPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
+	if outPath == "-" && format != "json" && format != "sarif" && format != "markdown" {
+		return fmt.Errorf("stdout output is not supported for format: %s", format)
+	}
+	if outPath != "-" {
+		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+			return fmt.Errorf("failed to create output directory: %w", err)
+		}
 	}
 
 	// Convert result.Issue to report.Issue
@@ -413,7 +396,14 @@ func writeReport(results []result.Issue, format, outPath string, gitMetadata *re
 			Severity:    report.SeverityLevel(issue.Severity.String()),
 			File:        issue.Location.File,
 			Line:        issue.Location.Line,
+			Column:      issue.Location.Column,
+			Category:    issue.Category,
+			Package:     issue.Location.PackagePath,
+			References:  issue.References,
 			Suggestion:  issue.Suggestion,
+		}
+		if len(issue.References) > 0 {
+			reportIssues[i].Reference = issue.References[0]
 		}
 	}
 
@@ -432,26 +422,41 @@ func writeReport(results []result.Issue, format, outPath string, gitMetadata *re
 }
 
 // printSummary prints a summary of the analysis results.
-func printSummary(results []result.Issue) {
-	fmt.Printf("Analysis complete. Found %d issues.\n", len(results))
+func printSummary(w io.Writer, results []result.Issue) {
+	fmt.Fprintf(w, "Analysis complete. Found %d issues.\n", len(results))
 
 	if len(results) > 0 {
-		fmt.Println("\nIssues found:")
+		fmt.Fprintln(w, "\nIssues found:")
 		for _, issue := range results {
-			fmt.Printf("  [%s] %s at %s:%d\n",
+			fmt.Fprintf(w, "  [%s] %s at %s:%d\n",
 				issue.Severity.String(),
 				issue.Title,
 				issue.Location.File,
 				issue.Location.Line)
 			if issue.Description != "" {
-				fmt.Printf("      Description: %s\n", issue.Description)
+				fmt.Fprintf(w, "      Description: %s\n", issue.Description)
 			}
 			if issue.Suggestion != "" {
-				fmt.Printf("      Remediation: %s\n", issue.Suggestion)
+				fmt.Fprintf(w, "      Remediation: %s\n", issue.Suggestion)
 			}
 			if len(issue.References) > 0 && issue.References[0] != "" {
-				fmt.Printf("      Reference:   %s\n", issue.References[0])
+				fmt.Fprintf(w, "      Reference:   %s\n", issue.References[0])
 			}
 		}
 	}
+}
+
+// IssuesFoundError indicates a completed scan that failed the severity policy.
+type IssuesFoundError struct{ Count int }
+
+func (e *IssuesFoundError) Error() string { return fmt.Sprintf("scan found %d issues", e.Count) }
+
+func normalizeTargetPath(path string) string {
+	if strings.HasSuffix(filepath.ToSlash(path), "/...") {
+		path = strings.TrimSuffix(filepath.ToSlash(path), "/...")
+		if path == "" {
+			return string(filepath.Separator)
+		}
+	}
+	return path
 }
