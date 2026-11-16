@@ -55,10 +55,11 @@ type Summary struct {
 	Low          int `json:"low"`
 	Info         int `json:"info"`
 	// Category counts for charts
-	Security int `json:"security"`
-	Style    int `json:"style"`
-	Metrics  int `json:"metrics"`
-	License  int `json:"license"`
+	Security    int `json:"security"`
+	Reliability int `json:"reliability"`
+	Style       int `json:"style"`
+	Metrics     int `json:"metrics"`
+	License     int `json:"license"`
 }
 
 // GitMetadata represents Git repository information.
@@ -103,6 +104,8 @@ func ComputeSummary(issues []Issue) Summary {
 		switch i.Category {
 		case "security":
 			s.Security++
+		case "reliability":
+			s.Reliability++
 		case "style":
 			s.Style++
 		case "metrics":

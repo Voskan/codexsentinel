@@ -25,6 +25,15 @@ type ruleMeta struct {
 	Suggestion string
 	References []string
 	Confidence float64
+	// Category defaults to "security".
+	Category string
+}
+
+func (m ruleMeta) category() string {
+	if m.Category == "" {
+		return "security"
+	}
+	return m.Category
 }
 
 // reporter emits issues for a single rule ID during one package pass.
@@ -43,7 +52,7 @@ func registerRules(ctx *analyzer.AnalyzerContext, metas []ruleMeta, run func(r *
 		ctx.RegisterRule(&analyzer.Rule{
 			ID:       id,
 			Title:    meta.Title,
-			Category: "security",
+			Category: meta.category(),
 			Severity: meta.Severity,
 			Summary:  meta.Suggestion,
 			Matcher: func(ac *analyzer.AnalyzerContext, pass *analysis.Pass) {
@@ -87,7 +96,7 @@ func (r *reporter) reportWith(meta ruleMeta, node ast.Node, desc string, severit
 		CWE:         meta.CWE,
 		OWASP:       meta.OWASP,
 		Location:    loc,
-		Category:    "security",
+		Category:    meta.category(),
 		Suggestion:  meta.Suggestion,
 		References:  meta.References,
 		Fix:         fix,

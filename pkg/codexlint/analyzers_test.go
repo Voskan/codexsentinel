@@ -59,7 +59,7 @@ func TestSQLInjectionAnalyzer(t *testing.T) {
 
 func TestRuleSelection(t *testing.T) {
 	cfg := config.NewDefaultConfig()
-	cfg.Rules.Enabled = []string{"sql-*"}
+	cfg.Rules.Enabled = []string{"sql-inj*"}
 	if got := codexlint.Analyzers(&cfg); len(got) != 1 || got[0].Name != "codex_sql_injection" {
 		t.Fatalf("selected analyzers: %v", got)
 	}

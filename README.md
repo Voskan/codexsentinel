@@ -217,6 +217,21 @@ recognized and look-alike local functions are not. The listed severity is the
 default; some rules lower it for weaker evidence. For example, `ssrf` reports
 a request whose URL is not built from a fixed host as Low.
 
+### Reliability rules
+
+These rules report resources and goroutines that are never released. Their
+findings use the `reliability` category.
+
+| Rule ID | Severity | CWE | Reported when |
+|---|---|---|---|
+| `tx-network-io` | High | CWE-400 | A database transaction is open while the code, directly or through called functions, makes an HTTP, gRPC or network call or sleeps |
+| `lock-blocking-io` | Medium | CWE-833 | A `sync.Mutex` or `sync.RWMutex` is held across such a call |
+| `sql-tx-missing-rollback` | High | CWE-404 | A transaction has no deferred `Rollback` and a return after `Begin` neither commits nor rolls back |
+| `http-body-unclosed` | High | CWE-404 | A response body is neither closed nor handed to other code |
+| `sql-rows-unclosed` | High | CWE-404 | Rows from `Query` are neither closed nor handed to other code |
+| `defer-in-loop` | Medium | CWE-400 | `defer` runs in a loop body of the same function |
+| `goroutine-channel-leak` | Medium | CWE-400 | A goroutine sends on an unbuffered channel that its caller can stop reading after cancellation or an early return |
+
 ### Taint analysis
 
 The taint engine reports `sql-injection`, `command-injection`,

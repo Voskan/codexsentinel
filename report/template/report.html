@@ -433,6 +433,18 @@
                         <span class="metrics-value">{{.Summary.Security}}</span>
                     </div>
                     <div class="metrics-item">
+                        <span class="metrics-label">Reliability</span>
+                        <span class="metrics-value">{{.Summary.Reliability}}</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Architecture</span>
+                        <span class="metrics-value">{{.Summary.Architecture}}</span>
+                    </div>
+                    <div class="metrics-item">
+                        <span class="metrics-label">Supply chain</span>
+                        <span class="metrics-value">{{.Summary.SupplyChain}}</span>
+                    </div>
+                    <div class="metrics-item">
                         <span class="metrics-label">Metrics</span>
                         <span class="metrics-value">{{.Summary.Metrics}}</span>
                     </div>
@@ -603,12 +615,15 @@
         };
         
         const categoryData = {
-            labels: ['Security', 'Style', 'Metrics', 'License'],
+            labels: ['Security', 'Reliability', 'Architecture', 'Supply chain', 'Style', 'Metrics', 'License'],
             datasets: [{
                 label: 'Issues by Category',
-                data: [{{.Summary.Security}}, {{.Summary.Style}}, {{.Summary.Metrics}}, {{.Summary.License}}],
+                data: [{{.Summary.Security}}, {{.Summary.Reliability}}, {{.Summary.Architecture}}, {{.Summary.SupplyChain}}, {{.Summary.Style}}, {{.Summary.Metrics}}, {{.Summary.License}}],
                 backgroundColor: [
                     '#e74c3c',
+                    '#8e44ad',
+                    '#16a085',
+                    '#d35400',
                     '#3498db',
                     '#f39c12',
                     '#27ae60'

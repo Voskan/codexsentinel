@@ -11,6 +11,7 @@ import (
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/cache"
+	"github.com/Voskan/codexsentinel/analyzer/critsec"
 	"github.com/Voskan/codexsentinel/analyzer/flow"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules"
@@ -166,8 +167,9 @@ func runWorkspaceAnalyses(ctx context.Context, ws *workspace.Workspace, cfg *con
 	needReachability := cfg.Dependencies.Enable && cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability
 	capsLock := capabilityLockPath(ws, cfg)
 	needDeadCode := cfg.Metrics.Enable && cfg.Metrics.EnableDeadCode
+	needCritsec := ruleEnabled(critsec.TxNetworkIO, cfg) || ruleEnabled(critsec.LockBlockingIO, cfg)
 	var bundle *codessa.GraphBundle
-	if (cfg.Taint.Enable || needReachability || needDeadCode || capsLock != "") && len(ws.Packages) > 0 {
+	if (cfg.Taint.Enable || needReachability || needDeadCode || needCritsec || capsLock != "") && len(ws.Packages) > 0 {
 		var err error
 		if bundle, err = codessa.BuildFromWorkspace(ws); err != nil {
 			return nil, fmt.Errorf("build SSA: %w", err)
@@ -191,6 +193,9 @@ func runWorkspaceAnalyses(ctx context.Context, ws *workspace.Workspace, cfg *con
 		if err := add(runDependencyAnalysis(ctx, ws, cfg, depBundle)); err != nil {
 			return nil, err
 		}
+	}
+	if needCritsec && bundle != nil {
+		issues = append(issues, critsec.Analyze(ws, bundle, func(id string) bool { return ruleEnabled(id, cfg) })...)
 	}
 	if cfg.Architecture.Enable {
 		issues = append(issues, arch.RunAll(ws, bundle, cfg.Architecture)...)

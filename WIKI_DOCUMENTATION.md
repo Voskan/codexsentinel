@@ -10,6 +10,7 @@ key, suppression mechanism and report format. For a first run, start with the
 - [How a scan works](#how-a-scan-works)
 - [Analysis cache](#analysis-cache)
 - [Security rules](#security-rules)
+- [Reliability rules](#reliability-rules)
 - [Taint analysis](#taint-analysis)
 - [Dependency analysis](#dependency-analysis)
 - [Capability lock file](#capability-lock-file)
@@ -148,6 +149,40 @@ A type that controls its own log representation is not reported:
 - `zerolog.LogObjectMarshaler`
 
 Implementing one of these is the recommended fix.
+
+## Reliability rules
+
+Reliability findings use the `reliability` category and are counted
+separately in report summaries.
+
+### Transactions and locks across blocking calls
+
+`tx-network-io` and `lock-blocking-io` follow the call graph from the code
+between the start and the end of a critical section:
+
+- A transaction starts at `database/sql` `Begin`/`BeginTx`, `sqlx`
+  `Beginx`/`BeginTxx`/`MustBegin`, `pgx` `Begin`/`BeginTx` or gorm `Begin`, and
+  ends at `Commit` or `Rollback`. The callbacks of gorm `Transaction` and pgx
+  `BeginFunc` are critical sections as a whole.
+- A lock starts at `Lock`/`RLock` on a `sync.Mutex` or `sync.RWMutex` and ends
+  at the matching non-deferred `Unlock`/`RUnlock`. A deferred unlock keeps the
+  section open until the function returns.
+
+Blocking calls are outbound HTTP requests (`net/http` functions, `Client`
+methods and `RoundTrip`), gRPC `Invoke`/`NewStream`, `net` dials, `net/smtp`
+and `time.Sleep`. Calls are followed through up to eight project functions,
+including interface calls resolved by the call graph, and the finding shows
+the chain. Calls started with `go` are not part of the section.
+
+### Unreleased resources
+
+| Rule | Behavior |
+|---|---|
+| `sql-tx-missing-rollback` | Reports a transaction without a deferred `Rollback` (directly or in a deferred function) when a return after `Begin` neither calls `Commit`/`Rollback` nor follows such a call in an enclosing block. The return inside the error check of `Begin` is ignored. A transaction that is returned, passed to a function or stored is not reported. |
+| `http-body-unclosed` | Reports a response from `http.Get`, `Head`, `Post`, `PostForm` or `Client` methods whose body is never closed, including a response discarded with `_`. Passing `resp.Body` to standard library readers such as `io.ReadAll` does not count as closing it; returning the response or passing it to project code does. |
+| `sql-rows-unclosed` | The same check for rows from `Query`/`QueryContext` of `database/sql`, `sqlx` and `pgx`. `QueryRow` is not reported. |
+| `defer-in-loop` | Reports `defer` in a `for` or `range` body when both belong to the same function. Running the body in a function literal, which is the usual fix, is not reported. |
+| `goroutine-channel-leak` | In a function with a `context.Context` or `*http.Request` parameter, reports a goroutine that sends on an unbuffered channel outside a `select` when the function receives from that channel in a `select` with other cases or can return before receiving. Buffered channels and sends inside a `select` are not reported. |
 
 ## Taint analysis
 

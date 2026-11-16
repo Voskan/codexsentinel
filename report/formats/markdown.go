@@ -101,8 +101,8 @@ func writeSummarySection(b *strings.Builder, summary report.Summary) {
 	}
 	fmt.Fprintf(b, "| **Total** | **%d** | **100.0%%** |\n\n", summary.Total)
 	b.WriteString("| Category | Count |\n|----------|-------|\n")
-	fmt.Fprintf(b, "| 🔒 Security | %d |\n| 🎨 Style | %d |\n| 📊 Metrics | %d |\n| 📄 License | %d |\n\n",
-		summary.Security, summary.Style, summary.Metrics, summary.License)
+	fmt.Fprintf(b, "| 🔒 Security | %d |\n| 🛡️ Reliability | %d |\n| 🏗️ Architecture | %d |\n| 📦 Supply chain | %d |\n| 🎨 Style | %d |\n| 📊 Metrics | %d |\n| 📄 License | %d |\n\n",
+		summary.Security, summary.Reliability, summary.Architecture, summary.SupplyChain, summary.Style, summary.Metrics, summary.License)
 }
 
 func writeIssueTables(b *strings.Builder, issues []report.Issue) {

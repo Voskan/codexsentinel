@@ -25,6 +25,7 @@ func RegisterAll(ctx *analyzer.AnalyzerContext) {
 		RegisterWebSocketSecurityRule,
 		RegisterHardcodedSecretRule,
 		RegisterGRPCSecurityRules,
+		RegisterResourceLeakRules,
 	} {
 		register(ctx)
 	}
