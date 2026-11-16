@@ -663,10 +663,10 @@ go mod download
 go test ./...
 
 # Build the binary
-go build -o codex ./cmd/codex-cli
+go build -o codex-cli ./cmd/codex-cli
 
 # Run analysis on the project itself
-./codex scan .
+./codex-cli scan .
 ```
 
 ### Adding New Rules

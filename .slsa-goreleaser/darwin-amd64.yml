@@ -1,0 +1,15 @@
+# SLSA Go builder configuration for the darwin/amd64 release binary.
+version: 1
+env:
+  - CGO_ENABLED=0
+flags:
+  - -trimpath
+goos: darwin
+goarch: amd64
+main: ./cmd/codex-cli
+binary: codex-cli-{{ .Os }}-{{ .Arch }}
+ldflags:
+  - "-s -w"
+  - "-X github.com/Voskan/codexsentinel/internal/version.Version={{ .Env.VERSION }}"
+  - "-X github.com/Voskan/codexsentinel/internal/version.Commit={{ .Env.COMMIT }}"
+  - "-X github.com/Voskan/codexsentinel/internal/version.BuildDate={{ .Env.BUILD_DATE }}"
