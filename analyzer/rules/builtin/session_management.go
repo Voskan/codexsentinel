@@ -29,7 +29,7 @@ func RegisterSessionManagementRule(ctx *analyzer.AnalyzerContext) {
 		info := r.pass.TypesInfo
 		for _, file := range r.pass.Files {
 			for _, unit := range funcUnits(file) {
-				later := cookieFieldAssignments(info, unit.Body)
+				later := literalFieldAssignments(info, unit.Body)
 				inspectShallow(unit.Body, func(n ast.Node) bool {
 					switch x := n.(type) {
 					case *ast.CompositeLit:
@@ -53,9 +53,9 @@ type cookieAttrs struct {
 	sameSite         string
 }
 
-// cookieFieldAssignments records cookie attributes set after construction,
+// literalFieldAssignments records struct fields set after construction,
 // keyed by the composite literal assigned to the variable.
-func cookieFieldAssignments(info *types.Info, body ast.Node) map[*ast.CompositeLit]map[string]ast.Expr {
+func literalFieldAssignments(info *types.Info, body ast.Node) map[*ast.CompositeLit]map[string]ast.Expr {
 	vars := map[types.Object]*ast.CompositeLit{}
 	out := map[*ast.CompositeLit]map[string]ast.Expr{}
 	ast.Inspect(body, func(n ast.Node) bool {
