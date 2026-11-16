@@ -217,42 +217,5 @@ func runCapabilityCheck(ws *workspace.Workspace, bundle *codessa.GraphBundle, lo
 
 // registerBuiltinRules registers all built-in security rules.
 func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
-	// Register command execution rule
-	builtin.RegisterCommandExecRule(ctx)
-	// Register SQL injection rule
-	builtin.RegisterSQLInjectionRule(ctx)
-	// Register XSS rule
-	builtin.RegisterXSSRule(ctx)
-	// Register access control rule
-	builtin.RegisterAccessControlRule(ctx)
-	// Register insecure design rule
-	builtin.RegisterInsecureDesignRule(ctx)
-	// Register data integrity rule
-	builtin.RegisterDataIntegrityRule(ctx)
-	// Register logging monitoring rule
-	builtin.RegisterLoggingMonitoringRule(ctx)
-	// Register SSRF rule
-	builtin.RegisterSSRFRule(ctx)
-	// Register CSRF rule
-	builtin.RegisterCSRFRule(ctx)
-	// Register Path Traversal rule
-	builtin.RegisterPathTraversalRule(ctx)
-	// Register Crypto Weak Algorithm rule
-	builtin.RegisterCryptoWeakRule(ctx)
-	// Register Security Misconfiguration rule
-	builtin.RegisterSecurityMisconfigRule(ctx)
-	// Register Authentication Bypass rule
-	builtin.RegisterAuthBypassRule(ctx)
-	// Register Session Management rule
-	builtin.RegisterSessionManagementRule(ctx)
-	// Register API Security rule
-	builtin.RegisterAPISecurityRule(ctx)
-	// Register GraphQL Security rule
-	builtin.RegisterGraphQLSecurityRule(ctx)
-	// Register JWT Security rule
-	builtin.RegisterJWTSecurityRule(ctx)
-	// Register WebSocket Security rule
-	builtin.RegisterWebSocketSecurityRule(ctx)
-	// Register hardcoded secret rule
-	builtin.RegisterHardcodedSecretRule(ctx)
+	builtin.RegisterAll(ctx)
 }
