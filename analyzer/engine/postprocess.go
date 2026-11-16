@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/Voskan/codexsentinel/analyzer"
+	"github.com/Voskan/codexsentinel/analyzer/baseline"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"github.com/Voskan/codexsentinel/config"
@@ -15,11 +16,12 @@ import (
 )
 
 // postProcess applies rule configuration and suppressions to the raw findings,
-// removes duplicates and orders the result deterministically.
+// removes duplicates, fingerprints the findings and orders them deterministically.
 func postProcess(ws *workspace.Workspace, cfg *config.Config, issues []result.Issue) []result.Issue {
+	files := workspaceFiles(ws)
 	var inline *analyzer.InlineIgnores
 	if cfg.Suppression.EnableInlineIgnore {
-		inline = analyzer.CollectInlineIgnores(ws.Fset, workspaceFiles(ws), ws.RootDir)
+		inline = analyzer.CollectInlineIgnores(ws.Fset, files, ws.RootDir)
 	}
 	manager := loadIgnoreFile(ws.RootDir, cfg.Suppression.IgnoreFile)
 
@@ -50,6 +52,7 @@ func postProcess(ws *workspace.Workspace, cfg *config.Config, issues []result.Is
 		out = append(out, inline.MissingReasons()...)
 	}
 	out = dedupIssues(out)
+	baseline.Assign(ws.RootDir, ws.Fset, files, out)
 	sortIssues(out)
 	return out
 }

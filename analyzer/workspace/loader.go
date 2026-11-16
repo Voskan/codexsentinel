@@ -129,6 +129,28 @@ func Load(ctx context.Context, targetPath string, cfg *config.Config) (*Workspac
 	return ws, nil
 }
 
+// ProjectRoot returns the directory that findings of an analysis of target
+// are reported relative to: the module root, or the target directory when it
+// is not inside a module.
+func ProjectRoot(target string) (string, error) {
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	stat, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	dir := abs
+	if !stat.IsDir() {
+		dir = filepath.Dir(abs)
+	}
+	if mod := findGoMod(dir); mod != "" {
+		return filepath.Dir(mod), nil
+	}
+	return dir, nil
+}
+
 func findGoMod(dir string) string {
 	for {
 		path := filepath.Join(dir, "go.mod")

@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
+	"github.com/Voskan/codexsentinel/analyzer/baseline"
 	"github.com/Voskan/codexsentinel/analyzer/engine"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules/yaml"
@@ -25,17 +27,7 @@ import (
 
 // NewScanCmd returns the `scan` command that analyzes the target source code.
 func NewScanCmd() *cobra.Command {
-	var (
-		path       string
-		format     string
-		outPath    string
-		strict     bool
-		ignoreFile string
-		depsOnly   bool
-		configFile string
-		severity   string
-		fix        bool
-	)
+	var opts scanOptions
 
 	cmd := &cobra.Command{
 		Use:   "scan [path]",
@@ -43,36 +35,52 @@ func NewScanCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !cmd.Flags().Changed("ignore-file") {
-				ignoreFile = ""
+				opts.ignoreFile = ""
 			}
-			return runScan(path, args, format, outPath, strict, ignoreFile, depsOnly, configFile, severity, fix)
+			if len(args) > 0 {
+				opts.path = args[0]
+			}
+			return runScan(cmd.Context(), opts)
 		},
 	}
 
-	cmd.Flags().StringVarP(&path, "path", "p", ".", "Target directory or file to scan")
-	cmd.Flags().StringVarP(&format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json")
-	cmd.Flags().StringVarP(&outPath, "out", "o", "", "Path to write the output report to")
-	cmd.Flags().BoolVar(&strict, "strict", false, "Exit with code 1 if issues are found")
-	cmd.Flags().StringVar(&ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file (default: suppression.ignore_file from the config, relative to the project root)")
-	cmd.Flags().BoolVar(&depsOnly, "deps", false, "Run dependency analysis only")
-	cmd.Flags().StringVar(&configFile, "config", "", "Path to a custom config file")
-	cmd.Flags().StringVar(&severity, "severity", "", "Filter issues by severity (low, medium, high, critical)")
-	cmd.Flags().BoolVar(&fix, "fix", false, "Apply suggested fixes to the source files")
+	cmd.Flags().StringVarP(&opts.path, "path", "p", ".", "Target directory or file to scan")
+	cmd.Flags().StringVarP(&opts.format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json")
+	cmd.Flags().StringVarP(&opts.outPath, "out", "o", "", "Path to write the output report to")
+	cmd.Flags().BoolVar(&opts.strict, "strict", false, "Exit with code 1 if issues are found")
+	cmd.Flags().StringVar(&opts.ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file (default: suppression.ignore_file from the config, relative to the project root)")
+	cmd.Flags().BoolVar(&opts.depsOnly, "deps", false, "Run dependency analysis only")
+	cmd.Flags().StringVar(&opts.configFile, "config", "", "Path to a custom config file")
+	cmd.Flags().StringVar(&opts.severity, "severity", "", "Filter issues by severity (low, medium, high, critical)")
+	cmd.Flags().BoolVar(&opts.fix, "fix", false, "Apply suggested fixes to the source files")
+	cmd.Flags().StringVar(&opts.baseline, "baseline", "", "Report only findings that are not recorded in this baseline file")
+	cmd.Flags().StringVar(&opts.diffRef, "diff", "", "Report only findings on lines changed since this git reference (e.g. origin/main)")
 
 	return cmd
 }
 
+// scanOptions holds the flags of the scan command.
+type scanOptions struct {
+	path       string
+	format     string
+	outPath    string
+	strict     bool
+	ignoreFile string
+	depsOnly   bool
+	configFile string
+	severity   string
+	fix        bool
+	baseline   string
+	diffRef    string
+}
+
 // runScan handles the main scan logic
-func runScan(path string, args []string, format, outPath string, strict bool, ignoreFile string, depsOnly bool, configFile, severity string, fix bool) error {
-	ctx := context.Background()
-
-	// Use path from args if provided, otherwise use flag
-	targetPath := path
-	if len(args) > 0 {
-		targetPath = args[0]
+func runScan(ctx context.Context, opts scanOptions) error {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-
-	targetPath = normalizeTargetPath(targetPath)
+	targetPath := normalizeTargetPath(opts.path)
+	format, outPath, strict, severity := opts.format, opts.outPath, opts.strict, opts.severity
 
 	// Initialize logger
 	if err := logx.Init(true); err != nil {
@@ -88,7 +96,7 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 
 	var results []result.Issue
 	var err error
-	cfg, err := loadConfig(configFile, logger)
+	cfg, err := loadConfig(opts.configFile, logger)
 	if err != nil {
 		return err
 	}
@@ -96,7 +104,7 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 		outPath = filepath.Join(cfg.Report.OutputDir, defaultOutputPath(format))
 	}
 
-	if depsOnly {
+	if opts.depsOnly {
 		// Run only dependency analysis
 		logger.Infof("Running dependency analysis only")
 		results, err = runDependencyAnalysis(ctx, targetPath, cfg, logger)
@@ -105,15 +113,18 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 		}
 	} else {
 		// Run full analysis
-		results, err = runFullAnalysis(ctx, targetPath, ignoreFile, cfg, severity, logger)
+		results, err = runFullAnalysis(ctx, targetPath, opts.ignoreFile, cfg, severity, logger)
 		if err != nil {
 			return fmt.Errorf("analysis failed: %w", err)
 		}
 	}
+	if results, err = applyBaselineAndDiff(ctx, targetPath, opts, results, logger); err != nil {
+		return err
+	}
 
 	logger.Infof("Analysis completed, found %d issues", len(results))
 
-	if fix {
+	if opts.fix {
 		changed, err := yaml.ApplyFixes(results)
 		for _, file := range changed {
 			logger.Infof("Applied fixes to %s", file)
@@ -140,6 +151,57 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 		return &IssuesFoundError{Count: count}
 	}
 	return nil
+}
+
+// applyBaselineAndDiff removes findings recorded in the baseline file and,
+// in diff mode, findings outside the lines changed since the git reference.
+// The analysis itself always covers the whole project.
+func applyBaselineAndDiff(ctx context.Context, targetPath string, opts scanOptions, results []result.Issue, logger *zap.SugaredLogger) ([]result.Issue, error) {
+	if opts.baseline != "" {
+		known, err := baseline.Load(opts.baseline)
+		if err != nil {
+			return nil, err
+		}
+		var removed int
+		results, removed = known.Filter(results)
+		logger.Infof("Baseline %s suppressed %d known issues", opts.baseline, removed)
+	}
+	if opts.diffRef != "" {
+		root, err := workspace.ProjectRoot(targetPath)
+		if err != nil {
+			return nil, err
+		}
+		changed, err := git.Diff(ctx, root, opts.diffRef)
+		if err != nil {
+			return nil, fmt.Errorf("diff mode: %w", err)
+		}
+		results = filterByDiff(results, changed)
+		logger.Infof("Diff against %s: %d issues on changed lines", opts.diffRef, len(results))
+	}
+	return results, nil
+}
+
+// filterByDiff keeps findings on changed lines. Module-level findings are kept
+// when go.mod or go.sum changed; findings without a line when their file changed.
+func filterByDiff(results []result.Issue, changed git.ChangedLines) []result.Issue {
+	out := make([]result.Issue, 0, len(results))
+	for _, issue := range results {
+		file := filepath.ToSlash(issue.Location.File)
+		keep := false
+		switch {
+		case filepath.Base(file) == "go.mod" || filepath.Base(file) == "go.sum":
+			dir := filepath.ToSlash(filepath.Dir(file))
+			keep = changed.Touched(file) || changed.Touched(path.Join(dir, "go.mod")) || changed.Touched(path.Join(dir, "go.sum"))
+		case issue.Location.Line <= 0:
+			keep = changed.Touched(file)
+		default:
+			keep = changed.Contains(file, issue.Location.Line)
+		}
+		if keep {
+			out = append(out, issue)
+		}
+	}
+	return out
 }
 
 // getGitMetadata retrieves and logs Git metadata

@@ -137,7 +137,7 @@ func BuildSARIF(issues []report.Issue, gitMeta *report.GitMetadata) ([]byte, err
 			res.Fixes = []sarifFix{toSARIFFix(i.Fix)}
 		}
 		if i.Fingerprint != "" {
-			res.PartialFingerprints = map[string]string{"codexsentinel/v1": i.Fingerprint}
+			res.PartialFingerprints = map[string]string{"primaryLocationLineHash": i.Fingerprint, "codexsentinel/v1": i.Fingerprint}
 		}
 		props := map[string]any{}
 		if i.Confidence > 0 {
