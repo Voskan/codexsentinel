@@ -14,6 +14,7 @@ key, suppression mechanism and report format. For a first run, start with the
 - [Taint analysis](#taint-analysis)
 - [Dependency analysis](#dependency-analysis)
 - [Capability lock file](#capability-lock-file)
+- [SBOM and VEX](#sbom-and-vex)
 - [Architecture analysis](#architecture-analysis)
 - [Metrics](#metrics)
 - [YAML rules](#yaml-rules)
@@ -33,6 +34,7 @@ key, suppression mechanism and report format. For a first run, start with the
 | `codex-cli caps verify [path] --lockfile FILE` | Exit with code 1 when a dependency gained capabilities |
 | `codex-cli cache status` | Print the cache directory, the number of entries and their size |
 | `codex-cli cache clean` | Remove every cache entry |
+| `codex-cli sbom [path]` | Write a CycloneDX 1.6 or SPDX 2.3 SBOM, optionally with VEX data (see [SBOM and VEX](#sbom-and-vex)) |
 | `codex-cli mark FILE[:LINE] --rule ID --reason TEXT` | Add an entry to the ignore file |
 | `codex-cli version` | Print version, commit, build date and Go version |
 
@@ -333,6 +335,44 @@ lock file exists, `scan` reports the same escalations as
 turned off with `dependencies.check_capabilities: false`. An escalation is Critical
 when the module gains exec, cgo or plugin access, or when it gains
 environment or network access and now has both. Otherwise it is High.
+
+## SBOM and VEX
+
+`codex-cli sbom [path]` describes the module and its dependencies.
+
+| Flag | Meaning |
+| --- | --- |
+| `--format` | `cyclonedx` (default, CycloneDX 1.6 JSON) or `spdx` (SPDX 2.3 JSON) |
+| `--out` | Output file; `-` (default) writes to stdout, with messages on stderr only |
+| `--vex` | Look up vulnerabilities (OSV, Go vulnerability database, GitHub advisories) and add them with a reachability-based status |
+| `--vex-out FILE` | Also write the statements as an OpenVEX v0.2.0 document; implies `--vex` |
+| `--no-caps` | Leave out dependency capabilities |
+| `--offline` | Do not contact vulnerability databases; cannot be combined with `--vex` |
+| `--config FILE` | Configuration used to load the module |
+
+Each required module and the standard library becomes a component:
+
+- The package URL has the form `pkg:golang/github.com/gin-gonic/gin@v1.10.0`, and the standard library is `pkg:golang/stdlib@v1.24.2`.
+- The `h1:` hash from `go.sum` is decoded into a SHA-256 value and is also kept as the `go:sum` property.
+- The license is the SPDX identifier detected in the module cache or `vendor/`.
+- Unless `--no-caps` is given, every capability of the module's reachable code is a `codexsentinel:capability` property, with `codexsentinel:capability:evidence:<CAP>` holding a call path.
+- Modules replaced by local directories are left out.
+- The serial number is derived from the content, so the same input gives the same identifier.
+
+With `--vex`, the CycloneDX `vulnerabilities` section and the OpenVEX
+statements use the call graph:
+
+| Reachability | CycloneDX `analysis` | OpenVEX `status` |
+| --- | --- | --- |
+| No vulnerable symbol is reachable | `not_affected`, `code_not_reachable` | `not_affected`, `vulnerable_code_not_in_execute_path` |
+| A vulnerable symbol is reachable | `exploitable`, response `update` | `affected`, with the fixed version and call site |
+| The advisory names no symbols | `in_triage` | `under_investigation` |
+
+```bash
+codex-cli sbom . --vex --vex-out openvex.json --out sbom.cdx.json
+trivy sbom sbom.cdx.json --vex openvex.json
+grype sbom:sbom.cdx.json --vex openvex.json
+```
 
 ## Architecture analysis
 

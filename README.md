@@ -54,6 +54,10 @@ Findings are written as SARIF 2.1.0, JSON, HTML or Markdown.
 - `codex-cli caps lock` records which privileged capabilities each dependency uses from reachable code: file system, network, environment, process execution, `reflect`, `unsafe`, cgo and plugins.
 - `codex-cli caps verify` fails when an upgraded dependency starts using a capability the lock file does not approve.
 
+**SBOM and VEX.**
+- `codex-cli sbom` writes a CycloneDX 1.6 (or SPDX 2.3) bill of materials with package URLs, `go.sum` hashes, licenses and the capabilities each dependency's reachable code uses.
+- With `--vex`, known vulnerabilities are added and marked by reachability; `--vex-out` writes an OpenVEX document in which unreachable vulnerabilities are `not_affected` (`vulnerable_code_not_in_execute_path`), ready for `trivy --vex` or `grype --vex`.
+
 **Architecture guard.**
 - Configurable layer dependency rules and import cycle detection.
 - God structs: too many methods, or many fields combined with behavior.
@@ -117,6 +121,8 @@ codex-cli scan . --deps                            # dependency audit only
 codex-cli scan . --no-cache                        # ignore the analysis cache
 codex-cli cache status                             # cache location and size
 codex-cli cache clean                              # remove cached results
+codex-cli sbom . > sbom.cdx.json                   # CycloneDX 1.6 SBOM
+codex-cli sbom . --vex --vex-out openvex.json      # add vulnerabilities and write OpenVEX
 ```
 
 Package-level results are cached on disk and reused while a package, the

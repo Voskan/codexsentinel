@@ -8,9 +8,6 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
-	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/spf13/cobra"
 )
@@ -116,21 +113,7 @@ func capabilityReport(ctx context.Context, target, configFile string) (*deps.Cap
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var cfg *config.Config
-	var err error
-	if configFile != "" {
-		cfg, err = config.LoadFromPath(configFile)
-	} else {
-		cfg, err = config.LoadDefaultPathPtr()
-	}
-	if err != nil {
-		return nil, "", err
-	}
-	ws, err := workspace.Load(ctx, target, cfg)
-	if err != nil {
-		return nil, "", err
-	}
-	bundle, err := codessa.BuildFromWorkspace(ws)
+	ws, bundle, err := loadProgram(ctx, target, configFile)
 	if err != nil {
 		return nil, "", err
 	}

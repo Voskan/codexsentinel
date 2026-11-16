@@ -159,6 +159,20 @@ func attachFindings(reports []DependencyReport, findings []ModuleFinding) []Depe
 	return reports
 }
 
+// FindVulnerabilities queries the advisory databases for the modules of
+// goModPath and, when bundle is set, decides which vulnerabilities are
+// reachable. Vulnerabilities found before a source failed are returned with
+// the error.
+func FindVulnerabilities(ctx context.Context, goModPath string, bundle *codessa.GraphBundle, osv *OSVClient) ([]Vulnerability, error) {
+	mods, err := ReadGoMod(goModPath)
+	if err != nil {
+		return nil, err
+	}
+	vulns, err := collectVulnerabilities(ctx, mods, ScanOptions{OSV: osv})
+	ApplyReachability(bundle, vulns)
+	return vulns, err
+}
+
 func collectVulnerabilities(ctx context.Context, mods []ModuleVersion, opts ScanOptions) ([]Vulnerability, error) {
 	osv := opts.OSV
 	if osv == nil {
