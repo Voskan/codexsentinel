@@ -84,6 +84,13 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 
 	var results []result.Issue
 	var err error
+	cfg, err := loadConfig(configFile, logger)
+	if err != nil {
+		return err
+	}
+	if outPath == "" && cfg.Report.OutputDir != "" {
+		outPath = filepath.Join(cfg.Report.OutputDir, defaultOutputPath(format))
+	}
 
 	if depsOnly {
 		// Run only dependency analysis
@@ -94,7 +101,7 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 		}
 	} else {
 		// Run full analysis
-		results, err = runFullAnalysis(ctx, targetPath, ignoreFile, configFile, severity, logger)
+		results, err = runFullAnalysis(ctx, targetPath, ignoreFile, cfg, severity, logger)
 		if err != nil {
 			return fmt.Errorf("analysis failed: %w", err)
 		}
@@ -115,8 +122,8 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 	printSummary(summaryOutput, results)
 
 	// Exit code control
-	if strict && len(results) > 0 {
-		return &IssuesFoundError{Count: len(results)}
+	if count := failingIssues(results, strict, cfg.Report.FailOnSeverity); count > 0 {
+		return &IssuesFoundError{Count: count}
 	}
 	return nil
 }
@@ -215,15 +222,9 @@ func runDependencyAnalysis(targetPath string) ([]result.Issue, error) {
 }
 
 // runFullAnalysis performs the complete analysis workflow
-func runFullAnalysis(ctx context.Context, targetPath, ignoreFile, configFile, severity string, logger *zap.SugaredLogger) ([]result.Issue, error) {
+func runFullAnalysis(ctx context.Context, targetPath, ignoreFile string, cfg *config.Config, severity string, logger *zap.SugaredLogger) ([]result.Issue, error) {
 	// Load ignore rules if specified
 	ignoreManager := loadIgnoreManager(ignoreFile, logger)
-
-	// Load config
-	cfg, err := loadConfig(configFile, logger)
-	if err != nil {
-		return nil, err
-	}
 
 	// Load YAML rules
 	loadYAMLRules(cfg, logger)
@@ -401,6 +402,9 @@ func writeReport(results []result.Issue, format, outPath string, gitMetadata *re
 			Package:     issue.Location.PackagePath,
 			References:  issue.References,
 			Suggestion:  issue.Suggestion,
+			EndLine:     issue.Location.EndLine, EndColumn: issue.Location.EndColumn,
+			Confidence: issue.Confidence, CWE: issue.CWE, OWASP: issue.OWASP,
+			Trace: issue.Trace, Fix: issue.Fix, Fingerprint: issue.Fingerprint, Reachable: issue.Reachable,
 		}
 		if len(issue.References) > 0 {
 			reportIssues[i].Reference = issue.References[0]
@@ -459,4 +463,14 @@ func normalizeTargetPath(path string) string {
 		}
 	}
 	return path
+}
+
+func failingIssues(issues []result.Issue, strict bool, threshold string) int {
+	count := 0
+	for _, issue := range issues {
+		if strict || (threshold != "" && issue.Severity.GreaterThanOrEqual(result.ParseSeverity(threshold))) {
+			count++
+		}
+	}
+	return count
 }

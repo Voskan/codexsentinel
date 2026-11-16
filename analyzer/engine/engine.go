@@ -17,7 +17,9 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer/rules"
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
 	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
+	"github.com/Voskan/codexsentinel/internal/matcher"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ssa"
 )
@@ -29,6 +31,7 @@ type Engine struct {
 
 // Config defines the configuration for analysis execution.
 type Config struct {
+	Settings       *config.Config
 	EnableSSA      bool // Enables SSA-based analyzers
 	EnableTaint    bool // Enables taint analysis
 	EnableAST      bool // Enables AST-based rules
@@ -77,19 +80,20 @@ func (e *Engine) Run(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*re
 		issues = append(issues, taintIssues...)
 	}
 
-	// 4. Run dependency analysis
-	depIssues, err := runDependencyAnalysis(ctx, proj)
-	if err != nil {
-		return nil, fmt.Errorf("dependency analysis failed: %w", err)
+	if e.cfg.Settings == nil || e.cfg.Settings.Dependencies.Enable {
+		depIssues, err := runDependencyAnalysis(ctx, proj)
+		if err != nil {
+			return nil, fmt.Errorf("dependency analysis failed: %w", err)
+		}
+		issues = append(issues, depIssues...)
 	}
-	issues = append(issues, depIssues...)
-
-	// 5. Run metrics analysis
-	metricsIssues, err := runMetricsAnalysis(ctx, proj)
-	if err != nil {
-		return nil, fmt.Errorf("metrics analysis failed: %w", err)
+	if e.cfg.Settings == nil || e.cfg.Settings.Metrics.Enable {
+		metricIssues, err := runMetricsAnalysis(ctx, proj)
+		if err != nil {
+			return nil, fmt.Errorf("metrics analysis failed: %w", err)
+		}
+		issues = append(issues, metricIssues...)
 	}
-	issues = append(issues, metricsIssues...)
 
 	return issues, nil
 }
@@ -373,7 +377,7 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 
 	// Run dependency analysis if go.mod exists
 	goModPath := filepath.Join(root, "go.mod")
-	if _, err := os.Stat(goModPath); err == nil {
+	if _, err := os.Stat(goModPath); err == nil && (cfg.Settings == nil || cfg.Settings.Dependencies.Enable) {
 		// Default license lists
 		allowLicenses := []string{"MIT", "Apache-2.0", "BSD-3-Clause"}
 		denyLicenses := []string{"AGPL-3.0", "GPL-3.0", "BSL-1.1"}
@@ -427,15 +431,18 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 		}
 	}
 
-	// Run metrics analysis for the entire project
-	metricsIssues, err := runMetricsAnalysis(ctx, &analyzer.AnalyzerContext{Filename: root})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Metrics analysis failed: %v\n", err)
-	} else {
-		// Convert metrics issues to result.Issue
-		for _, issue := range metricsIssues {
-			allIssues = append(allIssues, *issue)
+	if cfg.Settings == nil || cfg.Settings.Metrics.Enable {
+		// Run metrics analysis for the entire project
+		metricsIssues, err := runMetricsAnalysis(ctx, &analyzer.AnalyzerContext{Filename: root})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Metrics analysis failed: %v\n", err)
+		} else {
+			// Convert metrics issues to result.Issue
+			for _, issue := range metricsIssues {
+				allIssues = append(allIssues, *issue)
+			}
 		}
+
 	}
 
 	return allIssues, nil
@@ -443,29 +450,52 @@ func AnalyzePackages(ctx context.Context, root string, cfg *Config) ([]result.Is
 
 // Run is a package-level function that creates an engine and runs analysis.
 // This is the main entry point used by the CLI.
-func Run(ctx context.Context, path string, cfg interface{}) ([]result.Issue, error) {
-
-	// Create default config
-	config := &Config{
-		EnableSSA:      true,
-		EnableTaint:    true,
-		EnableAST:      true,
-		EnableBuiltins: true,
+func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, error) {
+	if cfg == nil {
+		cfg = &config.DefaultConfig
 	}
-
-	// Check if path is a directory or file
+	if err := config.Validate(cfg); err != nil {
+		return nil, err
+	}
+	options := &Config{EnableSSA: cfg.Taint.Enable, EnableTaint: cfg.Taint.Enable, EnableAST: true, EnableBuiltins: true, Settings: cfg}
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat path: %w", err)
 	}
-
+	var issues []result.Issue
 	if fileInfo.IsDir() {
-		// Use production-ready package analysis for directories
-		return AnalyzePackages(ctx, path, config)
+		issues, err = AnalyzePackages(ctx, path, options)
 	} else {
-		// Use single file analysis for individual files
-		return analyzeSingleFile(ctx, path, config)
+		issues, err = analyzeSingleFile(ctx, path, options)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return configureIssues(issues, cfg), nil
+}
+
+func ruleEnabled(id string, cfg *config.Config) bool {
+	return (len(cfg.Rules.Enabled) == 0 || matcher.New(cfg.Rules.Enabled).Match(id)) && !matcher.New(cfg.Rules.Disabled).Match(id)
+}
+
+func configureIssues(issues []result.Issue, cfg *config.Config) []result.Issue {
+	out := make([]result.Issue, 0, len(issues))
+	for _, issue := range issues {
+		if !ruleEnabled(issue.ID, cfg) {
+			continue
+		}
+		if severity, ok := cfg.Rules.SeverityOverrides[issue.ID]; ok {
+			issue.Severity = result.ParseSeverity(severity)
+		}
+		if issue.Confidence == 0 {
+			issue.Confidence = 1
+		}
+		if issue.Confidence < cfg.Suppression.MinConfidence {
+			continue
+		}
+		out = append(out, issue)
+	}
+	return out
 }
 
 // analyzeSingleFile analyzes a single Go file (legacy method)
@@ -492,6 +522,15 @@ func analyzeSingleFile(ctx context.Context, filePath string, config *Config) ([]
 
 	// Register built-in rules
 	registerBuiltinRules(analyzerCtx)
+	if config.Settings != nil {
+		active := analyzerCtx.Rules[:0]
+		for _, rule := range analyzerCtx.Rules {
+			if ruleEnabled(rule.ID, config.Settings) {
+				active = append(active, rule)
+			}
+		}
+		analyzerCtx.Rules = active
+	}
 
 	// Run analysis
 	issues, err := engine.Run(ctx, analyzerCtx)

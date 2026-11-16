@@ -1,145 +1,58 @@
-# CodexSentinel Configuration
-
+# Scan defaults for Go source. Optional network dependency checks are opt-in.
 version: 1
-
-# Project root directory (optional, default is current working directory)
-root: "."
-
-# Target directory to scan
-target: "./"
-
-# Excluded paths or glob patterns
-exclude:
-  - "vendor/**"
-  - "**/testdata/**"
-  - "**/*.pb.go"
-  - "**/mocks/**"
-
-# Enabled built-in analyzers
-analyzers:
-  deadcode: true
-  globals: true
-  size: true
-  duplication: true
-  complexity: true
-  entropy: true
-  license: true
-  osv: true
-  imports: true
-  directcalls: true
-  godstruct: true
-  layers: true
-  taint: true
-  command_exec: true
-
-# Thresholds for warnings
-thresholds:
-  complexity: 15
-  duplication: 5 # Min duplicated lines
-  file_size_kb: 200
-  global_vars: 0
-  entropy_threshold: 4.5 # For secrets
-
-# Rule files (custom static analysis rules in YAML format)
-rule_files:
-  - "rules/security.yml"
-  - "rules/conventions.yml"
-
-# Output formats
-report:
-  output: "./reports"
-  formats:
-    - html
-    - json
-    - markdown
-    - sarif
-
-# Severity overrides (optional)
-severity:
-  deadcode: "low"
-  globals: "medium"
-  command_exec: "high"
-
-# Parallelism settings
-concurrency:
-  max_workers: 4
-
-# Cache directory (optional)
-cache_dir: ".codex_cache"
-
-# Fail on issues of given severity or higher
-fail_on: "high"
-
-# Verbosity level: silent | error | warn | info | debug
-log_level: "info"
-
-# False positive management configuration
-false_positive_management:
-  enable_auto_suppression: true
-  enable_confidence_scoring: true
-  enable_context_aware_analysis: true
-  enable_safe_pattern_detection: true
-  enable_validation_tracking: true
-  confidence_threshold: 0.6
-  max_suppression_rate: 0.15
-
-# Rule-specific false positive settings
+scan:
+  include_tests: false
+  include_vendor: false
+  include_generated: false
+  excluded_paths: [vendor, testdata, node_modules, .git]
+  max_file_size_bytes: 10485760
+  supported_extensions: [.go]
+  concurrency: 0 # Use the available CPUs.
 rules:
-  false_positive_config:
-    enable_context_analysis: true
-    enable_validation_checks: true
-    enable_safe_patterns: true
-    min_confidence: 0.5
-    max_false_positive_rate: 0.08
-
-# Advanced false positive settings
-advanced_false_positive:
-  # Suppress findings in test files
-  suppress_test_files: true
-
-  # Suppress findings with validation
-  suppress_with_validation: true
-
-  # Suppress findings with sanitization
-  suppress_with_sanitization: true
-
-  # Suppress low confidence findings
-  suppress_low_confidence: true
-
-  # Suppress common false positive patterns
-  suppress_common_patterns: true
-
-  # Custom safe patterns
-  safe_patterns:
-    - "html.EscapeString"
-    - "template.HTMLEscapeString"
-    - "filepath.Clean"
-    - "filepath.Join"
-    - "os.Stat"
-    - "json.Marshal"
-    - "xml.Marshal"
-    - "text/template"
-    - "html/template"
-
-  # Custom validation patterns
-  validation_patterns:
-    - "validate"
-    - "check"
-    - "verify"
-    - "test"
-    - "assert"
-    - "sanitize"
-    - "escape"
-    - "clean"
-    - "filter"
-
-  # Custom sanitization patterns
-  sanitization_patterns:
-    - "escape"
-    - "sanitize"
-    - "clean"
-    - "filter"
-    - "strip"
-    - "html.escape"
-    - "template.escape"
-    - "url.escape"
+  enabled: ["*"]
+  disabled: []
+  severity_overrides: {}
+  rule_paths: []
+  rule_files: []
+taint:
+  enable: true
+  interprocedural: true
+  custom_sources: []
+  custom_sinks: []
+  custom_sanitizers: []
+architecture:
+  enable: true
+  layers: {}
+  allowed_deps: {}
+  check_cycles: true
+  check_god_structs: true
+  check_boundaries: true
+  god_struct_max_methods: 15
+  god_struct_max_fields: 20
+metrics:
+  enable: true
+  max_cyclomatic: 15
+  max_function_loc: 80
+  max_file_loc: 600
+  min_duplicate_loc: 10
+  enable_duplication: true
+  enable_dead_code: true
+  enable_globals: true
+dependencies:
+  enable: false
+  check_vulnerabilities: true
+  check_reachability: true
+  check_capabilities: false
+  capability_lockfile: .codexsentinel.caps.json
+  check_licenses: true
+  allow_licenses: [MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0]
+  deny_licenses: [AGPL-3.0, GPL-3.0, GPL-2.0, SSPL-1.0, BSL-1.1]
+suppression:
+  ignore_file: .codexsentinel.ignore
+  enable_inline_ignore: true
+  require_ignore_reason: false
+  min_confidence: 0.5
+report:
+  formats: [sarif]
+  output_dir: scan_reports
+  fail_on_severity: "" # Set a severity threshold for CI, or use --strict.

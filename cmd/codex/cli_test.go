@@ -155,3 +155,39 @@ func TestNormalizeTargetPath(t *testing.T) {
 		}
 	}
 }
+
+func TestFailOnSeverity(t *testing.T) {
+	issues := []result.Issue{{Severity: result.SeverityLow}, {Severity: result.SeverityHigh}}
+	for _, tc := range []struct {
+		strict    bool
+		threshold string
+		want      int
+	}{
+		{false, "", 0}, {false, "critical", 0}, {false, "high", 1}, {false, "low", 2}, {true, "critical", 2},
+	} {
+		if got := failingIssues(issues, tc.strict, tc.threshold); got != tc.want {
+			t.Errorf("%+v: got %d", tc, got)
+		}
+	}
+}
+
+func TestConfiguredFailureThreshold(t *testing.T) {
+	t.Chdir(t.TempDir())
+	dir := fixture(t, "package sample\nimport \"database/sql\"\nfunc query(db *sql.DB, input string) { db.Query(\"SELECT * FROM users WHERE id = \" + input) }\n")
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+	out := filepath.Join(t.TempDir(), "report.json")
+	for _, threshold := range []string{"critical", "high"} {
+		content := "rules:\n  enabled: [sql-injection]\nmetrics:\n  enable: false\ndependencies:\n  enable: false\nreport:\n  fail_on_severity: " + threshold + "\n"
+		if err := os.WriteFile(cfg, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		err := runCLI(t, "scan", filepath.Join(dir, "main.go"), "--config", cfg, "--format", "json", "--out", out)
+		var found *IssuesFoundError
+		if threshold == "high" && !errors.As(err, &found) {
+			t.Fatalf("expected threshold failure: %v", err)
+		}
+		if threshold == "critical" && err != nil {
+			t.Fatal(err)
+		}
+	}
+}
