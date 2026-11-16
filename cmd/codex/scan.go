@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go/token"
-
 	"github.com/Voskan/codexsentinel/analyzer/engine"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules/yaml"
+	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/git"
@@ -97,7 +97,7 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 	if depsOnly {
 		// Run only dependency analysis
 		logger.Infof("Running dependency analysis only")
-		results, err = runDependencyAnalysis(targetPath)
+		results, err = runDependencyAnalysis(ctx, targetPath, cfg, logger)
 		if err != nil {
 			return fmt.Errorf("dependency analysis failed: %w", err)
 		}
@@ -167,70 +167,36 @@ func getGitMetadata(logger *zap.SugaredLogger) *report.GitMetadata {
 	return nil
 }
 
-// runDependencyAnalysis performs dependency analysis and returns issues
-func runDependencyAnalysis(targetPath string) ([]result.Issue, error) {
-	var issues []result.Issue
-
-	// Find go.mod file
+// runDependencyAnalysis audits the dependencies of the module at targetPath.
+// With reachability enabled, the module is loaded to build a call graph.
+func runDependencyAnalysis(ctx context.Context, targetPath string, cfg *config.Config, logger *zap.SugaredLogger) ([]result.Issue, error) {
 	goModPath := filepath.Join(targetPath, "go.mod")
-	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
+	if _, err := os.Stat(goModPath); err != nil {
 		return nil, fmt.Errorf("go.mod file not found in %s", targetPath)
 	}
-
-	// Default license lists
-	allowLicenses := []string{"MIT", "Apache-2.0", "BSD-3-Clause"}
-	denyLicenses := []string{"AGPL-3.0", "GPL-3.0", "BSL-1.1"}
-
-	// Run dependency analysis
-	reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
+	opts := deps.ScanOptions{
+		AllowLicenses:        cfg.Dependencies.AllowLicenses,
+		DenyLicenses:         cfg.Dependencies.DenyLicenses,
+		CheckLicenses:        cfg.Dependencies.CheckLicenses,
+		CheckVulnerabilities: cfg.Dependencies.CheckVulnerabilities,
+	}
+	if cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability {
+		if ws, err := workspace.Load(ctx, targetPath, cfg); err != nil {
+			logger.Warnf("Reachability analysis skipped: %v", err)
+		} else if bundle, err := codessa.BuildFromWorkspace(ws); err != nil {
+			logger.Warnf("Reachability analysis skipped: %v", err)
+		} else {
+			opts.Bundle = bundle
+		}
+	}
+	reports, err := deps.ScanDependencies(ctx, goModPath, opts)
 	if err != nil {
-		return nil, fmt.Errorf("dependency analysis failed: %w", err)
+		if len(reports) == 0 {
+			return nil, err
+		}
+		logger.Warnf("Dependency analysis incomplete: %v", err)
 	}
-
-	// Convert dependency reports to issues
-	for _, report := range reports {
-		// License issues
-		if report.LicenseStatus == "DENIED" {
-			issues = append(issues, result.Issue{
-				ID:          "license-denied",
-				Title:       "Denied License Detected",
-				Description: fmt.Sprintf("Module %s uses denied license: %s", report.Module, report.License),
-				Severity:    result.SeverityHigh,
-				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
-				Category:    "license",
-				Suggestion:  "Consider using a different dependency with an allowed license",
-			})
-		}
-
-		// Vulnerability issues
-		for _, vuln := range report.Vulnerabilities {
-			issues = append(issues, result.Issue{
-				ID:          "dependency-vulnerability",
-				Title:       "Vulnerable Dependency",
-				Description: fmt.Sprintf("Module %s@%s has vulnerability: %s\nDetails: %s", report.Module, report.Version, vuln.ID, vuln.Details),
-				Severity:    result.SeverityHigh,
-				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
-				Category:    "security",
-				Suggestion:  fmt.Sprintf("Update to a fixed version: %s or apply security patches", vuln.FixedVersion),
-				References:  []string{vuln.Reference},
-			})
-		}
-
-		// Entropy findings (potential secrets)
-		for _, entropy := range report.SuspiciousFiles {
-			issues = append(issues, result.Issue{
-				ID:          "high-entropy-string",
-				Title:       "High Entropy String Detected",
-				Description: fmt.Sprintf("Potential secret found in %s at line %d", entropy.File, entropy.Line),
-				Severity:    result.SeverityMedium,
-				Location:    result.NewLocationFromPos(token.Position{Filename: entropy.File, Line: entropy.Line}, "", ""),
-				Category:    "security",
-				Suggestion:  "Review and remove hardcoded secrets from the codebase",
-			})
-		}
-	}
-
-	return issues, nil
+	return deps.ReportIssues(reports, goModPath), nil
 }
 
 // runFullAnalysis performs the complete analysis workflow

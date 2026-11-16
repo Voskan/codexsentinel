@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"go/token"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -100,21 +99,29 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	if err := group.Wait(); err != nil {
 		return nil, err
 	}
-	if cfg.Taint.Enable && len(ws.Packages) > 0 {
-		found, err := runTaintAnalysis(ctx, ws, cfg)
+	var bundle *codessa.GraphBundle
+	needReachability := cfg.Dependencies.Enable && cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability
+	if (cfg.Taint.Enable || needReachability) && len(ws.Packages) > 0 {
+		if bundle, err = codessa.BuildFromWorkspace(ws); err != nil {
+			return nil, fmt.Errorf("build SSA: %w", err)
+		}
+	}
+	if cfg.Taint.Enable && bundle != nil {
+		found, err := runTaintAnalysis(ctx, ws, cfg, bundle)
 		if err != nil {
 			return nil, err
 		}
 		issues = append(issues, found...)
 	}
 	if cfg.Dependencies.Enable && ws.GoModPath != "" {
-		found, err := runDependencyAnalysis(ctx, &analyzer.AnalyzerContext{Filename: filepath.Dir(ws.GoModPath), Cfg: cfg})
+		if !needReachability {
+			bundle = nil
+		}
+		found, err := runDependencyAnalysis(ctx, ws, cfg, bundle)
 		if err != nil {
 			return nil, err
 		}
-		for _, issue := range found {
-			issues = append(issues, *issue)
-		}
+		issues = append(issues, found...)
 	}
 	issues = configureIssues(issues, cfg)
 	sort.SliceStable(issues, func(i, j int) bool {
@@ -135,13 +142,9 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 
 // runTaintAnalysis builds SSA once for the workspace and tracks untrusted data
 // from sources to sinks, following calls when interprocedural mode is enabled.
-func runTaintAnalysis(ctx context.Context, ws *workspace.Workspace, cfg *config.Config) ([]result.Issue, error) {
+func runTaintAnalysis(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, bundle *codessa.GraphBundle) ([]result.Issue, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
-	}
-	bundle, err := codessa.BuildFromWorkspace(ws)
-	if err != nil {
-		return nil, fmt.Errorf("build SSA: %w", err)
 	}
 	engine := flow.NewEngine(bundle, flow.RegistryFromConfig(cfg.Taint), flow.Options{Interprocedural: cfg.Taint.Interprocedural})
 	ac := &analyzer.AnalyzerContext{Cfg: cfg, RootDir: ws.RootDir, Fset: ws.Fset}
@@ -189,82 +192,24 @@ func configureIssues(issues []result.Issue, cfg *config.Config) []result.Issue {
 	return out
 }
 
-// runDependencyAnalysis performs dependency and license analysis.
-func runDependencyAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	// For single files, skip dependency analysis
-	if proj.Filename != "" && !isDirectory(proj.Filename) {
-		return nil, nil
-	}
-
-	// Find go.mod file
-	dir := getDirectoryPath(proj.Filename)
-	if proj.Filename == "" {
-		dir = "."
-	}
-
-	goModPath := filepath.Join(dir, "go.mod")
-	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
-		// No go.mod file found, skip dependency analysis
-		return nil, nil
-	}
-
-	// Default license lists
-	allowLicenses := proj.Cfg.Dependencies.AllowLicenses
-	denyLicenses := proj.Cfg.Dependencies.DenyLicenses
-
-	// Run dependency analysis
-	reports, err := deps.ScanDependencies(goModPath, allowLicenses, denyLicenses)
+// runDependencyAnalysis audits module dependencies for known vulnerabilities
+// and license policy violations. Advisory lookups that fail are reported as a
+// warning so that the rest of the analysis still completes.
+func runDependencyAnalysis(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, bundle *codessa.GraphBundle) ([]result.Issue, error) {
+	reports, err := deps.ScanDependencies(ctx, ws.GoModPath, deps.ScanOptions{
+		AllowLicenses:        cfg.Dependencies.AllowLicenses,
+		DenyLicenses:         cfg.Dependencies.DenyLicenses,
+		CheckLicenses:        cfg.Dependencies.CheckLicenses,
+		CheckVulnerabilities: cfg.Dependencies.CheckVulnerabilities,
+		Bundle:               bundle,
+	})
 	if err != nil {
-		// Log error but don't fail the entire analysis
-		fmt.Fprintf(os.Stderr, "Warning: Dependency analysis skipped due to error: %v\n", err)
-		return nil, nil
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		fmt.Fprintf(os.Stderr, "Warning: dependency analysis incomplete: %v\n", err)
 	}
-
-	var issues []*result.Issue
-
-	// Convert dependency reports to issues
-	for _, report := range reports {
-		// License issues
-		if report.LicenseStatus == "DENIED" {
-			issues = append(issues, &result.Issue{
-				ID:          "license-denied",
-				Title:       "Denied License Detected",
-				Description: fmt.Sprintf("Module %s uses denied license: %s", report.Module, report.License),
-				Severity:    result.SeverityHigh,
-				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
-				Category:    "license",
-				Suggestion:  "Consider using a different dependency with an allowed license",
-			})
-		}
-
-		// Vulnerability issues
-		for _, vuln := range report.Vulnerabilities {
-			issues = append(issues, &result.Issue{
-				ID:          "dependency-vulnerability",
-				Title:       "Vulnerable Dependency",
-				Description: fmt.Sprintf("Module %s@%s has vulnerability: %s", report.Module, report.Version, vuln.ID),
-				Severity:    result.SeverityHigh,
-				Location:    result.NewLocationFromPos(token.Position{Filename: goModPath}, "", ""),
-				Category:    "security",
-				Suggestion:  "Update to a fixed version or apply security patches",
-			})
-		}
-
-		// Entropy findings (potential secrets)
-		for _, entropy := range report.SuspiciousFiles {
-			issues = append(issues, &result.Issue{
-				ID:          "high-entropy-string",
-				Title:       "High Entropy String Detected",
-				Description: fmt.Sprintf("Potential secret found in %s at line %d", entropy.File, entropy.Line),
-				Severity:    result.SeverityMedium,
-				Location:    result.NewLocationFromPos(token.Position{Filename: entropy.File, Line: entropy.Line}, "", ""),
-				Category:    "security",
-				Suggestion:  "Review and remove hardcoded secrets from the codebase",
-			})
-		}
-	}
-
-	return issues, nil
+	return deps.ReportIssues(reports, relativePath(ws.RootDir, ws.GoModPath)), nil
 }
 
 // registerBuiltinRules registers all built-in security rules.

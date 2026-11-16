@@ -2,13 +2,40 @@ package deps
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 )
 
-type GHSAResponse struct {
+// GHSAClient queries the GitHub Advisory Database GraphQL API.
+type GHSAClient struct {
+	URL   string // GraphQL endpoint, https://api.github.com/graphql by default
+	Token string // GitHub token; queries are skipped without one
+	HTTP  *http.Client
+}
+
+// NewGHSAClient returns a client authenticated with $GITHUB_TOKEN.
+func NewGHSAClient() *GHSAClient {
+	return &GHSAClient{URL: "https://api.github.com/graphql", Token: os.Getenv("GITHUB_TOKEN"), HTTP: &http.Client{Timeout: 10 * time.Second}}
+}
+
+const ghsaQuery = `query($pkg: String!) {
+  securityVulnerabilities(first: 100, ecosystem: GO, package: $pkg) {
+    nodes {
+      package { name }
+      advisory { ghsaId summary description severity permalink identifiers { type value } }
+      vulnerableVersionRange
+      firstPatchedVersion { identifier }
+    }
+  }
+}`
+
+type ghsaResponse struct {
 	Data struct {
 		SecurityVulnerabilities struct {
 			Nodes []struct {
@@ -16,101 +43,99 @@ type GHSAResponse struct {
 					Name string `json:"name"`
 				} `json:"package"`
 				Advisory struct {
-					GHSAID   string `json:"ghsaId"`
-					Summary  string `json:"summary"`
-					Severity string `json:"severity"`
-					Permalink string `json:"permalink"`
-					References []struct {
-						URL string `json:"url"`
-					} `json:"references"`
+					GHSAID      string `json:"ghsaId"`
+					Summary     string `json:"summary"`
+					Description string `json:"description"`
+					Severity    string `json:"severity"`
+					Permalink   string `json:"permalink"`
+					Identifiers []struct {
+						Type  string `json:"type"`
+						Value string `json:"value"`
+					} `json:"identifiers"`
 				} `json:"advisory"`
 				VulnerableVersionRange string `json:"vulnerableVersionRange"`
+				FirstPatchedVersion    *struct {
+					Identifier string `json:"identifier"`
+				} `json:"firstPatchedVersion"`
 			} `json:"nodes"`
 		} `json:"securityVulnerabilities"`
 	} `json:"data"`
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
 }
 
-// FetchGHSAAdvisories fetches advisories from GitHub Advisory Database for Go modules in go.mod
-func FetchGHSAAdvisories(goModPath string) ([]Vulnerability, error) {
-	modules, err := ParseGoModModules(goModPath)
-	if err != nil {
-		return nil, err
+// Audit returns GitHub advisories whose vulnerable range contains the module
+// versions. Without a token it returns no results: OSV already includes the
+// GitHub Advisory Database for Go.
+func (c *GHSAClient) Audit(ctx context.Context, mods []ModuleVersion) ([]Vulnerability, error) {
+	if c.Token == "" {
+		return nil, nil
 	}
-	var vulns []Vulnerability
-	for _, mod := range modules {
-		advs, err := fetchGHSAForModule(mod.Name)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "GHSA fetch error for %s: %v\n", mod.Name, err)
+	var out []Vulnerability
+	for _, mod := range mods {
+		if mod.Path == StdlibModule {
 			continue
 		}
-		vulns = append(vulns, advs...)
-	}
-	return vulns, nil
-}
-
-type GoModule struct {
-	Name    string
-	Version string
-}
-
-// ParseGoModModules parses go.mod and returns a list of modules
-func ParseGoModModules(goModPath string) ([]GoModule, error) {
-	data, err := os.ReadFile(goModPath)
-	if err != nil {
-		return nil, err
-	}
-	var mods []GoModule
-	lines := bytes.Split(data, []byte("\n"))
-	for _, line := range lines {
-		fields := bytes.Fields(line)
-		if len(fields) >= 2 && !bytes.HasPrefix(fields[0], []byte("module")) && !bytes.HasPrefix(fields[0], []byte("require")) && !bytes.HasPrefix(fields[0], []byte("replace")) && !bytes.HasPrefix(fields[0], []byte("exclude")) {
-			mods = append(mods, GoModule{Name: string(fields[0]), Version: string(fields[1])})
+		found, err := c.query(ctx, mod)
+		if err != nil {
+			return out, err
 		}
+		out = append(out, found...)
 	}
-	return mods, nil
+	return out, nil
 }
 
-func fetchGHSAForModule(module string) ([]Vulnerability, error) {
-	query := `{"query": "query { securityVulnerabilities(first: 10, ecosystem: GO, package: { name: \"%s\" }) { nodes { package { name } advisory { ghsaId summary severity permalink references { url } } vulnerableVersionRange } } }"}`
-	body := fmt.Sprintf(query, module)
-	url := "https://api.github.com/graphql"
-	
-	token := os.Getenv("GITHUB_TOKEN")
-	if token == "" {
-		return nil, fmt.Errorf("GITHUB_TOKEN not set")
-	}
-	
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(body)))
+func (c *GHSAClient) query(ctx context.Context, mod ModuleVersion) ([]Vulnerability, error) {
+	body, err := json.Marshal(map[string]any{"query": ghsaQuery, "variables": map[string]string{"pkg": mod.Path}})
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{}
+	client := c.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API error: %s", resp.Status)
 	}
-	var ghsaResp GHSAResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ghsaResp); err != nil {
+	var parsed ghsaResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&parsed); err != nil {
 		return nil, err
 	}
-	var vulns []Vulnerability
-	for _, node := range ghsaResp.Data.SecurityVulnerabilities.Nodes {
-		vulns = append(vulns, Vulnerability{
-			Module:   node.Package.Name,
-			ID:       node.Advisory.GHSAID,
-			Details:  node.Advisory.Summary,
-			Severity: node.Advisory.Severity,
-			Reference: node.Advisory.Permalink,
-			Aliases:  nil,
-			Version:  "",
-			FixedVersion: "",
-		})
+	if len(parsed.Errors) > 0 {
+		return nil, fmt.Errorf("GitHub API error: %s", parsed.Errors[0].Message)
 	}
-	return vulns, nil
-} 
+	var out []Vulnerability
+	for _, node := range parsed.Data.SecurityVulnerabilities.Nodes {
+		ok, err := MatchGHSARange(node.VulnerableVersionRange, mod.Version)
+		if err != nil || !ok {
+			continue
+		}
+		v := Vulnerability{Module: mod.Required, Version: mod.Version, ID: node.Advisory.GHSAID, Summary: node.Advisory.Summary,
+			Details: node.Advisory.Description, Severity: normalizeSeverity(node.Advisory.Severity), Reference: node.Advisory.Permalink}
+		for _, id := range node.Advisory.Identifiers {
+			if id.Value != node.Advisory.GHSAID {
+				v.Aliases = append(v.Aliases, id.Value)
+			}
+		}
+		if node.FirstPatchedVersion != nil {
+			v.FixedVersion = node.FirstPatchedVersion.Identifier
+			if !strings.HasPrefix(v.FixedVersion, "v") {
+				v.FixedVersion = "v" + v.FixedVersion
+			}
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
