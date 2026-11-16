@@ -110,48 +110,6 @@ func runASTAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 	file := parsedFile.File
 	proj.Fset = parsedFile.Fset
 
-	// Create AST walker for custom analysis
-	walker := customast.NewWalker(proj.Fset)
-
-	// Register handlers for different node types
-	walker.RegisterHandler("*ast.CallExpr", func(node ast.Node, path []ast.Node) {
-		// Custom call expression analysis
-		if call, ok := node.(*ast.CallExpr); ok {
-			// Analyze function calls for security issues
-			if fun, ok := call.Fun.(*ast.SelectorExpr); ok {
-				if ident, ok := fun.X.(*ast.Ident); ok {
-					// Check for dangerous function calls
-					if ident.Name == "exec" && fun.Sel.Name == "Command" {
-						// This would be handled by built-in rules
-					}
-				}
-			}
-		}
-	})
-
-	walker.RegisterHandler("*ast.ValueSpec", func(node ast.Node, path []ast.Node) {
-		spec, ok := node.(*ast.ValueSpec)
-		if !ok {
-			return
-		}
-
-		for _, name := range spec.Names {
-			pos := proj.Fset.Position(name.Pos())
-			proj.Report(result.Issue{
-				ID:          "global-variable-ast",
-				Title:       "Global Variable (AST)",
-				Description: "Global variable '" + name.Name + "' detected at top-level scope.",
-				Severity:    result.SeverityInfo,
-				Location:    result.NewLocationFromPos(pos, "", ""),
-				Category:    "style",
-				Suggestion:  "Consider avoiding global variables for better maintainability.",
-			})
-		}
-	})
-
-	// Walk the AST
-	walker.WalkFile(file)
-
 	// Run all registered rules using existing AST
 	for _, rule := range proj.Rules {
 		if rule.Matcher != nil {
@@ -243,37 +201,13 @@ func runSSAAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*res
 		proj.SSA = builder.Packages[0]
 	}
 
-	// Enumerate all functions in the SSA package
-	var issues []*result.Issue
-	for _, mem := range proj.SSA.Members {
-		fn, ok := mem.(*ssa.Function)
-		if !ok || fn.Blocks == nil {
-			continue
-		}
-		// Placeholder: In a real implementation, run SSA-based rules here
-		// For demonstration, just collect function names
-		// Example: issues = append(issues, ...)
-	}
-	return issues, nil
+	return nil, nil
 }
 
 // runTaintAnalysis performs taint propagation and reports flows to sinks.
 func runTaintAnalysis(ctx context.Context, proj *analyzer.AnalyzerContext) ([]*result.Issue, error) {
-	// For single files, skip taint analysis to avoid package conflicts
-	// But we can still run basic taint analysis for demonstration
-	if proj.Filename != "" && !isDirectory(proj.Filename) {
-		// Create a simple taint issue for demonstration
-		return []*result.Issue{
-			{
-				ID:          "taint-flow",
-				Title:       "Taint flow from source to sink",
-				Description: "Untrusted data flows from source to sink function.",
-				Severity:    result.SeverityHigh,
-				Location:    result.NewLocationFromPos(token.Position{Filename: proj.Filename, Line: 1}, "", ""),
-				Category:    "security",
-				Suggestion:  "Validate or sanitize user input before passing to sensitive functions.",
-			},
-		}, nil
+	if proj.SSA == nil && proj.Filename != "" && !isDirectory(proj.Filename) {
+		return nil, nil
 	}
 
 	// Build SSA if not already built

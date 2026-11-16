@@ -9,7 +9,7 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules"
-	"github.com/go-yaml/yaml"
+	"gopkg.in/yaml.v3"
 )
 
 // LoadFromDir loads all YAML rule files from the given directory.
@@ -63,7 +63,7 @@ func loadFile(path string) error {
 		Suggestion:  rule.Suggestion,
 		References:  rule.References,
 		YAML:        yamlRule,
-		Enabled:     rule.Enabled,
+		Enabled:     rule.IsEnabled(),
 		Engine:      createYAMLRuleEngine(*rule), // Create engine function for YAML rule
 	})
 }
@@ -160,9 +160,6 @@ func processPackageFilter(filter Filter, filtersMap map[string]string) {
 
 // setDefaultValues sets default values for rule fields
 func setDefaultValues(rule *RuleYAML) {
-	if !rule.Enabled {
-		rule.Enabled = true // Default to enabled
-	}
 	if rule.Category == "" {
 		rule.Category = "security" // Default category
 	}
@@ -174,28 +171,6 @@ func setDefaultValues(rule *RuleYAML) {
 // createYAMLRuleEngine creates a rule engine function for YAML-based rules
 func createYAMLRuleEngine(rule RuleYAML) rules.RuleFunc {
 	return func(ctx *analyzer.AnalyzerContext) ([]result.Issue, error) {
-		var issues []result.Issue
-
-		// This is a placeholder implementation
-		// In a real implementation, you would:
-		// 1. Parse the pattern using AST
-		// 2. Apply filters
-		// 3. Match against the code
-		// 4. Generate issues
-
-		// For now, create a simple issue to demonstrate
-		if rule.Enabled {
-			issues = append(issues, result.Issue{
-				ID:          rule.ID,
-				Title:       rule.Title,
-				Description: rule.Description,
-				Severity:    result.ParseSeverity(rule.Severity),
-				Location:    result.NewLocationFromPos(ctx.GetFset().Position(0), ctx.Filename, ""),
-				Category:    rule.Category,
-				Suggestion:  rule.Suggestion,
-			})
-		}
-
-		return issues, nil
+		return nil, nil
 	}
 }

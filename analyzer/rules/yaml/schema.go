@@ -3,14 +3,14 @@ package yaml
 // RuleYAML defines the structure of a YAML-based rule.
 // These rules can be loaded from external .yaml files.
 type RuleYAML struct {
-	ID          string   `yaml:"id" json:"id"`                   // Unique rule identifier
-	Title       string   `yaml:"title" json:"title"`             // Human-readable name
-	Category    string   `yaml:"category" json:"category"`       // Rule category (e.g., "security", "style")
-	Severity    string   `yaml:"severity" json:"severity"`       // Severity level (LOW, MEDIUM, HIGH, CRITICAL)
-	Description string   `yaml:"description" json:"description"` // Detailed explanation
-	Suggestion  string   `yaml:"suggestion" json:"suggestion"`   // Suggested fix
-	References  []string `yaml:"references" json:"references"`   // Optional reference links
-	Enabled     bool     `yaml:"enabled" json:"enabled"`         // Whether this rule is active
+	ID          string   `yaml:"id" json:"id"`                               // Unique rule identifier
+	Title       string   `yaml:"title" json:"title"`                         // Human-readable name
+	Category    string   `yaml:"category" json:"category"`                   // Rule category (e.g., "security", "style")
+	Severity    string   `yaml:"severity" json:"severity"`                   // Severity level (LOW, MEDIUM, HIGH, CRITICAL)
+	Description string   `yaml:"description" json:"description"`             // Detailed explanation
+	Suggestion  string   `yaml:"suggestion" json:"suggestion"`               // Suggested fix
+	References  []string `yaml:"references" json:"references"`               // Optional reference links
+	Enabled     *bool    `yaml:"enabled,omitempty" json:"enabled,omitempty"` // Whether this rule is active
 
 	// Pattern matching
 	Pattern string `yaml:"pattern" json:"pattern"` // Code pattern to match (e.g., template.Execute($INPUT))
@@ -46,3 +46,6 @@ type Examples struct {
 	Bad  string `yaml:"bad" json:"bad"`   // Bad code example
 	Good string `yaml:"good" json:"good"` // Good code example
 }
+
+// IsEnabled defaults omitted settings to enabled.
+func (r RuleYAML) IsEnabled() bool { return r.Enabled == nil || *r.Enabled }
