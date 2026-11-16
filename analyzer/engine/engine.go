@@ -80,17 +80,6 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 					}
 				}
 			}
-			if cfg.Metrics.Enable {
-				for _, file := range pass.Files {
-					found, err := analyzeSingleFileMetrics(ws.Fset.Position(file.Pos()).Filename)
-					if err != nil {
-						return err
-					}
-					for _, issue := range found {
-						ac.Report(*issue)
-					}
-				}
-			}
 			mu.Lock()
 			issues = append(issues, ac.GetIssues()...)
 			mu.Unlock()
@@ -103,7 +92,8 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	var bundle *codessa.GraphBundle
 	needReachability := cfg.Dependencies.Enable && cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability
 	capsLock := capabilityLockPath(ws, cfg)
-	if (cfg.Taint.Enable || needReachability || capsLock != "") && len(ws.Packages) > 0 {
+	needDeadCode := cfg.Metrics.Enable && cfg.Metrics.EnableDeadCode
+	if (cfg.Taint.Enable || needReachability || needDeadCode || capsLock != "") && len(ws.Packages) > 0 {
 		if bundle, err = codessa.BuildFromWorkspace(ws); err != nil {
 			return nil, fmt.Errorf("build SSA: %w", err)
 		}
@@ -128,6 +118,9 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	}
 	if cfg.Architecture.Enable {
 		issues = append(issues, arch.RunAll(ws, bundle, cfg.Architecture)...)
+	}
+	if cfg.Metrics.Enable {
+		issues = append(issues, runMetricsAnalysis(ws, bundle, cfg)...)
 	}
 	if capsLock != "" && bundle != nil {
 		found, err := runCapabilityCheck(ws, bundle, capsLock)
@@ -178,8 +171,6 @@ func relativePath(root, file string) string {
 	}
 	return filepath.ToSlash(file)
 }
-
-func isDirectory(path string) bool { info, err := os.Stat(path); return err == nil && info.IsDir() }
 
 func ruleEnabled(id string, cfg *config.Config) bool {
 	return (len(cfg.Rules.Enabled) == 0 || matcher.New(cfg.Rules.Enabled).Match(id)) && !matcher.New(cfg.Rules.Disabled).Match(id)

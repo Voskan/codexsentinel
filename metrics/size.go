@@ -4,10 +4,7 @@ package metrics
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -33,52 +30,35 @@ type FileSize struct {
 
 // SizeSummary provides overall size statistics
 type SizeSummary struct {
-	TotalFunctions int
-	LargeFunctions int
-	MediumFunctions int
-	SmallFunctions int
-	AverageLOC     float64
-	MaxLOC         int
-	TotalFiles     int
-	LargeFiles     int
-	MediumFiles    int
-	SmallFiles     int
+	TotalFunctions   int
+	LargeFunctions   int
+	MediumFunctions  int
+	SmallFunctions   int
+	AverageLOC       float64
+	MaxLOC           int
+	TotalFiles       int
+	LargeFiles       int
+	MediumFiles      int
+	SmallFiles       int
 	RiskDistribution map[string]int
 }
 
-// AnalyzeFunctionSizes parses Go files and returns a list of function sizes.
-func AnalyzeFunctionSizes(files []string) ([]FunctionSize, error) {
+// AnalyzeFunctionSizes returns the body length in lines of every function declared in files.
+func AnalyzeFunctionSizes(fset *token.FileSet, files []*ast.File) []FunctionSize {
 	var result []FunctionSize
-	fset := token.NewFileSet()
-
-	for _, path := range files {
-		src, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		node, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution)
-		if err != nil {
-			continue
-		}
-
-		for _, decl := range node.Decls {
+	for _, file := range files {
+		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
-
-			start := fset.Position(fn.Body.Pos())
-			end := fset.Position(fn.Body.End())
-			loc := end.Line - start.Line + 1
-			
-			// Determine category and risk
+			loc := bodyLines(fset, fn.Body)
 			category, risk := categorizeFunctionSize(loc)
-
+			start := fset.Position(fn.Pos())
 			result = append(result, FunctionSize{
-				Name:     fn.Name.Name,
+				Name:     funcName(fn),
 				LOC:      loc,
-				File:     filepath.ToSlash(start.Filename),
+				File:     start.Filename,
 				Line:     start.Line,
 				Exported: fn.Name.IsExported(),
 				Category: category,
@@ -86,13 +66,15 @@ func AnalyzeFunctionSizes(files []string) ([]FunctionSize, error) {
 			})
 		}
 	}
-
-	// Sort by LOC (largest first)
-	sort.Slice(result, func(i, j int) bool {
+	sort.SliceStable(result, func(i, j int) bool {
 		return result[i].LOC > result[j].LOC
 	})
+	return result
+}
 
-	return result, nil
+// bodyLines returns the number of lines spanned by a function body.
+func bodyLines(fset *token.FileSet, body *ast.BlockStmt) int {
+	return fset.Position(body.End()).Line - fset.Position(body.Pos()).Line + 1
 }
 
 // categorizeFunctionSize determines the category and risk level based on function size
@@ -109,38 +91,27 @@ func categorizeFunctionSize(loc int) (category, risk string) {
 	}
 }
 
-// AnalyzeFileSizes returns line counts for each provided Go source file.
-func AnalyzeFileSizes(files []string) ([]FileSize, error) {
+// AnalyzeFileSizes returns the line count of each parsed file.
+func AnalyzeFileSizes(fset *token.FileSet, files []*ast.File) []FileSize {
 	var result []FileSize
-
-	for _, path := range files {
-		content, err := os.ReadFile(path)
-		if err != nil {
+	for _, file := range files {
+		tf := fset.File(file.Pos())
+		if tf == nil {
 			continue
 		}
-
-		lines := strings.Count(string(content), "\n")
-		if lines == 0 {
-			lines = 1
-		}
-		
-		// Determine category and risk
+		lines := tf.LineCount()
 		category, risk := categorizeFileSize(lines)
-
 		result = append(result, FileSize{
-			File:     filepath.ToSlash(path),
+			File:     tf.Name(),
 			LOC:      lines,
 			Category: category,
 			Risk:     risk,
 		})
 	}
-
-	// Sort by LOC (largest first)
-	sort.Slice(result, func(i, j int) bool {
+	sort.SliceStable(result, func(i, j int) bool {
 		return result[i].LOC > result[j].LOC
 	})
-
-	return result, nil
+	return result
 }
 
 // categorizeFileSize determines the category and risk level based on file size
@@ -168,11 +139,11 @@ func ComputeSizeSummary(functions []FunctionSize, files []FileSize) SizeSummary 
 	totalLOC := 0
 	for _, fn := range functions {
 		totalLOC += fn.LOC
-		
+
 		if fn.LOC > summary.MaxLOC {
 			summary.MaxLOC = fn.LOC
 		}
-		
+
 		switch fn.Category {
 		case "large":
 			summary.LargeFunctions++
@@ -181,10 +152,10 @@ func ComputeSizeSummary(functions []FunctionSize, files []FileSize) SizeSummary 
 		case "small":
 			summary.SmallFunctions++
 		}
-		
+
 		summary.RiskDistribution[fn.Risk]++
 	}
-	
+
 	if summary.TotalFunctions > 0 {
 		summary.AverageLOC = float64(totalLOC) / float64(summary.TotalFunctions)
 	}
@@ -212,13 +183,13 @@ func GenerateSizeReport(functions []FunctionSize, files []FileSize) string {
 	}
 
 	summary := ComputeSizeSummary(functions, files)
-	
+
 	var report strings.Builder
-	
+
 	// Header
 	report.WriteString("📏 Code Size Analysis Report\n")
 	report.WriteString("===========================\n\n")
-	
+
 	// Function statistics
 	if len(functions) > 0 {
 		report.WriteString("🔧 Function Size Statistics:\n")
@@ -228,17 +199,17 @@ func GenerateSizeReport(functions []FunctionSize, files []FileSize) string {
 		report.WriteString(fmt.Sprintf("   • Large Functions (≥50 LOC): %d\n", summary.LargeFunctions))
 		report.WriteString(fmt.Sprintf("   • Medium Functions (20-49 LOC): %d\n", summary.MediumFunctions))
 		report.WriteString(fmt.Sprintf("   • Small Functions (<20 LOC): %d\n\n", summary.SmallFunctions))
-		
+
 		// Top large functions
 		report.WriteString("🔝 Top 10 Largest Functions:\n")
 		for i, fn := range functions[:min(10, len(functions))] {
 			icon := getSizeIcon(fn.LOC)
-			report.WriteString(fmt.Sprintf("   %d. %s %s (%s:%d) - %d lines\n", 
+			report.WriteString(fmt.Sprintf("   %d. %s %s (%s:%d) - %d lines\n",
 				i+1, icon, fn.Name, fn.File, fn.Line, fn.LOC))
 		}
 		report.WriteString("\n")
 	}
-	
+
 	// File statistics
 	if len(files) > 0 {
 		report.WriteString("📁 File Size Statistics:\n")
@@ -246,23 +217,23 @@ func GenerateSizeReport(functions []FunctionSize, files []FileSize) string {
 		report.WriteString(fmt.Sprintf("   • Large Files (≥500 LOC): %d\n", summary.LargeFiles))
 		report.WriteString(fmt.Sprintf("   • Medium Files (200-499 LOC): %d\n", summary.MediumFiles))
 		report.WriteString(fmt.Sprintf("   • Small Files (<200 LOC): %d\n\n", summary.SmallFiles))
-		
+
 		// Top large files
 		report.WriteString("📂 Top 10 Largest Files:\n")
 		for i, file := range files[:min(10, len(files))] {
 			icon := getSizeIcon(file.LOC)
-			report.WriteString(fmt.Sprintf("   %d. %s %s - %d lines\n", 
+			report.WriteString(fmt.Sprintf("   %d. %s %s - %d lines\n",
 				i+1, icon, file.File, file.LOC))
 		}
 		report.WriteString("\n")
 	}
-	
+
 	// Risk distribution
 	report.WriteString("⚠️  Risk Distribution:\n")
 	for risk, count := range summary.RiskDistribution {
 		report.WriteString(fmt.Sprintf("   • %s: %d items\n", risk, count))
 	}
-	
+
 	return report.String()
 }
 
