@@ -10,7 +10,7 @@ import (
 
 func runRegistry(t *testing.T, src string) {
 	t.Helper()
-	testutil.RunTaintAllModes(t, map[string]string{"app.go": src}, nil)
+	testutil.RunTaintBothModes(t, map[string]string{"app.go": src}, nil)
 }
 
 func TestRegistrySQLContextArgumentIndex(t *testing.T) {
@@ -127,6 +127,10 @@ import (
 func handler(w http.ResponseWriter, r *http.Request) {
 	exec.Command("sh", "-c", r.FormValue("cmd")) // want "command-injection"
 	exec.Command("git", "status")
+	exec.Command("convert", "--", r.FormValue("file"), "out.png")
+	exec.CommandContext(r.Context(), "git", "log", r.FormValue("ref"))
+	exec.CommandContext(r.Context(), "/bin/bash", "-c", r.FormValue("cmd")) // want "command-injection"
+	exec.Command(r.FormValue("tool"), "--version")                          // want "command-injection"
 	http.Get(r.FormValue("url")) // want "ssrf"
 	http.Get("https://api.example.com/items?q=" + r.FormValue("q"))
 	http.Redirect(w, r, r.FormValue("next"), http.StatusFound) // want "open-redirect"
@@ -169,4 +173,28 @@ func run(s *store.Store) {
 `,
 	}
 	testutil.RunTaintOnFiles(t, files, flow.RegistryFromConfig(cfg), flow.Options{})
+}
+
+func TestRegistryLocalSourcesTrustedForPaths(t *testing.T) {
+	t.Parallel()
+	runRegistry(t, `package app
+
+import (
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+)
+
+func cacheDir() string {
+	return filepath.Join(os.Getenv("GOMODCACHE"), "cache")
+}
+
+func open(w http.ResponseWriter, r *http.Request) {
+	os.ReadFile(filepath.Join(cacheDir(), "list"))
+	os.Open(os.Args[1])
+	os.Open(r.FormValue("file")) // want "path-traversal"
+	exec.Command("sh", "-c", os.Getenv("HOOK")).Run() // want "command-injection"
+}
+`)
 }

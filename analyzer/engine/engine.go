@@ -21,6 +21,7 @@ import (
 	"github.com/Voskan/codexsentinel/internal/matcher"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/packages"
 )
 
 // Run loads a workspace once and analyzes its packages with bounded concurrency.
@@ -36,6 +37,19 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	if err != nil {
 		return nil, err
 	}
+	issues, err := runPackageRules(ctx, ws, cfg)
+	if err != nil {
+		return nil, err
+	}
+	found, err := runWorkspaceAnalyses(ctx, ws, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return postProcess(ws, cfg, append(issues, found...)), nil
+}
+
+// runPackageRules runs the built-in and registered rules on every package.
+func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.Config) ([]result.Issue, error) {
 	workers := cfg.Scan.Concurrency
 	if workers <= 0 {
 		workers = runtime.NumCPU()
@@ -46,41 +60,12 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	var issues []result.Issue
 	for _, pkg := range ws.Packages {
 		group.Go(func() error {
-			if err := groupCtx.Err(); err != nil {
+			found, err := analyzePackage(groupCtx, ws, pkg, cfg)
+			if err != nil {
 				return err
 			}
-			ac := analyzer.NewAnalyzerContext(ws.Fset, pkg.TypesInfo, nil, "", pkg.PkgPath, nil)
-			ac.Cfg, ac.RootDir = cfg, ws.RootDir
-			pass := workspace.NewAnalysisPass(ws, pkg, func(d analysis.Diagnostic) {
-				ac.Report(result.Issue{ID: d.Category, Description: d.Message, Severity: result.SeverityMedium, Category: "security", Location: result.NewLocationFromPos(ws.Fset.Position(d.Pos), "", pkg.PkgPath)})
-			})
-			ac.Files = pass.Files
-			if len(pass.Files) == 0 {
-				return nil
-			}
-			ac.Filename = ws.Fset.Position(pass.Files[0].Pos()).Filename
-			registerBuiltinRules(ac)
-			for _, rule := range ac.Rules {
-				if err := groupCtx.Err(); err != nil {
-					return err
-				}
-				if rule.Matcher != nil && ruleEnabled(rule.ID, cfg) {
-					rule.Matcher(ac, pass)
-				}
-			}
-			for _, rule := range rules.All() {
-				if rule.Enabled && rule.Engine != nil && ruleEnabled(rule.ID, cfg) {
-					found, err := rule.Engine(ac)
-					if err != nil {
-						return fmt.Errorf("rule %s: %w", rule.ID, err)
-					}
-					for _, issue := range found {
-						ac.Report(issue)
-					}
-				}
-			}
 			mu.Lock()
-			issues = append(issues, ac.GetIssues()...)
+			issues = append(issues, found...)
 			mu.Unlock()
 			return nil
 		})
@@ -88,32 +73,80 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	if err := group.Wait(); err != nil {
 		return nil, err
 	}
-	var bundle *codessa.GraphBundle
+	return issues, nil
+}
+
+// analyzePackage runs the enabled package-level rules on one package.
+func analyzePackage(ctx context.Context, ws *workspace.Workspace, pkg *packages.Package, cfg *config.Config) ([]result.Issue, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ac := analyzer.NewAnalyzerContext(ws.Fset, pkg.TypesInfo, nil, "", pkg.PkgPath, nil)
+	ac.Cfg, ac.RootDir = cfg, ws.RootDir
+	pass := workspace.NewAnalysisPass(ws, pkg, func(d analysis.Diagnostic) {
+		ac.Report(result.Issue{ID: d.Category, Description: d.Message, Severity: result.SeverityMedium, Category: "security", Location: result.NewLocationFromPos(ws.Fset.Position(d.Pos), "", pkg.PkgPath)})
+	})
+	ac.Files = pass.Files
+	if len(pass.Files) == 0 {
+		return nil, nil
+	}
+	ac.Filename = ws.Fset.Position(pass.Files[0].Pos()).Filename
+	registerBuiltinRules(ac)
+	for _, rule := range ac.Rules {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if rule.Matcher != nil && ruleEnabled(rule.ID, cfg) {
+			rule.Matcher(ac, pass)
+		}
+	}
+	for _, rule := range rules.All() {
+		if !rule.Enabled || rule.Engine == nil || !ruleEnabled(rule.ID, cfg) {
+			continue
+		}
+		found, err := rule.Engine(ac)
+		if err != nil {
+			return nil, fmt.Errorf("rule %s: %w", rule.ID, err)
+		}
+		for _, issue := range found {
+			ac.Report(issue)
+		}
+	}
+	return ac.GetIssues(), nil
+}
+
+// runWorkspaceAnalyses runs the analyses that need the whole program: taint
+// tracking, dependency audit, architecture, metrics and the capability lock.
+// The SSA program is built once and shared between them.
+func runWorkspaceAnalyses(ctx context.Context, ws *workspace.Workspace, cfg *config.Config) ([]result.Issue, error) {
 	needReachability := cfg.Dependencies.Enable && cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability
 	capsLock := capabilityLockPath(ws, cfg)
 	needDeadCode := cfg.Metrics.Enable && cfg.Metrics.EnableDeadCode
+	var bundle *codessa.GraphBundle
 	if (cfg.Taint.Enable || needReachability || needDeadCode || capsLock != "") && len(ws.Packages) > 0 {
+		var err error
 		if bundle, err = codessa.BuildFromWorkspace(ws); err != nil {
 			return nil, fmt.Errorf("build SSA: %w", err)
 		}
 	}
+	var issues []result.Issue
+	add := func(found []result.Issue, err error) error {
+		issues = append(issues, found...)
+		return err
+	}
 	if cfg.Taint.Enable && bundle != nil {
-		found, err := runTaintAnalysis(ctx, ws, cfg, bundle)
-		if err != nil {
+		if err := add(runTaintAnalysis(ctx, ws, cfg, bundle)); err != nil {
 			return nil, err
 		}
-		issues = append(issues, found...)
 	}
 	if cfg.Dependencies.Enable && ws.GoModPath != "" {
 		depBundle := bundle
 		if !needReachability {
 			depBundle = nil
 		}
-		found, err := runDependencyAnalysis(ctx, ws, cfg, depBundle)
-		if err != nil {
+		if err := add(runDependencyAnalysis(ctx, ws, cfg, depBundle)); err != nil {
 			return nil, err
 		}
-		issues = append(issues, found...)
 	}
 	if cfg.Architecture.Enable {
 		issues = append(issues, arch.RunAll(ws, bundle, cfg.Architecture)...)
@@ -122,13 +155,10 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 		issues = append(issues, runMetricsAnalysis(ws, bundle, cfg)...)
 	}
 	if capsLock != "" && bundle != nil {
-		found, err := runCapabilityCheck(ws, bundle, capsLock)
-		if err != nil {
+		if err := add(runCapabilityCheck(ws, bundle, capsLock)); err != nil {
 			return nil, err
 		}
-		issues = append(issues, found...)
 	}
-	issues = postProcess(ws, cfg, issues)
 	return issues, nil
 }
 

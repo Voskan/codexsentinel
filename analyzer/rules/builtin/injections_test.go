@@ -122,6 +122,15 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	http.Get(r.FormValue("url")) // want "ssrf"
 }
 
+func fixedHostURL(r *http.Request) {
+	u := url.URL{Scheme: "https", Host: "avatars.example.com", Path: "/" + url.PathEscape(r.FormValue("user"))}
+	http.Get(u.String())
+	p := &url.URL{Scheme: "https", Host: "api.example.com", RawQuery: r.URL.RawQuery}
+	http.Get(p.String())
+	dynamic := url.URL{Scheme: "https", Host: r.FormValue("host")}
+	http.Get(dynamic.String()) // want "ssrf"
+}
+
 func validated(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() != "api.example.com" {

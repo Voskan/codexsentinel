@@ -21,7 +21,7 @@ var db *sql.DB
 
 func runIntra(t *testing.T, body string) {
 	t.Helper()
-	testutil.RunTaintAllModes(t, map[string]string{"app.go": intraHeader + body}, nil)
+	testutil.RunTaintBothModes(t, map[string]string{"app.go": intraHeader + body}, nil)
 }
 
 func TestIntraConcatenation(t *testing.T) {

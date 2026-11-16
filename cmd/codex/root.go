@@ -13,9 +13,9 @@ import (
 // NewRootCmd returns the root command of the CLI application.
 func NewRootCmd(ctx context.Context) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "codex",
+		Use:           "codex-cli",
 		Short:         "CodexSentinel - Static code and dependency security scanner",
-		Long:          `CodexSentinel is a powerful SAST and dependency analysis tool for Go projects.`,
+		Long:          `CodexSentinel finds security vulnerabilities, architecture violations, code quality problems and risky dependencies in Go modules.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

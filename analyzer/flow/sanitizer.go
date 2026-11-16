@@ -57,7 +57,7 @@ func builtinCategories() map[string]CategoryInfo {
 		"command-injection": {Title: "OS Command Injection", CWE: "CWE-78", OWASP: "A05:2025", Severity: result.SeverityCritical,
 			Suggestion: "Do not pass untrusted input to a shell; use a fixed executable with a validated allowlist of arguments.",
 			References: []string{"https://cwe.mitre.org/data/definitions/78.html"}},
-		"path-traversal": {Title: "Path Traversal", CWE: "CWE-22", OWASP: "A01:2025", Severity: result.SeverityHigh,
+		"path-traversal": {Title: "Path Traversal", CWE: "CWE-22", OWASP: "A01:2025", Severity: result.SeverityHigh, TrustLocalSources: true,
 			Suggestion: "Use os.OpenRoot(baseDir) (Go 1.24+) to confine filesystem access and prevent symlink/TOCTOU path traversal, or restrict to filepath.Base(name).",
 			References: []string{"https://cwe.mitre.org/data/definitions/22.html", "https://go.dev/blog/osroot"}},
 		"ssrf": {Title: "Server-Side Request Forgery", CWE: "CWE-918", OWASP: "A01:2025", Severity: result.SeverityHigh,

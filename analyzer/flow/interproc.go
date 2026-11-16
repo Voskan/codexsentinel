@@ -80,8 +80,6 @@ func (s *FuncSummary) signature() string {
 	return strings.Join(parts, ",")
 }
 
-func (s *FuncSummary) empty() bool { return s.signature() == "" }
-
 // fromState extracts return and out-parameter flows from a solved function state.
 func (s *FuncSummary) fromState(st *funcState) {
 	for root, n := range st.returns {

@@ -164,10 +164,6 @@ func (s *funcState) get(v ssa.Value) taintSet {
 	return s.values[v]
 }
 
-func (s *funcState) tainted(v ssa.Value) bool {
-	return len(s.get(v)) > 0
-}
-
 func (s *funcState) addNode(v ssa.Value, n *Node) {
 	if v == nil || n == nil || !carries(v.Type()) {
 		return
@@ -202,7 +198,8 @@ func (s *funcState) flow(to ssa.Value, from ssa.Value, step *Step) {
 	}
 }
 
-func (s *funcState) addSetTo(dst taintSet, set taintSet) bool {
+// merge adds the nodes of set that improve on dst and reports whether dst changed.
+func (dst taintSet) merge(set taintSet) bool {
 	changed := false
 	for root, n := range set {
 		if better(n, dst[root]) {
@@ -222,7 +219,7 @@ func (s *funcState) addField(key fieldKey, set taintSet) {
 		dst = taintSet{}
 		s.fields[key] = dst
 	}
-	if s.addSetTo(dst, set) {
+	if dst.merge(set) {
 		s.changed = true
 	}
 }
@@ -267,11 +264,15 @@ func (s *funcState) run() {
 	}
 }
 
-func (s *funcState) step(pos token.Pos, kind, format string, args ...any) *Step {
+func newStep(pos token.Pos, kind, format string, args ...any) *Step {
 	return &Step{Pos: pos, Kind: kind, Message: fmt.Sprintf(format, args...)}
 }
 
 func (s *funcState) transfer(instr ssa.Instruction) {
+	if v, from := passThrough(instr); from != nil {
+		s.flow(v, from, nil)
+		return
+	}
 	switch in := instr.(type) {
 	case *ssa.BinOp:
 		s.flow(in, in.X, nil)
@@ -287,22 +288,6 @@ func (s *funcState) transfer(instr ssa.Instruction) {
 		for _, edge := range in.Edges {
 			s.flow(in, edge, nil)
 		}
-	case *ssa.Convert:
-		s.flow(in, in.X, nil)
-	case *ssa.ChangeType:
-		s.flow(in, in.X, nil)
-	case *ssa.ChangeInterface:
-		s.flow(in, in.X, nil)
-	case *ssa.MakeInterface:
-		s.flow(in, in.X, nil)
-	case *ssa.TypeAssert:
-		s.flow(in, in.X, nil)
-	case *ssa.SliceToArrayPointer:
-		s.flow(in, in.X, nil)
-	case *ssa.MultiConvert:
-		s.flow(in, in.X, nil)
-	case *ssa.Extract:
-		s.flow(in, in.Tuple, nil)
 	case *ssa.FieldAddr:
 		s.fieldSource(in, in.X, in.Field)
 		s.flow(in, in.X, nil)
@@ -315,18 +300,6 @@ func (s *funcState) transfer(instr ssa.Instruction) {
 	case *ssa.Field:
 		s.fieldSource(in, in.X, in.Field)
 		s.flow(in, in.X, nil)
-	case *ssa.IndexAddr:
-		s.flow(in, in.X, nil)
-	case *ssa.Index:
-		s.flow(in, in.X, nil)
-	case *ssa.Lookup:
-		s.flow(in, in.X, nil)
-	case *ssa.Slice:
-		s.flow(in, in.X, nil)
-	case *ssa.Range:
-		s.flow(in, in.X, nil)
-	case *ssa.Next:
-		s.flow(in, in.Iter, nil)
 	case *ssa.Store:
 		s.store(in.Addr, in.Val, in.Pos())
 	case *ssa.MapUpdate:
@@ -338,13 +311,50 @@ func (s *funcState) transfer(instr ssa.Instruction) {
 		s.closure(in)
 	case *ssa.Return:
 		for _, r := range in.Results {
-			if s.addSetTo(s.returns, s.get(r)) {
+			if s.returns.merge(s.get(r)) {
 				s.changed = true
 			}
 		}
 	case ssa.CallInstruction:
 		s.call(in)
 	}
+}
+
+// passThrough returns the value defined by instructions that propagate the
+// taint of a single operand unchanged (conversions, extraction, indexing,
+// slicing and iteration), together with that operand.
+func passThrough(instr ssa.Instruction) (ssa.Value, ssa.Value) {
+	switch in := instr.(type) {
+	case *ssa.Convert:
+		return in, in.X
+	case *ssa.ChangeType:
+		return in, in.X
+	case *ssa.ChangeInterface:
+		return in, in.X
+	case *ssa.MakeInterface:
+		return in, in.X
+	case *ssa.TypeAssert:
+		return in, in.X
+	case *ssa.SliceToArrayPointer:
+		return in, in.X
+	case *ssa.MultiConvert:
+		return in, in.X
+	case *ssa.Extract:
+		return in, in.Tuple
+	case *ssa.IndexAddr:
+		return in, in.X
+	case *ssa.Index:
+		return in, in.X
+	case *ssa.Lookup:
+		return in, in.X
+	case *ssa.Slice:
+		return in, in.X
+	case *ssa.Range:
+		return in, in.X
+	case *ssa.Next:
+		return in, in.Iter
+	}
+	return nil, nil
 }
 
 func (s *funcState) store(addr, val ssa.Value, pos token.Pos) {
@@ -383,7 +393,7 @@ func (s *funcState) closure(mc *ssa.MakeClosure) {
 		if seeds[i] == nil {
 			seeds[i] = taintSet{}
 		}
-		if s.addSetTo(seeds[i], set) {
+		if seeds[i].merge(set) {
 			s.changed = true
 		}
 	}
@@ -526,8 +536,8 @@ func (s *funcState) defaultPropagation(instr ssa.CallInstruction, t target, know
 	}
 	if result != nil && carries(result.Type()) {
 		for _, in := range inputs {
-			if s.tainted(in) {
-				s.flow(result, in, s.step(pos, "propagation", "flows through %s", label))
+			if len(s.get(in)) > 0 {
+				s.flow(result, in, newStep(pos, "propagation", "flows through %s", label))
 			}
 		}
 	}
@@ -538,7 +548,7 @@ func (s *funcState) defaultPropagation(instr ssa.CallInstruction, t target, know
 		for _, prefix := range receiverWriters {
 			if strings.HasPrefix(t.name, prefix) {
 				for _, a := range args {
-					s.flow(recv, a, s.step(pos, "propagation", "written into receiver by %s", label))
+					s.flow(recv, a, newStep(pos, "propagation", "written into receiver by %s", label))
 				}
 				break
 			}
@@ -547,7 +557,7 @@ func (s *funcState) defaultPropagation(instr ssa.CallInstruction, t target, know
 	if outParamMethods[t.name] {
 		var tainted []ssa.Value
 		for _, in := range inputs {
-			if s.tainted(in) {
+			if len(s.get(in)) > 0 {
 				tainted = append(tainted, in)
 			}
 		}
@@ -557,7 +567,7 @@ func (s *funcState) defaultPropagation(instr ssa.CallInstruction, t target, know
 			}
 			for _, src := range tainted {
 				if src != a {
-					s.flow(a, src, s.step(pos, "propagation", "decoded into argument by %s", label))
+					s.flow(a, src, newStep(pos, "propagation", "decoded into argument by %s", label))
 				}
 			}
 		}

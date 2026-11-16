@@ -91,16 +91,6 @@ func (p *Pattern) Match(info *types.Info, candidate ast.Node, seed Bindings) (Bi
 	return b, true
 }
 
-// matchAST matches a pattern node against a candidate without type information.
-func matchAST(pattern, candidate ast.Node) (Bindings, bool) {
-	b := Bindings{}
-	m := matcher{}
-	if !m.match(reflect.ValueOf(pattern), reflect.ValueOf(candidate), b) {
-		return nil, false
-	}
-	return b, true
-}
-
 // astEqual reports whether two nodes are structurally identical, ignoring
 // positions and comments.
 func astEqual(a, b ast.Node) bool {
@@ -140,21 +130,7 @@ func metaName(v reflect.Value) (string, bool) {
 func (m matcher) match(p, c reflect.Value, b Bindings) bool {
 	if b != nil {
 		if name, ok := metaName(p); ok && name != ellipsis {
-			if c.Kind() == reflect.Interface {
-				if c.IsNil() {
-					return false
-				}
-				c = c.Elem()
-			}
-			node, ok := c.Interface().(ast.Node)
-			if !ok || reflect.ValueOf(node).IsNil() {
-				return false
-			}
-			if prev, seen := b[name]; seen {
-				return astEqual(prev, node)
-			}
-			b[name] = node
-			return true
+			return bindMeta(name, c, b)
 		}
 	}
 	if p.Kind() == reflect.Interface {
@@ -168,28 +144,64 @@ func (m matcher) match(p, c reflect.Value, b Bindings) bool {
 	}
 	switch p.Kind() {
 	case reflect.Pointer:
-		if p.IsNil() || c.IsNil() {
-			return p.IsNil() == c.IsNil()
-		}
-		if sel, ok := p.Interface().(*ast.SelectorExpr); ok && m.info != nil {
-			if csel, ok := c.Interface().(*ast.SelectorExpr); ok && m.packageSelector(sel, csel) {
-				return m.match(reflect.ValueOf(sel.Sel), reflect.ValueOf(csel.Sel), b)
-			}
-		}
-		return m.match(p.Elem(), c.Elem(), b)
+		return m.matchPointer(p, c, b)
 	case reflect.Struct:
-		for i := 0; i < p.NumField(); i++ {
-			ft := p.Type().Field(i).Type
-			if ft == posType || ft == objectType || ft == scopeType || ft == commentType {
-				continue
-			}
-			if !m.match(p.Field(i), c.Field(i), b) {
-				return false
-			}
-		}
-		return true
+		return m.matchStruct(p, c, b)
 	case reflect.Slice:
 		return m.matchList(p, c, b)
+	}
+	return scalarEqual(p, c)
+}
+
+// bindMeta binds metavariable name to the candidate node, or checks that a
+// repeated metavariable matches the node bound before.
+func bindMeta(name string, c reflect.Value, b Bindings) bool {
+	if c.Kind() == reflect.Interface {
+		if c.IsNil() {
+			return false
+		}
+		c = c.Elem()
+	}
+	node, ok := c.Interface().(ast.Node)
+	if !ok || reflect.ValueOf(node).IsNil() {
+		return false
+	}
+	if prev, seen := b[name]; seen {
+		return astEqual(prev, node)
+	}
+	b[name] = node
+	return true
+}
+
+func (m matcher) matchPointer(p, c reflect.Value, b Bindings) bool {
+	if p.IsNil() || c.IsNil() {
+		return p.IsNil() == c.IsNil()
+	}
+	if sel, ok := p.Interface().(*ast.SelectorExpr); ok && m.info != nil {
+		if csel, ok := c.Interface().(*ast.SelectorExpr); ok && m.packageSelector(sel, csel) {
+			return m.match(reflect.ValueOf(sel.Sel), reflect.ValueOf(csel.Sel), b)
+		}
+	}
+	return m.match(p.Elem(), c.Elem(), b)
+}
+
+// matchStruct compares the syntax fields of two nodes, ignoring positions,
+// comments and resolver objects.
+func (m matcher) matchStruct(p, c reflect.Value, b Bindings) bool {
+	for i := 0; i < p.NumField(); i++ {
+		switch p.Type().Field(i).Type {
+		case posType, objectType, scopeType, commentType:
+			continue
+		}
+		if !m.match(p.Field(i), c.Field(i), b) {
+			return false
+		}
+	}
+	return true
+}
+
+func scalarEqual(p, c reflect.Value) bool {
+	switch p.Kind() {
 	case reflect.String:
 		return p.String() == c.String()
 	case reflect.Bool:

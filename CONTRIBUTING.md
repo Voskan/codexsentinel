@@ -20,10 +20,10 @@ make lint         # golangci-lint run
 Before opening a pull request, run:
 
 ```bash
-gofmt -l .        # must print nothing
+gofmt -l $(go list -f '{{.Dir}}' ./...)   # must print nothing
 go vet ./...
 go test -race ./...
-go run ./cmd/codex-cli scan . --format json --out scan_reports/self.json
+go run ./cmd/codex-cli scan . --strict --severity medium --format json --out scan_reports/self.json
 ```
 
 The project scans itself in CI; a change must not introduce new findings.

@@ -91,7 +91,7 @@ func (c *GHSAClient) query(ctx context.Context, mod ModuleVersion) ([]Vulnerabil
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(body)) //codex:ignore ssrf -- c.URL is the configured GitHub GraphQL endpoint
 	if err != nil {
 		return nil, err
 	}

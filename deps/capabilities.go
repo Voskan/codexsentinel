@@ -69,110 +69,127 @@ func AnalyzeCapabilities(ws *workspace.Workspace, graph *codessa.GraphBundle) (*
 	if ws == nil || graph == nil || graph.Program == nil {
 		return nil, fmt.Errorf("capability analysis needs a loaded workspace and call graph")
 	}
-	modules := map[string]*packages.Module{}
+	a := &capabilityAnalysis{graph: graph, modules: map[string]*packages.Module{}, byModule: map[string]*moduleEvidence{}}
 	for _, pkg := range ws.AllPkgs {
 		if pkg.Module != nil {
-			modules[pkg.PkgPath] = pkg.Module
+			a.modules[pkg.PkgPath] = pkg.Module
 		}
 	}
-	external := func(fn *ssa.Function) (*packages.Module, bool) {
-		pkg := fn.Package()
-		if pkg == nil {
-			return nil, false
-		}
-		m := modules[pkg.Pkg.Path()]
-		return m, m != nil && !m.Main
-	}
+	a.collector = &capabilityCollector{graph: graph, memo: map[*ssa.Function][]capabilityHit{}, isStdlib: a.isStdlib}
 
 	reachable := graph.ReachableFrom(programRoots(graph))
-	isStdlib := func(fn *ssa.Function) bool {
-		pkg := fn.Package()
-		return pkg != nil && modules[pkg.Pkg.Path()] == nil && pkg.Pkg.Name() != "main"
-	}
-	c := &capabilityCollector{graph: graph, memo: map[*ssa.Function][]capabilityHit{}, isStdlib: isStdlib}
-	type acc struct {
-		version  string
-		evidence map[Capability]string
-	}
-	byModule := map[string]*acc{}
-	get := func(m *packages.Module) *acc {
-		a := byModule[m.Path]
-		if a == nil {
-			version := m.Version
-			if m.Replace != nil && m.Replace.Version != "" {
-				version = m.Replace.Version
-			}
-			a = &acc{version: version, evidence: map[Capability]string{}}
-			byModule[m.Path] = a
-		}
-		return a
-	}
-	record := func(a *acc, cap Capability, evidence string) {
-		if prev, ok := a.evidence[cap]; !ok || evidence < prev {
-			a.evidence[cap] = evidence
-		}
-	}
-	reachedPkgs := map[*ssa.Package]*packages.Module{}
 	fns := make([]*ssa.Function, 0, len(reachable))
 	for fn := range reachable {
 		fns = append(fns, fn)
 	}
 	sort.Slice(fns, func(i, j int) bool { return fns[i].String() < fns[j].String() })
+	reachedPkgs := map[*ssa.Package]*packages.Module{}
 	for _, fn := range fns {
-		m, ok := external(fn)
-		if !ok {
-			continue
-		}
-		a := get(m)
-		reachedPkgs[fn.Package()] = m
-		node := graph.CallGraph.Nodes[fn]
-		if node == nil {
-			continue
-		}
-		for _, e := range node.Out {
-			callee := e.Callee.Func
-			if callee == nil || !isStdlib(callee) || isPackageInit(callee) {
-				continue
-			}
-			for _, hit := range c.capabilities(callee, 0) {
-				record(a, hit.cap, displayName(fn)+" -> "+hit.path)
-			}
+		if m := a.externalModule(fn); m != nil {
+			reachedPkgs[fn.Package()] = m
+			a.scanCalls(fn, a.evidence(m))
 		}
 	}
 	for pkg, m := range reachedPkgs {
-		a := get(m)
-		for _, imp := range pkg.Pkg.Imports() {
-			var cap Capability
-			switch imp.Path() {
-			case "unsafe":
-				cap = CapUnsafe
-			case "runtime/cgo":
-				cap = CapCgo
-			case "plugin":
-				cap = CapPlugin
-			case "reflect":
-				cap = CapReflect
-			default:
-				continue
-			}
-			record(a, cap, pkg.Pkg.Path()+" imports "+imp.Path())
+		a.scanImports(pkg, a.evidence(m))
+	}
+	return a.report(), nil
+}
+
+// importCapabilities are the capabilities granted by importing a package.
+var importCapabilities = map[string]Capability{"unsafe": CapUnsafe, "runtime/cgo": CapCgo, "plugin": CapPlugin, "reflect": CapReflect}
+
+// capabilityAnalysis accumulates per-module capability evidence.
+type capabilityAnalysis struct {
+	graph     *codessa.GraphBundle
+	modules   map[string]*packages.Module
+	byModule  map[string]*moduleEvidence
+	collector *capabilityCollector
+}
+
+type moduleEvidence struct {
+	version  string
+	evidence map[Capability]string
+}
+
+// record keeps the lexically smallest evidence for deterministic output.
+func (e *moduleEvidence) record(cap Capability, evidence string) {
+	if prev, ok := e.evidence[cap]; !ok || evidence < prev {
+		e.evidence[cap] = evidence
+	}
+}
+
+// externalModule returns the dependency module that declares fn, or nil for
+// the main module and the standard library.
+func (a *capabilityAnalysis) externalModule(fn *ssa.Function) *packages.Module {
+	pkg := fn.Package()
+	if pkg == nil {
+		return nil
+	}
+	if m := a.modules[pkg.Pkg.Path()]; m != nil && !m.Main {
+		return m
+	}
+	return nil
+}
+
+func (a *capabilityAnalysis) isStdlib(fn *ssa.Function) bool {
+	pkg := fn.Package()
+	return pkg != nil && a.modules[pkg.Pkg.Path()] == nil && pkg.Pkg.Name() != "main"
+}
+
+func (a *capabilityAnalysis) evidence(m *packages.Module) *moduleEvidence {
+	e := a.byModule[m.Path]
+	if e == nil {
+		version := m.Version
+		if m.Replace != nil && m.Replace.Version != "" {
+			version = m.Replace.Version
+		}
+		e = &moduleEvidence{version: version, evidence: map[Capability]string{}}
+		a.byModule[m.Path] = e
+	}
+	return e
+}
+
+// scanCalls classifies the standard library calls made by fn.
+func (a *capabilityAnalysis) scanCalls(fn *ssa.Function, e *moduleEvidence) {
+	node := a.graph.CallGraph.Nodes[fn]
+	if node == nil {
+		return
+	}
+	for _, edge := range node.Out {
+		callee := edge.Callee.Func
+		if callee == nil || !a.isStdlib(callee) || isPackageInit(callee) {
+			continue
+		}
+		for _, hit := range a.collector.capabilities(callee, 0) {
+			e.record(hit.cap, displayName(fn)+" -> "+hit.path)
 		}
 	}
+}
 
+func (a *capabilityAnalysis) scanImports(pkg *ssa.Package, e *moduleEvidence) {
+	for _, imp := range pkg.Pkg.Imports() {
+		if cap, ok := importCapabilities[imp.Path()]; ok {
+			e.record(cap, pkg.Pkg.Path()+" imports "+imp.Path())
+		}
+	}
+}
+
+func (a *capabilityAnalysis) report() *CapabilityReport {
 	report := &CapabilityReport{}
-	for path, a := range byModule {
-		mc := ModuleCapabilities{Module: path, Version: a.version, Capabilities: []Capability{}}
-		for cap := range a.evidence {
+	for path, e := range a.byModule {
+		mc := ModuleCapabilities{Module: path, Version: e.version, Capabilities: []Capability{}}
+		for cap := range e.evidence {
 			mc.Capabilities = append(mc.Capabilities, cap)
 		}
 		slices.Sort(mc.Capabilities)
-		if len(a.evidence) > 0 {
-			mc.Evidence = a.evidence
+		if len(e.evidence) > 0 {
+			mc.Evidence = e.evidence
 		}
 		report.Modules = append(report.Modules, mc)
 	}
 	sort.Slice(report.Modules, func(i, j int) bool { return report.Modules[i].Module < report.Modules[j].Module })
-	return report, nil
+	return report
 }
 
 type capabilityHit struct {
@@ -204,7 +221,10 @@ func (c *capabilityCollector) capabilities(fn *ssa.Function, depth int) []capabi
 		if node := c.graph.CallGraph.Nodes[fn]; node != nil {
 			for _, e := range node.Out {
 				callee := e.Callee.Func
-				if callee == nil || e.Site == nil || e.Site.Common().IsInvoke() || !c.isStdlib(callee) || isPackageInit(callee) {
+				// Only static calls are followed: dynamic calls of function
+				// values inside the standard library (sync.Once.Do, sort.Slice,
+				// ...) resolve to every callback in the program.
+				if callee == nil || e.Site == nil || e.Site.Common().StaticCallee() == nil || !c.isStdlib(callee) || isPackageInit(callee) {
 					continue
 				}
 				for _, h := range c.capabilities(callee, depth+1) {
@@ -243,60 +263,69 @@ var (
 	osEnv  = map[string]bool{"Getenv": true, "LookupEnv": true, "Environ": true, "ExpandEnv": true}
 )
 
+// exactPrimitives maps fully qualified standard library functions and methods
+// to the capability they exercise.
+var exactPrimitives = map[string]Capability{
+	"syscall.Exec": CapExec, "syscall.ForkExec": CapExec, "syscall.StartProcess": CapExec,
+	"os.StartProcess": CapExec,
+	"plugin.Open":     CapPlugin,
+	"net/http.Get":    CapNetwork, "net/http.Post": CapNetwork, "net/http.Head": CapNetwork, "net/http.PostForm": CapNetwork,
+	"net/http.Serve": CapNetwork, "net/http.ServeTLS": CapNetwork,
+	"net/http.Client.Do": CapNetwork, "net/http.Client.Get": CapNetwork, "net/http.Client.Post": CapNetwork,
+	"net/http.Client.Head": CapNetwork, "net/http.Client.PostForm": CapNetwork,
+	"net/http.Server.Serve": CapNetwork, "net/http.Server.ServeTLS": CapNetwork,
+	"net/http.Transport.RoundTrip": CapNetwork,
+}
+
+// execStarters are the os/exec functions and Cmd methods that create or start
+// a process; error types and helpers such as LookPath do not.
+var execStarters = map[string]map[string]bool{
+	"":    {"Command": true, "CommandContext": true},
+	"Cmd": {"Start": true, "Run": true, "Output": true, "CombinedOutput": true},
+}
+
+// netDialers are the receivers of package net whose Dial, Listen and Lookup
+// methods open connections ("" stands for package-level functions).
+var netDialers = map[string]bool{"": true, "Dialer": true, "ListenConfig": true, "Resolver": true}
+
 // primitiveCapability classifies the standard library entry points that
 // perform privileged operations.
 func primitiveCapability(fn *ssa.Function) (Capability, bool) {
 	pkg, name := symbolOf(fn)
+	if c, ok := exactPrimitives[pkg+"."+name]; ok {
+		return c, true
+	}
 	recv, method, isMethod := strings.Cut(name, ".")
 	if !isMethod {
-		method = name
-		recv = ""
+		recv, method = "", name
 	}
 	dialing := strings.HasPrefix(method, "Dial") || strings.HasPrefix(method, "Listen") || strings.HasPrefix(method, "Lookup")
 	switch pkg {
 	case "os/exec":
-		if token.IsExported(method) {
-			return CapExec, true
-		}
-	case "syscall":
-		switch method {
-		case "Exec", "ForkExec", "StartProcess":
-			return CapExec, true
-		}
+		return CapExec, execStarters[recv][method]
 	case "os":
-		switch {
-		case recv == "" && method == "StartProcess":
-			return CapExec, true
-		case recv == "" && osWrite[method]:
-			return CapFSWrite, true
-		case recv == "" && osRead[method]:
-			return CapFSRead, true
-		case recv == "" && osEnv[method]:
-			return CapEnv, true
+		if recv == "" {
+			return osCapability(method)
 		}
 	case "net":
-		if dialing && (recv == "" || recv == "Dialer" || recv == "ListenConfig" || recv == "Resolver") {
-			return CapNetwork, true
-		}
+		return CapNetwork, dialing && netDialers[recv]
 	case "net/http":
-		switch {
-		case recv == "" && (method == "Get" || method == "Post" || method == "Head" || method == "PostForm" || strings.HasPrefix(method, "ListenAndServe") || method == "Serve" || method == "ServeTLS"):
-			return CapNetwork, true
-		case recv == "Client" && (method == "Do" || method == "Get" || method == "Post" || method == "Head" || method == "PostForm"):
-			return CapNetwork, true
-		case recv == "Server" && (strings.HasPrefix(method, "ListenAndServe") || method == "Serve" || method == "ServeTLS"):
-			return CapNetwork, true
-		case recv == "Transport" && method == "RoundTrip":
-			return CapNetwork, true
-		}
+		return CapNetwork, (recv == "" || recv == "Server") && strings.HasPrefix(method, "ListenAndServe")
 	case "net/rpc", "net/smtp", "crypto/tls":
-		if dialing || method == "SendMail" {
-			return CapNetwork, true
-		}
-	case "plugin":
-		if method == "Open" {
-			return CapPlugin, true
-		}
+		return CapNetwork, dialing || method == "SendMail"
+	}
+	return "", false
+}
+
+// osCapability classifies the package-level functions of package os.
+func osCapability(name string) (Capability, bool) {
+	switch {
+	case osWrite[name]:
+		return CapFSWrite, true
+	case osRead[name]:
+		return CapFSRead, true
+	case osEnv[name]:
+		return CapEnv, true
 	}
 	return "", false
 }

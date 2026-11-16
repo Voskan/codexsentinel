@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -173,6 +174,9 @@ func functionName(fn *ssa.Function) string {
 }
 
 func (a *analysis) record(f *Finding) {
+	if f.Node != nil && f.Node.Source.isLocal() && a.reg.Info(f.Category).TrustLocalSources {
+		return
+	}
 	key := findingKey{f.Category, f.Pos}
 	if _, ok := a.findings[key]; ok {
 		return
@@ -222,7 +226,7 @@ func (a *analysis) solve(st *funcState, depth int) {
 		child.collect = st.collect
 		for i, set := range seeds {
 			if i < len(anon.FreeVars) {
-				child.addSetTo(child.valuesFor(anon.FreeVars[i]), set)
+				child.valuesFor(anon.FreeVars[i]).merge(set)
 			}
 		}
 		a.solve(child, depth+1)
@@ -275,6 +279,9 @@ func (a *analysis) checkCall(st *funcState, instr ssa.CallInstruction) {
 			for i := range args {
 				indexes[i] = i
 			}
+		}
+		if spec.ShellArgs && len(indexes) > 1 && fixedProgram(args, indexes[0]) {
+			indexes = indexes[:1]
 		}
 		for _, idx := range indexes {
 			if idx < 0 || idx >= len(args) {
@@ -400,4 +407,20 @@ func constPrefix(v ssa.Value, depth int) string {
 		return common
 	}
 	return ""
+}
+
+// shellPrograms are interpreters whose arguments are executed as commands.
+var shellPrograms = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "cmd": true, "cmd.exe": true,
+	"powershell": true, "powershell.exe": true, "pwsh": true}
+
+// fixedProgram reports whether args[i] names a constant program other than a shell.
+func fixedProgram(args []ssa.Value, i int) bool {
+	if i >= len(args) {
+		return false
+	}
+	c, ok := args[i].(*ssa.Const)
+	if !ok || c.Value == nil || c.Value.Kind() != constant.String {
+		return false
+	}
+	return !shellPrograms[strings.ToLower(path.Base(constant.StringVal(c.Value)))]
 }

@@ -26,96 +26,50 @@ type EntropyFinding struct {
 func AnalyzeHighEntropyStrings(files []string, minLength int, threshold float64) ([]EntropyFinding, error) {
 	var findings []EntropyFinding
 	fset := token.NewFileSet()
-
+	add := func(val string, n ast.Node, pos token.Pos, isComment bool) {
+		if ent, ok := secretEntropy(val, n, minLength, threshold); ok {
+			p := fset.Position(pos)
+			findings = append(findings, EntropyFinding{Value: val, Entropy: ent, File: filepath.ToSlash(p.Filename), Line: p.Line, IsComment: isComment})
+		}
+	}
 	for _, path := range files {
 		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-
-		// Parse for string literals
 		node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
 		if err != nil {
 			continue
 		}
-
-		// Extract string literals with context analysis
 		ast.Inspect(node, func(n ast.Node) bool {
-			basic, ok := n.(*ast.BasicLit)
-			if !ok || basic.Kind != token.STRING {
-				return true
-			}
-
-			val := strings.Trim(basic.Value, "`\"'")
-			val = sanitize(val)
-
-			if len(val) < minLength {
-				return true
-			}
-
-			// Check if this is a safe pattern before calculating entropy
-			if isSafeEntropyPattern(val, n) {
-				return true
-			}
-
-			ent := shannonEntropy(val)
-			if ent >= threshold {
-				// Additional context check
-				if !isLikelySecret(val, n) {
-					return true
-				}
-
-				pos := fset.Position(basic.Pos())
-				findings = append(findings, EntropyFinding{
-					Value:     val,
-					Entropy:   ent,
-					File:      filepath.ToSlash(pos.Filename),
-					Line:      pos.Line,
-					IsComment: false,
-				})
+			if basic, ok := n.(*ast.BasicLit); ok && basic.Kind == token.STRING {
+				add(sanitize(strings.Trim(basic.Value, "`\"'")), n, basic.Pos(), false)
 			}
 			return true
 		})
-
-		// Also scan comments with improved filtering
 		for _, comment := range node.Comments {
 			for _, c := range comment.List {
-				words := strings.Fields(c.Text)
-				for _, word := range words {
-					word = strings.Trim(word, `"'`)
-					word = sanitize(word)
-
-					if len(word) < minLength {
-						continue
-					}
-
-					// Skip safe patterns in comments
-					if isSafeEntropyPattern(word, nil) {
-						continue
-					}
-
-					ent := shannonEntropy(word)
-					if ent >= threshold {
-						// Additional context check for comments
-						if !isLikelySecret(word, nil) {
-							continue
-						}
-
-						pos := fset.Position(comment.Pos())
-						findings = append(findings, EntropyFinding{
-							Value:     word,
-							Entropy:   ent,
-							File:      filepath.ToSlash(pos.Filename),
-							Line:      pos.Line,
-							IsComment: true,
-						})
-					}
+				for _, word := range strings.Fields(c.Text) {
+					add(sanitize(strings.Trim(word, `"'`)), nil, comment.Pos(), true)
 				}
 			}
 		}
 	}
-
 	return findings, nil
+}
+
+// secretEntropy returns the entropy of val and whether val looks like a
+// secret: long enough, not a known safe pattern, random enough and plausible
+// in its context. n is the string literal, or nil for words in comments.
+func secretEntropy(val string, n ast.Node, minLength int, threshold float64) (float64, bool) {
+	if len(val) < minLength || isSafeEntropyPattern(val, n) {
+		return 0, false
+	}
+	ent := shannonEntropy(val)
+	if ent < threshold || !isLikelySecret(val, n) {
+		return 0, false
+	}
+	return ent, true
 }
 
 // sanitize removes whitespace and non-printable characters from string.

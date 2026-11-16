@@ -147,9 +147,12 @@ func TestMatcherStatementAndHelpers(t *testing.T) {
 	if !astEqual(a, b) || astEqual(a, c) {
 		t.Fatal("astEqual ignores formatting but not values")
 	}
-	pat, _ := parser.ParseExpr(prepare("f($A, $...)"))
-	if b, ok := matchAST(pat, a); !ok || b["A"] == nil {
-		t.Fatalf("matchAST failed: %v", b)
+	pat, err := CompilePattern("f($A, $...)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, ok := pat.Match(nil, a, nil); !ok || b["A"] == nil {
+		t.Fatalf("untyped match failed: %v", b)
 	}
 	if _, err := CompilePattern("func ("); err == nil {
 		t.Fatal("invalid pattern accepted")

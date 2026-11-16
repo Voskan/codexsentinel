@@ -18,8 +18,14 @@ type GodStruct struct {
 	Pos       token.Position
 }
 
+// dataRecordMaxMethods is the number of methods up to which a struct is
+// treated as a plain data record (DTO, configuration or report row) whose
+// field count says nothing about accumulated responsibilities.
+const dataRecordMaxMethods = 2
+
 // AnalyzeGodStructs reports struct types of the analyzed packages, exported or
-// not, that declare more than maxMethods methods or maxFields fields.
+// not, that declare more than maxMethods methods, or more than maxFields fields
+// while also carrying behavior (more than dataRecordMaxMethods methods).
 func AnalyzeGodStructs(ws *workspace.Workspace, maxMethods, maxFields int) []GodStruct {
 	if maxMethods <= 0 {
 		maxMethods = 15
@@ -51,7 +57,7 @@ func AnalyzeGodStructs(ws *workspace.Workspace, maxMethods, maxFields int) []God
 				methods = append(methods, named.Method(i).Name())
 			}
 			sort.Strings(methods)
-			if len(methods) > maxMethods || st.NumFields() > maxFields {
+			if len(methods) > maxMethods || (st.NumFields() > maxFields && len(methods) > dataRecordMaxMethods) {
 				out = append(out, GodStruct{Name: name, PkgPath: pkg.PkgPath, MethodNum: len(methods), FieldNum: st.NumFields(), Methods: methods, Pos: ws.Fset.Position(tn.Pos())})
 			}
 		}

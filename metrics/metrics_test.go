@@ -116,6 +116,41 @@ func Bump() int {
 	}
 }
 
+func TestGlobalsSkipLockGuardedBlocks(t *testing.T) {
+	ws := loadWorkspace(t, map[string]string{"lib/lib.go": `package lib
+
+import "sync"
+
+var (
+	mu       sync.Mutex
+	registry = map[string]int{}
+)
+
+var (
+	once   sync.Once
+	logger *int
+)
+
+var unguarded = map[string]int{}
+
+func Register(name string) {
+	mu.Lock()
+	defer mu.Unlock()
+	registry[name] = len(registry)
+	unguarded[name]++
+}
+
+func Init(v int) { once.Do(func() { logger = &v }) }
+`})
+	var names []string
+	for _, g := range AnalyzeGlobals(ws) {
+		names = append(names, g.Name)
+	}
+	if fmt.Sprint(names) != "[unguarded]" {
+		t.Fatalf("globals = %v, want [unguarded]", names)
+	}
+}
+
 func duplicatedSource(lines int) string {
 	var b strings.Builder
 	b.WriteString("package p\n\n")

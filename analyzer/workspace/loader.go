@@ -42,23 +42,12 @@ func Load(ctx context.Context, targetPath string, cfg *config.Config) (*Workspac
 	if err := config.Validate(cfg); err != nil {
 		return nil, err
 	}
-	targetPath = strings.TrimSuffix(filepath.ToSlash(targetPath), "/...")
-	if targetPath == "" {
-		targetPath = "."
-	}
-	target, err := filepath.Abs(targetPath)
+	target, isDir, err := resolveTarget(targetPath)
 	if err != nil {
 		return nil, err
 	}
-	stat, err := os.Stat(target)
-	if err != nil {
-		return nil, fmt.Errorf("stat analysis target: %w", err)
-	}
 	dir := target
-	if !stat.IsDir() {
-		if filepath.Ext(target) != ".go" {
-			return nil, fmt.Errorf("analysis target must be a Go file or directory: %s", target)
-		}
+	if !isDir {
 		dir = filepath.Dir(target)
 	}
 	mod := findGoMod(dir)
@@ -67,7 +56,7 @@ func Load(ctx context.Context, targetPath string, cfg *config.Config) (*Workspac
 		root = filepath.Dir(mod)
 	}
 	ws := &Workspace{RootDir: root, GoModPath: mod, Fset: token.NewFileSet(), files: make(map[*packages.Package][]*ast.File)}
-	if mod == "" && !stat.IsDir() {
+	if mod == "" && !isDir {
 		return loadFile(ctx, ws, target, cfg)
 	}
 	if mod == "" {
@@ -78,7 +67,7 @@ func Load(ctx context.Context, targetPath string, cfg *config.Config) (*Workspac
 		return nil, err
 	}
 	pattern := "./" + filepath.ToSlash(rel)
-	if stat.IsDir() {
+	if isDir {
 		pattern += "/..."
 	}
 	mode := packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedTypesSizes | packages.NeedModule
@@ -89,6 +78,37 @@ func Load(ctx context.Context, targetPath string, cfg *config.Config) (*Workspac
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if err := ws.collectPackages(loaded); err != nil {
+		return nil, err
+	}
+	ws.selectPackages(loaded, target, isDir, cfg)
+	return ws, nil
+}
+
+// resolveTarget returns the absolute analysis target and whether it is a
+// directory. A file target must be a Go source file.
+func resolveTarget(targetPath string) (string, bool, error) {
+	targetPath = strings.TrimSuffix(filepath.ToSlash(targetPath), "/...")
+	if targetPath == "" {
+		targetPath = "."
+	}
+	target, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", false, err
+	}
+	stat, err := os.Stat(target)
+	if err != nil {
+		return "", false, fmt.Errorf("stat analysis target: %w", err)
+	}
+	if !stat.IsDir() && filepath.Ext(target) != ".go" {
+		return "", false, fmt.Errorf("analysis target must be a Go file or directory: %s", target)
+	}
+	return target, stat.IsDir(), nil
+}
+
+// collectPackages records the loaded packages and their dependencies, and
+// fails when any of them has load errors.
+func (ws *Workspace) collectPackages(loaded []*packages.Package) error {
 	seen := map[*packages.Package]bool{}
 	var loadErrors []string
 	packages.Visit(loaded, func(pkg *packages.Package) bool {
@@ -103,15 +123,22 @@ func Load(ctx context.Context, targetPath string, cfg *config.Config) (*Workspac
 		return true
 	}, nil)
 	if len(loadErrors) > 0 {
-		return nil, fmt.Errorf("load Go packages:\n%s", strings.Join(loadErrors, "\n"))
+		return fmt.Errorf("load Go packages:\n%s", strings.Join(loadErrors, "\n"))
 	}
-	// With tests enabled, the augmented variant already contains production files.
+	sort.Slice(ws.AllPkgs, func(i, j int) bool { return ws.AllPkgs[i].ID < ws.AllPkgs[j].ID })
+	return nil
+}
+
+// selectPackages picks one variant of every package that has files to
+// analyze. With tests enabled, the augmented variant already contains the
+// production files.
+func (ws *Workspace) selectPackages(loaded []*packages.Package, target string, isDir bool, cfg *config.Config) {
 	selected := map[string]*packages.Package{}
 	for _, pkg := range loaded {
 		if pkg.Name == "main" && strings.HasSuffix(pkg.PkgPath, ".test") {
 			continue
 		}
-		files := selectFiles(ws, pkg, target, stat.IsDir(), cfg)
+		files := selectFiles(ws, pkg, target, isDir, cfg)
 		if len(files) == 0 {
 			continue
 		}
@@ -125,8 +152,6 @@ func Load(ctx context.Context, targetPath string, cfg *config.Config) (*Workspac
 		ws.Packages = append(ws.Packages, pkg)
 	}
 	sort.Slice(ws.Packages, func(i, j int) bool { return ws.Packages[i].ID < ws.Packages[j].ID })
-	sort.Slice(ws.AllPkgs, func(i, j int) bool { return ws.AllPkgs[i].ID < ws.AllPkgs[j].ID })
-	return ws, nil
 }
 
 // ProjectRoot returns the directory that findings of an analysis of target

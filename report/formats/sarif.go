@@ -115,75 +115,9 @@ func BuildSARIF(issues []report.Issue, gitMeta *report.GitMetadata) ([]byte, err
 	results := make([]sarifResult, 0, len(issues))
 	ruleMap := map[string]sarifRule{}
 	for _, i := range issues {
-		res := sarifResult{
-			RuleID:    i.RuleID,
-			Level:     severityToLevel(i.Severity),
-			Message:   sarifText{Text: firstNonEmpty(i.Description, i.Title)},
-			Locations: []sarifLocation{physical(i.File, i.Line, i.Column, i.EndLine, i.EndColumn, "")},
-		}
-		if len(i.Trace) > 0 {
-			flow := sarifThreadFlow{}
-			for _, step := range i.Trace {
-				loc := physical(step.Location.File, step.Location.Line, step.Location.Column, step.Location.EndLine, step.Location.EndColumn, step.Message)
-				tfl := sarifThreadFlowLocation{Location: loc}
-				if step.Kind != "" {
-					tfl.Kinds = []string{step.Kind}
-				}
-				flow.Locations = append(flow.Locations, tfl)
-			}
-			res.CodeFlows = []sarifCodeFlow{{ThreadFlows: []sarifThreadFlow{flow}}}
-		}
-		if i.Fix != nil && len(i.Fix.Edits) > 0 {
-			res.Fixes = []sarifFix{toSARIFFix(i.Fix)}
-		}
-		if i.Fingerprint != "" {
-			res.PartialFingerprints = map[string]string{"primaryLocationLineHash": i.Fingerprint, "codexsentinel/v1": i.Fingerprint}
-		}
-		props := map[string]any{}
-		if i.Confidence > 0 {
-			props["confidence"] = i.Confidence
-		}
-		if i.Category != "" {
-			props["category"] = i.Category
-		}
-		if i.Reachable != nil {
-			props["reachable"] = *i.Reachable
-		}
-		if len(props) > 0 {
-			res.Properties = props
-		}
-		results = append(results, res)
-
+		results = append(results, sarifResultFor(i))
 		if _, exists := ruleMap[i.RuleID]; !exists {
-			rule := sarifRule{
-				ID:        i.RuleID,
-				Name:      firstNonEmpty(i.Title, i.RuleID),
-				ShortDesc: sarifText{Text: firstNonEmpty(i.Title, i.RuleID)},
-				FullDesc:  sarifText{Text: firstNonEmpty(i.Description, i.Title, i.RuleID)},
-				HelpURI:   i.Reference,
-			}
-			if i.Suggestion != "" {
-				rule.Help = &sarifText{Text: i.Suggestion}
-			}
-			ruleProps := map[string]any{"problem.severity": severityToLevel(i.Severity)}
-			var tags []string
-			if i.Category != "" {
-				tags = append(tags, i.Category)
-			}
-			if i.CWE != "" {
-				tags = append(tags, "external/cwe/"+i.CWE)
-			}
-			if i.OWASP != "" {
-				tags = append(tags, "owasp/"+i.OWASP)
-			}
-			if len(tags) > 0 {
-				ruleProps["tags"] = tags
-			}
-			if score, ok := securitySeverity[i.Severity]; ok && i.Category == "security" {
-				ruleProps["security-severity"] = score
-			}
-			rule.Properties = ruleProps
-			ruleMap[i.RuleID] = rule
+			ruleMap[i.RuleID] = sarifRuleFor(i)
 		}
 	}
 
@@ -216,6 +150,82 @@ func BuildSARIF(issues []report.Issue, gitMeta *report.GitMetadata) ([]byte, err
 		return nil, fmt.Errorf("failed to marshal SARIF report: %w", err)
 	}
 	return data, nil
+}
+
+// sarifResultFor converts one issue into a SARIF result with its data flow,
+// fix and fingerprint.
+func sarifResultFor(i report.Issue) sarifResult {
+	res := sarifResult{
+		RuleID:    i.RuleID,
+		Level:     severityToLevel(i.Severity),
+		Message:   sarifText{Text: firstNonEmpty(i.Description, i.Title)},
+		Locations: []sarifLocation{physical(i.File, i.Line, i.Column, i.EndLine, i.EndColumn, "")},
+	}
+	if len(i.Trace) > 0 {
+		flow := sarifThreadFlow{}
+		for _, step := range i.Trace {
+			loc := physical(step.Location.File, step.Location.Line, step.Location.Column, step.Location.EndLine, step.Location.EndColumn, step.Message)
+			tfl := sarifThreadFlowLocation{Location: loc}
+			if step.Kind != "" {
+				tfl.Kinds = []string{step.Kind}
+			}
+			flow.Locations = append(flow.Locations, tfl)
+		}
+		res.CodeFlows = []sarifCodeFlow{{ThreadFlows: []sarifThreadFlow{flow}}}
+	}
+	if i.Fix != nil && len(i.Fix.Edits) > 0 {
+		res.Fixes = []sarifFix{toSARIFFix(i.Fix)}
+	}
+	if i.Fingerprint != "" {
+		res.PartialFingerprints = map[string]string{"primaryLocationLineHash": i.Fingerprint, "codexsentinel/v1": i.Fingerprint}
+	}
+	props := map[string]any{}
+	if i.Confidence > 0 {
+		props["confidence"] = i.Confidence
+	}
+	if i.Category != "" {
+		props["category"] = i.Category
+	}
+	if i.Reachable != nil {
+		props["reachable"] = *i.Reachable
+	}
+	if len(props) > 0 {
+		res.Properties = props
+	}
+	return res
+}
+
+// sarifRuleFor describes the rule that produced an issue.
+func sarifRuleFor(i report.Issue) sarifRule {
+	rule := sarifRule{
+		ID:        i.RuleID,
+		Name:      firstNonEmpty(i.Title, i.RuleID),
+		ShortDesc: sarifText{Text: firstNonEmpty(i.Title, i.RuleID)},
+		FullDesc:  sarifText{Text: firstNonEmpty(i.Description, i.Title, i.RuleID)},
+		HelpURI:   i.Reference,
+	}
+	if i.Suggestion != "" {
+		rule.Help = &sarifText{Text: i.Suggestion}
+	}
+	ruleProps := map[string]any{"problem.severity": severityToLevel(i.Severity)}
+	var tags []string
+	if i.Category != "" {
+		tags = append(tags, i.Category)
+	}
+	if i.CWE != "" {
+		tags = append(tags, "external/cwe/"+i.CWE)
+	}
+	if i.OWASP != "" {
+		tags = append(tags, "owasp/"+i.OWASP)
+	}
+	if len(tags) > 0 {
+		ruleProps["tags"] = tags
+	}
+	if score, ok := securitySeverity[i.Severity]; ok && i.Category == "security" {
+		ruleProps["security-severity"] = score
+	}
+	rule.Properties = ruleProps
+	return rule
 }
 
 // WriteSARIFReport converts the internal issues into SARIF format and writes to file.

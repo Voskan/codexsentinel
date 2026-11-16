@@ -25,9 +25,9 @@ func buildBundle(t testing.TB, fx *Fixture) *codessa.GraphBundle {
 	return bundle
 }
 
-// RunTaintAllModes checks `// want` annotations in both intraprocedural and
+// RunTaintBothModes checks `// want` annotations in both intraprocedural and
 // interprocedural modes, building SSA only once.
-func RunTaintAllModes(t testing.TB, files map[string]string, reg *flow.Registry) {
+func RunTaintBothModes(t testing.TB, files map[string]string, reg *flow.Registry) {
 	t.Helper()
 	fx := LoadFixture(t, files, nil)
 	bundle := buildBundle(t, fx)

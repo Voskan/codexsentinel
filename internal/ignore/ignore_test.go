@@ -20,9 +20,9 @@ func TestRepositoryIgnoreFile(t *testing.T) {
 		{"a/b/foo.pb.go", "anything", true},
 		{"vendor/pkg/x.go", "xss", true},
 		{"sub/testdata/xss.go", "sql-injection", true},
-		{"pkg/service/user.go", "global-variable", true},
+		{"pkg/service/user.go", "global-variable", false},
 		{"pkg/service/user.go", "sql-injection", false},
-		{".idea/workspace.xml", "sql-injection", true},
+		{"bin/codex-cli", "sql-injection", true},
 	}
 	for _, c := range cases {
 		if got := m.IsIgnored(c.file, 10, c.rule); got != c.want {

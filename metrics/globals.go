@@ -31,6 +31,8 @@ var errorType = types.Universe.Lookup("error").Type().Underlying().(*types.Inter
 // mutable shared state. Idiomatic immutable package values are not reported:
 // constants, sentinel errors, compiled regular expressions, embedded file
 // systems, synchronization primitives and lookup tables that are never written.
+// Variables declared in one var block together with a sync.Mutex, sync.RWMutex
+// or sync.Once are treated as guarded by it and are not reported either.
 func AnalyzeGlobals(ws *workspace.Workspace) []GlobalSymbol {
 	writes := globalWrites(ws)
 	var results []GlobalSymbol
@@ -41,7 +43,7 @@ func AnalyzeGlobals(ws *workspace.Workspace) []GlobalSymbol {
 			}
 			for _, decl := range file.Decls {
 				gen, ok := decl.(*ast.GenDecl)
-				if !ok || gen.Tok != token.VAR {
+				if !ok || gen.Tok != token.VAR || guardedBlock(pkg.TypesInfo, gen) {
 					continue
 				}
 				for _, spec := range gen.Specs {
@@ -90,6 +92,31 @@ func mutableGlobals(fset *token.FileSet, pkg *packages.Package, spec *ast.ValueS
 		})
 	}
 	return out
+}
+
+// guardedBlock reports whether a parenthesized var block declares a lock or a
+// sync.Once, the idiom for package state that is only accessed under it.
+func guardedBlock(info *types.Info, gen *ast.GenDecl) bool {
+	if !gen.Lparen.IsValid() {
+		return false
+	}
+	for _, spec := range gen.Specs {
+		for _, name := range spec.(*ast.ValueSpec).Names {
+			v, ok := info.Defs[name].(*types.Var)
+			if !ok {
+				continue
+			}
+			named, ok := v.Type().(*types.Named)
+			if !ok || named.Obj().Pkg() == nil || named.Obj().Pkg().Path() != "sync" {
+				continue
+			}
+			switch named.Obj().Name() {
+			case "Mutex", "RWMutex", "Once":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // immutableValue reports whether a package variable follows an idiom for

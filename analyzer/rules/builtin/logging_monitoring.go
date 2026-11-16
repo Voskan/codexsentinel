@@ -79,59 +79,100 @@ func loggerArgs(info *types.Info, call *ast.CallExpr) (loggerKind, []logArg, boo
 	if fn == nil || fn.Pkg() == nil {
 		return 0, nil, false
 	}
-	a := call.Args
-	from := func(i int) []ast.Expr {
-		if i >= len(a) {
-			return nil
-		}
-		return a[i:]
-	}
+	l := logCall{info: info, fn: fn, args: call.Args}
 	switch fn.Pkg().Path() {
 	case "log/slog":
-		switch {
-		case nameIn(fn.Name(), slogLevels):
-			return loggerSlog, keyValues(info, from(1)), true
-		case nameIn(fn.Name(), slogCtxLevels):
-			return loggerSlog, keyValues(info, from(2)), true
-		case fn.Name() == "Log" || fn.Name() == "LogAttrs":
-			return loggerSlog, keyValues(info, from(3)), true
-		case fn.Name() == "With":
-			return loggerSlog, keyValues(info, a), true
-		case recvOf(fn) == nil && nameIn(fn.Name(), []string{"Any", "String"}) && len(a) == 2:
-			return loggerSlog, []logArg{{key: constKey(info, a[0]), expr: a[1]}}, true
-		}
+		return l.slog()
 	case zapPkg:
-		switch {
-		case recvOf(fn) == nil && nameIn(fn.Name(), zapFields) && len(a) == 2:
-			kind := loggerZap
-			if fn.Name() == "Reflect" {
-				kind = loggerZapReflect
-			}
-			return kind, []logArg{{key: constKey(info, a[0]), expr: a[1]}}, true
-		case isMethod(fn, zapPkg, "SugaredLogger") && nameIn(fn.Name(), sugarKV):
-			if fn.Name() == "With" {
-				return loggerZap, keyValues(info, a), true
-			}
-			return loggerZap, keyValues(info, from(1)), true
-		case isMethod(fn, zapPkg, "SugaredLogger") && nameIn(fn.Name(), sugarArgs):
-			return loggerFmt, plainValues(a), true
-		case isMethod(fn, zapPkg, "SugaredLogger") && nameIn(fn.Name(), sugarFormat) && len(a) > 0:
-			return loggerFmt, formatValues(info, a[0], from(1)), true
-		}
+		return l.zap()
 	case zerologPkg:
-		switch {
-		case (isMethod(fn, zerologPkg, "Event") || isMethod(fn, zerologPkg, "Context")) && nameIn(fn.Name(), zerologFields) && len(a) == 2:
-			return loggerZerolog, []logArg{{key: constKey(info, a[0]), expr: a[1]}}, true
-		case isMethod(fn, zerologPkg, "Event", "Msgf") && len(a) > 0:
-			return loggerFmt, formatValues(info, a[0], from(1)), true
-		}
+		return l.zerolog()
 	case "log":
-		switch {
-		case nameIn(fn.Name(), stdArgs):
-			return loggerFmt, plainValues(a), true
-		case nameIn(fn.Name(), stdFormat) && len(a) > 0:
-			return loggerFmt, formatValues(info, a[0], from(1)), true
+		return l.std()
+	}
+	return 0, nil, false
+}
+
+// logCall is a call into a logging package.
+type logCall struct {
+	info *types.Info
+	fn   *types.Func
+	args []ast.Expr
+}
+
+// from returns the arguments starting at index i.
+func (l logCall) from(i int) []ast.Expr {
+	if i >= len(l.args) {
+		return nil
+	}
+	return l.args[i:]
+}
+
+// field returns the value of a (key, value) field constructor.
+func (l logCall) field() []logArg {
+	return []logArg{{key: constKey(l.info, l.args[0]), expr: l.args[1]}}
+}
+
+func (l logCall) slog() (loggerKind, []logArg, bool) {
+	name := l.fn.Name()
+	switch {
+	case nameIn(name, slogLevels):
+		return loggerSlog, keyValues(l.info, l.from(1)), true
+	case nameIn(name, slogCtxLevels):
+		return loggerSlog, keyValues(l.info, l.from(2)), true
+	case name == "Log" || name == "LogAttrs":
+		return loggerSlog, keyValues(l.info, l.from(3)), true
+	case name == "With":
+		return loggerSlog, keyValues(l.info, l.args), true
+	case recvOf(l.fn) == nil && nameIn(name, []string{"Any", "String"}) && len(l.args) == 2:
+		return loggerSlog, l.field(), true
+	}
+	return 0, nil, false
+}
+
+func (l logCall) zap() (loggerKind, []logArg, bool) {
+	name := l.fn.Name()
+	if recvOf(l.fn) == nil {
+		if !nameIn(name, zapFields) || len(l.args) != 2 {
+			return 0, nil, false
 		}
+		if name == "Reflect" {
+			return loggerZapReflect, l.field(), true
+		}
+		return loggerZap, l.field(), true
+	}
+	if !isMethod(l.fn, zapPkg, "SugaredLogger") {
+		return 0, nil, false
+	}
+	switch {
+	case name == "With":
+		return loggerZap, keyValues(l.info, l.args), true
+	case nameIn(name, sugarKV):
+		return loggerZap, keyValues(l.info, l.from(1)), true
+	case nameIn(name, sugarArgs):
+		return loggerFmt, plainValues(l.args), true
+	case nameIn(name, sugarFormat) && len(l.args) > 0:
+		return loggerFmt, formatValues(l.info, l.args[0], l.from(1)), true
+	}
+	return 0, nil, false
+}
+
+func (l logCall) zerolog() (loggerKind, []logArg, bool) {
+	switch {
+	case (isMethod(l.fn, zerologPkg, "Event") || isMethod(l.fn, zerologPkg, "Context")) && nameIn(l.fn.Name(), zerologFields) && len(l.args) == 2:
+		return loggerZerolog, l.field(), true
+	case isMethod(l.fn, zerologPkg, "Event", "Msgf") && len(l.args) > 0:
+		return loggerFmt, formatValues(l.info, l.args[0], l.from(1)), true
+	}
+	return 0, nil, false
+}
+
+func (l logCall) std() (loggerKind, []logArg, bool) {
+	switch {
+	case nameIn(l.fn.Name(), stdArgs):
+		return loggerFmt, plainValues(l.args), true
+	case nameIn(l.fn.Name(), stdFormat) && len(l.args) > 0:
+		return loggerFmt, formatValues(l.info, l.args[0], l.from(1)), true
 	}
 	return 0, nil, false
 }

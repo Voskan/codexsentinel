@@ -1,6 +1,7 @@
 package arch
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -159,5 +160,20 @@ func TestArchImportCycles(t *testing.T) {
 	}
 	if len(AnalyzeImportCycles([]*packages.Package{d})) != 1 {
 		t.Fatal("cycle reachable through imports not found")
+	}
+}
+
+func TestGodStructIgnoresDataRecords(t *testing.T) {
+	t.Parallel()
+	var fields strings.Builder
+	for i := 0; i < 25; i++ {
+		fmt.Fprintf(&fields, "\tF%d int\n", i)
+	}
+	src := "package p\n\ntype Record struct {\n" + fields.String() + "}\n\nfunc (Record) String() string { return \"\" }\n\n" +
+		"type Service struct {\n" + fields.String() + "}\n\nfunc (Service) A() {}\nfunc (Service) B() {}\nfunc (Service) C() {}\n"
+	fx := testutil.LoadFixture(t, map[string]string{"go.mod": "module example.com/p\n\ngo 1.24\n", "p.go": src}, nil)
+	gods := AnalyzeGodStructs(fx.Workspace, 15, 20)
+	if len(gods) != 1 || gods[0].Name != "Service" || gods[0].FieldNum != 25 {
+		t.Fatalf("god structs = %+v", gods)
 	}
 }

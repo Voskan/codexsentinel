@@ -31,7 +31,9 @@ architecture:
   god_struct_max_fields: 20
 metrics:
   enable: true
-  max_cyclomatic: 15
+  # Project policy: the default limit is 15; this repository allows up to 30
+  # (the golangci-lint gocyclo default) for AST visitors and rule tables.
+  max_cyclomatic: 30
   max_function_loc: 80
   max_file_loc: 600
   min_duplicate_loc: 10
@@ -50,7 +52,7 @@ dependencies:
 suppression:
   ignore_file: .codexsentinel.ignore
   enable_inline_ignore: true
-  require_ignore_reason: false
+  require_ignore_reason: true
   min_confidence: 0.5
 report:
   formats: [sarif]

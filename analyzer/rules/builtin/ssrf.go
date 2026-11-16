@@ -47,7 +47,9 @@ func RegisterSSRFRule(ctx *analyzer.AnalyzerContext) {
 						return true
 					}
 					if !validated {
-						r.report(ssrfMeta, arg, "Outbound request uses a non-constant URL without host validation.")
+						// Without evidence that the URL is attacker-controlled this is a
+						// hardening hint; flows from request input are reported above.
+						r.reportWith(ssrfMeta, arg, "Outbound request uses a non-constant URL without host validation.", result.SeverityLow, nil)
 					}
 					return true
 				})
@@ -87,6 +89,42 @@ func validatesHost(info *types.Info, body ast.Node) bool {
 	return found
 }
 
+// fixedURLHost reports whether e is a url.URL value, or a pointer to one,
+// built from a composite literal with a constant non-empty Host.
+func fixedURLHost(info *types.Info, e ast.Expr, assigns map[types.Object][]ast.Expr, depth int) bool {
+	if depth > 6 {
+		return false
+	}
+	switch x := ast.Unparen(e).(type) {
+	case *ast.UnaryExpr:
+		return x.Op == token.AND && fixedURLHost(info, x.X, assigns, depth+1)
+	case *ast.CompositeLit:
+		if !typeIs(typeOf(info, x), "net/url", "URL") {
+			return false
+		}
+		for _, elt := range x.Elts {
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Host" {
+					host, ok := constString(info, kv.Value)
+					return ok && host != ""
+				}
+			}
+		}
+	case *ast.Ident:
+		obj, ok := info.Uses[x].(*types.Var)
+		if !ok || len(assigns[obj]) == 0 {
+			return false
+		}
+		for _, rhs := range assigns[obj] {
+			if !fixedURLHost(info, rhs, assigns, depth+1) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // hasFixedHost reports whether the URL starts with a constant scheme and host.
 func hasFixedHost(info *types.Info, e ast.Expr, assigns map[types.Object][]ast.Expr, depth int) bool {
 	if depth > 6 {
@@ -104,10 +142,14 @@ func hasFixedHost(info *types.Info, e ast.Expr, assigns map[types.Object][]ast.E
 		}
 		return hasFixedHost(info, x.X, assigns, depth+1)
 	case *ast.CallExpr:
-		if isFunc(calleeFunc(info, x), "fmt", "Sprintf") && len(x.Args) > 0 {
+		fn := calleeFunc(info, x)
+		if isFunc(fn, "fmt", "Sprintf") && len(x.Args) > 0 {
 			if format, ok := constString(info, x.Args[0]); ok {
 				return fixedHost.MatchString(format)
 			}
+		}
+		if sel, ok := ast.Unparen(x.Fun).(*ast.SelectorExpr); ok && isMethod(fn, "net/url", "URL", "String") {
+			return fixedURLHost(info, sel.X, assigns, depth+1)
 		}
 	case *ast.Ident:
 		if obj, ok := info.Uses[x].(*types.Var); ok && len(assigns[obj]) > 0 {

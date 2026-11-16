@@ -44,6 +44,10 @@ type SinkSpec struct {
 	Function  string
 	CheckArgs []int // Effective argument indexes (receiver excluded).
 	AllArgs   bool  // Check every effective argument.
+	// ShellArgs limits the check to the first index of CheckArgs (the program
+	// name) when that argument is a constant other than a shell: arguments
+	// passed to a fixed program cannot inject commands.
+	ShellArgs bool
 	// WriterArg, when >= 0, requires that effective argument to be an http.ResponseWriter.
 	WriterArg int
 	// Conversion marks a type conversion sink (Function is the target type name).
@@ -68,6 +72,25 @@ type CategoryInfo struct {
 	Severity   result.Severity
 	Suggestion string
 	References []string
+	// TrustLocalSources ignores flows from sources controlled by whoever runs
+	// the program (environment variables, command-line arguments, stdin).
+	TrustLocalSources bool
+}
+
+// localSourceTags are the source tags of operator-controlled input.
+var localSourceTags = map[string]bool{"env": true, "cli": true}
+
+// isLocal reports whether s is operator-controlled input.
+func (s *SourceSpec) isLocal() bool {
+	if s == nil {
+		return false
+	}
+	for _, tag := range s.Tags {
+		if localSourceTags[tag] {
+			return true
+		}
+	}
+	return false
 }
 
 // Registry holds sources, sinks and sanitizers.

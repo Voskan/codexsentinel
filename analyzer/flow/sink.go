@@ -7,7 +7,16 @@ func sinkSpec(pkg, recv, fn, category, desc string, args ...int) SinkSpec {
 // builtinSinks lists security-sensitive calls. Argument indexes never count the receiver.
 func builtinSinks() []SinkSpec {
 	var out []SinkSpec
-	const sqlDesc = "a SQL query"
+	for _, group := range [][]SinkSpec{sqlSinks(), commandSinks(), pathSinks(), ssrfSinks(), xssSinks()} {
+		out = append(out, group...)
+	}
+	return append(out, sinkSpec("net/http", "", "Redirect", "open-redirect", "an HTTP redirect location", 2))
+}
+
+const sqlDesc = "a SQL query"
+
+func sqlSinks() []SinkSpec {
+	var out []SinkSpec
 	for _, recv := range []string{"DB", "Tx", "Conn"} {
 		for _, m := range []string{"Query", "QueryRow", "Exec", "Prepare"} {
 			out = append(out,
@@ -36,17 +45,23 @@ func builtinSinks() []SinkSpec {
 	for _, m := range []string{"Raw", "Exec", "Where", "Or", "Not", "Order", "Having", "Group", "Joins", "Select", "Distinct", "Pluck"} {
 		out = append(out, sinkSpec("gorm.io/gorm", "DB", m, "sql-injection", sqlDesc, 0))
 	}
+	return out
+}
 
+func commandSinks() []SinkSpec {
 	const cmdDesc = "an operating system command"
-	out = append(out,
-		SinkSpec{Package: "os/exec", Function: "Command", AllArgs: true, WriterArg: -1, Category: "command-injection", Description: cmdDesc},
-		sinkSpec("os/exec", "", "CommandContext", "command-injection", cmdDesc, 1, 2),
+	return []SinkSpec{
+		SinkSpec{Package: "os/exec", Function: "Command", CheckArgs: []int{0, 1}, ShellArgs: true, WriterArg: -1, Category: "command-injection", Description: cmdDesc},
+		SinkSpec{Package: "os/exec", Function: "CommandContext", CheckArgs: []int{1, 2}, ShellArgs: true, WriterArg: -1, Category: "command-injection", Description: cmdDesc},
 		sinkSpec("syscall", "", "Exec", "command-injection", cmdDesc, 0, 1),
 		sinkSpec("syscall", "", "ForkExec", "command-injection", cmdDesc, 0, 1),
 		sinkSpec("os", "", "StartProcess", "command-injection", cmdDesc, 0, 1),
-	)
+	}
+}
 
+func pathSinks() []SinkSpec {
 	const fsDesc = "a filesystem path"
+	var out []SinkSpec
 	for _, fn := range []string{"Open", "OpenFile", "ReadFile", "WriteFile", "Create", "Remove", "RemoveAll", "ReadDir", "Mkdir", "MkdirAll", "Truncate", "Chmod", "Chown", "Lstat", "Readlink"} {
 		out = append(out, sinkSpec("os", "", fn, "path-traversal", fsDesc, 0))
 	}
@@ -56,13 +71,15 @@ func builtinSinks() []SinkSpec {
 	for _, fn := range []string{"ReadFile", "WriteFile", "ReadDir"} {
 		out = append(out, sinkSpec("io/ioutil", "", fn, "path-traversal", fsDesc, 0))
 	}
-	out = append(out,
+	return append(out,
 		sinkSpec("net/http", "", "ServeFile", "path-traversal", fsDesc, 2),
 		SinkSpec{Package: "net/http", Function: "Dir", Conversion: true, WriterArg: -1, Category: "path-traversal", Description: "an http.Dir file server root"},
 	)
+}
 
+func ssrfSinks() []SinkSpec {
 	const netDesc = "an outbound HTTP request URL"
-	out = append(out,
+	return []SinkSpec{
 		sinkSpec("net/http", "", "Get", "ssrf", netDesc, 0),
 		sinkSpec("net/http", "", "Head", "ssrf", netDesc, 0),
 		sinkSpec("net/http", "", "Post", "ssrf", netDesc, 0),
@@ -75,8 +92,11 @@ func builtinSinks() []SinkSpec {
 		sinkSpec("net/http", "Client", "PostForm", "ssrf", netDesc, 0),
 		sinkSpec("net", "", "Dial", "ssrf", "a network address", 1),
 		sinkSpec("net", "", "DialTimeout", "ssrf", "a network address", 1),
-	)
+	}
+}
 
+func xssSinks() []SinkSpec {
+	var out []SinkSpec
 	const xssDesc = "an HTTP response"
 	writer := func(pkg, fn string, writerArg int, args ...int) SinkSpec {
 		s := sinkSpec(pkg, "", fn, "xss", xssDesc, args...)
@@ -99,7 +119,5 @@ func builtinSinks() []SinkSpec {
 	for _, typ := range []string{"HTML", "HTMLAttr", "JS", "JSStr", "CSS", "URL", "Srcset"} {
 		out = append(out, SinkSpec{Package: "html/template", Function: typ, Conversion: true, WriterArg: -1, Category: "xss", Description: "a trusted html/template." + typ + " value"})
 	}
-
-	out = append(out, sinkSpec("net/http", "", "Redirect", "open-redirect", "an HTTP redirect location", 2))
 	return out
 }

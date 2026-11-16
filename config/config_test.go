@@ -22,7 +22,7 @@ func TestRepositoryConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Version != 1 || cfg.Metrics.MaxCyclomatic != 15 || cfg.Suppression.MinConfidence != 0.5 {
+	if cfg.Version != 1 || cfg.Metrics.MaxCyclomatic != 30 || !cfg.Suppression.RequireIgnoreReason || cfg.Suppression.MinConfidence != 0.5 {
 		t.Fatalf("unexpected root config: %+v", cfg)
 	}
 }

@@ -1,907 +1,375 @@
-# CodexSentinel Examples Guide
+# Examples
 
-## 🚀 Getting Started Examples
+Each example below shows code that CodexSentinel reports and a fixed version
+that it does not. The findings are the actual output of
+`codex-cli scan . --format json`, shortened to file, line, rule and message.
 
-### Basic Usage
+## Contents
 
-#### Simple Scan
+- [SQL injection across functions](#sql-injection-across-functions)
+- [Command injection](#command-injection)
+- [Path traversal and os.Root](#path-traversal-and-osroot)
+- [Server-side request forgery](#server-side-request-forgery)
+- [Cross-site scripting](#cross-site-scripting)
+- [CSRF and http.CrossOriginProtection](#csrf-and-httpcrossoriginprotection)
+- [Secrets in logs](#secrets-in-logs)
+- [Server timeouts](#server-timeouts)
+- [Automatic fixes](#automatic-fixes)
+- [Architecture layers](#architecture-layers)
+- [Custom taint sinks](#custom-taint-sinks)
+- [Custom YAML rule](#custom-yaml-rule)
+- [Pull request workflow](#pull-request-workflow)
+- [GitLab CI](#gitlab-ci)
 
-```bash
-# Scan current directory
-codex scan .
+## SQL injection across functions
 
-# Output: Found 5 security issues
-# [HIGH] SQL Injection at main.go:42
-# [MEDIUM] High Complexity at utils.go:15
-# [LOW] Large Function at handler.go:78
+```go
+type Store struct{ db *sql.DB }
+
+func (s *Store) FindUser(name string) (*sql.Rows, error) {
+	return s.db.Query("SELECT id FROM users WHERE name = '" + name + "'")
+}
+
+func (s *Store) FindUserSafe(name string) (*sql.Rows, error) {
+	return s.db.Query("SELECT id FROM users WHERE name = $1", name)
+}
+
+func Handler(s *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, _ = s.FindUser(r.URL.Query().Get("name"))
+		_, _ = s.FindUserSafe(r.URL.Query().Get("name"))
+	}
+}
 ```
 
-#### Specific Directory Scan
-
-```bash
-# Scan specific project
-codex scan /path/to/my/go/project
-
-# Scan with exclusions
-codex scan . --exclude vendor,node_modules,testdata
+```text
+sqlx/sqlx.go:11 sql-injection HIGH  Untrusted data flows into a SQL query (untrusted input returned by (net/url.Values).Get)
+  source  sqlx/sqlx.go:20  untrusted input returned by (net/url.Values).Get
+  call    sqlx/sqlx.go:20  passed to Store.FindUser
+  param   sqlx/sqlx.go:10  parameter name of Store.FindUser
+  sink    sqlx/sqlx.go:11  reaches (database/sql.DB).Query
 ```
 
-#### Output Formats
+The source is in the handler and the sink is in another method. The trace
+connects them; in SARIF it is a code flow. The parameterized query in
+`FindUserSafe` is not reported.
 
-```bash
-# JSON output
-codex scan . --format json --out security-report.json
+## Command injection
 
-# Markdown report
-codex scan . --format markdown --out report.md
+```go
+func Convert(w http.ResponseWriter, r *http.Request) {
+	file := r.FormValue("file")
+	_ = exec.CommandContext(r.Context(), "sh", "-c", "convert "+file+" out.png").Run()
+}
 
-# HTML report
-codex scan . --format html --out report.html
-
-# SARIF for CI/CD
-codex scan . --format sarif --out results.sarif
+func ConvertSafe(w http.ResponseWriter, r *http.Request) {
+	file := r.FormValue("file")
+	_ = exec.CommandContext(r.Context(), "convert", "--", file, "out.png").Run()
+}
 ```
 
-### Advanced Analysis
-
-#### Comprehensive Scan
-
-```bash
-# Enable all analysis types
-codex scan . --enable-ssa --enable-taint --verbose
-
-# Output:
-# [INFO] Starting CodexSentinel analysis...
-# [INFO] Running AST analysis...
-# [INFO] Running SSA analysis...
-# [INFO] Running taint analysis...
-# [INFO] Running dependency analysis...
-# [INFO] Running metrics analysis...
-# [INFO] Analysis complete! Found 12 issues
+```text
+cmdx/cmdx.go:10 command-injection CRITICAL  Untrusted data flows into an operating system command (untrusted input returned by (net/http.Request).FormValue)
 ```
 
-#### Custom Rules
+Arguments passed to a fixed program other than a shell cannot inject
+commands, so `ConvertSafe` is not reported. A non-constant program name, or
+a shell such as `sh -c`, is.
 
-```bash
-# Use custom rules file
-codex scan . --rules my-custom-rules.yaml
+## Path traversal and os.Root
 
-# Custom rules file content:
-# rules:
-#   - id: custom-sql-injection
-#     title: "Custom SQL Injection Detection"
-#     category: "security"
-#     severity: "HIGH"
-#     patterns:
-#       - type: "function_call"
-#         name: "executeQuery"
-#         args:
-#           - type: "string_concat"
+```go
+const baseDir = "/srv/files"
+
+func Download(w http.ResponseWriter, r *http.Request) {
+	f, err := os.Open(filepath.Join(baseDir, r.URL.Query().Get("name")))
+	// ...
+}
+
+func DownloadSafe(w http.ResponseWriter, r *http.Request) {
+	root, err := os.OpenRoot(baseDir) // Go 1.24
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusInternalServerError)
+		return
+	}
+	defer root.Close()
+	f, err := root.Open(r.URL.Query().Get("name"))
+	// ...
+}
 ```
 
-## 🔧 Configuration Examples
+```text
+pathx/pathx.go:13 path-traversal HIGH  Untrusted data flows into a filesystem path (untrusted input returned by (net/url.Values).Get)
+```
 
-### Basic Configuration
+`filepath.Join` does not stop `..` or absolute paths, and the handler could
+read any file. `os.Root` confines every access to the directory and also
+rejects symlinks that escape it, so `DownloadSafe` is not reported.
 
-#### `codex.yaml`
+Paths from environment variables and command-line arguments are not reported
+for path traversal; the operator of a CLI tool chooses them.
+
+## Server-side request forgery
+
+```go
+var client = &http.Client{}
+
+func Preview(w http.ResponseWriter, r *http.Request) {
+	resp, err := client.Get(r.FormValue("url"))
+	// ...
+}
+
+func Avatar(w http.ResponseWriter, r *http.Request) {
+	u := url.URL{Scheme: "https", Host: "avatars.example.com", Path: "/" + url.PathEscape(r.FormValue("user"))}
+	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, u.String(), nil)
+	resp, err := client.Do(req)
+	// ...
+}
+```
+
+```text
+ssrfx/ssrfx.go:11 ssrf HIGH  Untrusted data flows into an outbound HTTP request URL (untrusted input returned by (net/http.Request).FormValue)
+ssrfx/ssrfx.go:11 context-propagation-missing MEDIUM  Get ignores the incoming context; use http.NewRequestWithContext.
+```
+
+A URL with a constant scheme and host is not reported, even when its path or
+query contains request data. The host is constant whether it comes from a
+string prefix, a `fmt.Sprintf` format or a `url.URL` literal.
+
+## Cross-site scripting
+
+```go
+func Hello(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "<h1>Hello, %s</h1>", r.FormValue("name"))
+}
+
+var page = template.Must(template.New("p").Parse("<h1>Hello, {{.}}</h1>"))
+
+func HelloSafe(w http.ResponseWriter, r *http.Request) {
+	_ = page.Execute(w, r.FormValue("name")) // html/template escapes the value
+}
+```
+
+```text
+xssx/xssx.go:10 xss HIGH  Untrusted data flows into an HTTP response (untrusted input returned by (net/http.Request).FormValue)
+```
+
+## CSRF and http.CrossOriginProtection
+
+```go
+func transfer(w http.ResponseWriter, r *http.Request) {
+	if _, err := r.Cookie("session"); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func Routes() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /transfer", transfer)
+	return mux
+}
+```
+
+```text
+csrfx/csrfx.go:15 csrf-missing-protection MEDIUM  State-changing route "POST /transfer" uses cookie-based sessions without cross-origin request protection.
+```
+
+The fix with Go 1.25 needs no extra dependency:
+
+```go
+func Routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /transfer", transfer)
+	return http.NewCrossOriginProtection().Handler(mux)
+}
+```
+
+## Secrets in logs
+
+```go
+func Login(u User, password string) {
+	slog.Info("login attempt", "user", u.Email, "password", password)
+}
+
+type Account struct {
+	ID       int
+	Password string
+}
+
+// LogValue controls how an Account appears in logs.
+func (a Account) LogValue() slog.Value { return slog.IntValue(a.ID) }
+
+func Created(a Account) {
+	slog.Info("account created", "account", a)
+}
+```
+
+```text
+logx/logx.go:11 sensitive-data-in-logs HIGH  Sensitive value 'password' is passed to the logger; redact or omit it to prevent credential leakage in logs.
+```
+
+`Account` has a `Password` field, but its `LogValue` method decides what is
+logged, so `Created` is not reported. `zapcore.ObjectMarshaler` and
+`zerolog.LogObjectMarshaler` are honored in the same way.
+
+## Server timeouts
+
+```go
+func Serve(h http.Handler) error {
+	return http.ListenAndServe(":8080", h)
+}
+
+func ServeSafe(h http.Handler) error {
+	srv := &http.Server{Addr: ":8080", Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second}
+	return srv.ListenAndServe()
+}
+```
+
+```text
+srvx/srvx.go:9 http-server-missing-timeout HIGH  http.ListenAndServe starts a server without read timeouts (Slowloris).
+```
+
+## Automatic fixes
+
+```go
+func client() *http.Client {
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+}
+```
+
+```bash
+codex-cli scan . --fix
+```
+
+`tls-insecure-config` carries a fix, so the file is rewritten to
+`InsecureSkipVerify: false`. Fixes are also included in SARIF (`fixes`) and
+JSON (`fix`) reports.
+
+## Architecture layers
+
+With the default layout, a `handler` package belongs to the delivery layer and
+a `repository` package to the repository layer. Delivery may use services and
+use cases, but not repositories directly:
+
+```go
+package handler
+
+import "example.com/shop/internal/repository"
+
+func GetUser(w http.ResponseWriter, r *http.Request) {
+	_ = json.NewEncoder(w).Encode(repository.Find(1))
+}
+```
+
+```text
+internal/handler/handler.go:11 arch-layer-violation LOW  GetUser (layer "delivery") calls example.com/shop/internal/repository.Find in layer "repository", which it may not depend on.
+```
+
+Declare your own layers when the layout differs:
 
 ```yaml
-# Analysis Configuration
-analysis:
-  enable_ssa: true
-  enable_taint: true
-  enable_ast: true
-  enable_builtins: true
+architecture:
+  layers:
+    api: [internal/api]
+    core: [internal/core]
+    storage: [internal/storage]
+  allowed_deps:
+    api: [core]
+    core: [storage]
+    storage: []
+```
 
-# Output Configuration
-output:
-  format: json
-  file: results.json
-  verbose: false
-  quiet: false
+## Custom taint sinks
 
-# Exclusion Patterns
-exclude:
-  - vendor/
-  - node_modules/
-  - testdata/
-  - *.test.go
+Teach the taint engine about your own wrappers:
 
-# Custom Rules
+```yaml
+taint:
+  custom_sources:
+    - package: example.com/shop/internal/web
+      receiver: Context
+      function: Param
+      tags: [http]
+  custom_sinks:
+    - package: example.com/shop/internal/db
+      function: Raw
+      check_args: [0]
+      category: sql-injection
+  custom_sanitizers:
+    - package: example.com/shop/internal/security
+      function: SafeName
+      categories: [path-traversal]
+```
+
+Flows from `Context.Param` into `db.Raw` are then reported as
+`sql-injection`, with the same traces as the built-in sinks. A value passed
+through `SafeName` is no longer reported for `path-traversal`.
+
+## Custom YAML rule
+
+`rules/no-panic.yaml`:
+
+```yaml
+id: acme.no-panic-in-handlers
+title: Panic in request handler
+category: style
+severity: MEDIUM
+description: Handlers must return errors instead of panicking.
+match:
+  pattern: "panic($X)"
+suggestion: Return an error response instead.
+```
+
+```yaml
+# .codexsentinel.yaml
 rules:
-  - path: custom-rules.yaml
-    enabled: true
-
-# Dependency Analysis
-dependencies:
-  enable_osv: true
-  enable_ghsa: true
-  enable_license: true
-  enable_entropy: true
-
-# Metrics Configuration
-metrics:
-  complexity_threshold: 10
-  function_size_threshold: 50
-  file_size_threshold: 500
-  duplication_threshold: 0.8
+  rule_paths: [rules]
 ```
 
-### Environment Variables
+Patterns are Go expressions or statements. `$X` matches any expression and
+`$...` any number of arguments. Add `fix:` with a replacement template to
+make the rule fixable with `--fix`.
 
-#### `.env` file
+## Pull request workflow
 
 ```bash
-# Analysis Configuration
-CODEX_ENABLE_SSA=true
-CODEX_ENABLE_TAINT=true
-CODEX_ENABLE_AST=true
-CODEX_ENABLE_BUILTINS=true
-
-# Output Configuration
-CODEX_OUTPUT_FORMAT=json
-CODEX_OUTPUT_FILE=results.json
-CODEX_VERBOSE=false
-CODEX_QUIET=false
-
-# Custom Configuration
-CODEX_RULES_FILE=custom-rules.yaml
-CODEX_EXCLUDE_PATHS=vendor,node_modules,testdata
+# Fail a pull request only on new problems in the lines it changes
+codex-cli scan . --diff origin/main --strict --severity medium
 ```
 
-## 🛡️ Security Rule Examples
-
-### SQL Injection Detection
-
-#### Vulnerable Code
-
-```go
-// ❌ Vulnerable - String concatenation
-func getUserByID(id string) (*User, error) {
-    query := "SELECT * FROM users WHERE id = " + id
-    return db.Query(query)
-}
-
-// ❌ Vulnerable - fmt.Sprintf
-func getUserByName(name string) (*User, error) {
-    query := fmt.Sprintf("SELECT * FROM users WHERE name = '%s'", name)
-    return db.Query(query)
-}
+```bash
+# Adopt on an existing code base: accept today's findings once...
+codex-cli baseline create . --out .codexsentinel.baseline.json
 ```
 
-#### Secure Code
-
-```go
-// ✅ Secure - Parameterized query
-func getUserByID(id string) (*User, error) {
-    query := "SELECT * FROM users WHERE id = ?"
-    return db.Query(query, id)
-}
-
-// ✅ Secure - Prepared statement
-func getUserByName(name string) (*User, error) {
-    stmt, err := db.Prepare("SELECT * FROM users WHERE name = ?")
-    if err != nil {
-        return nil, err
-    }
-    defer stmt.Close()
-    return stmt.Query(name)
-}
+```bash
+# ...then fail only on findings that are not in the baseline
+codex-cli scan . --baseline .codexsentinel.baseline.json --strict
 ```
 
-### XSS Prevention
-
-#### Vulnerable Code
-
-```go
-// ❌ Vulnerable - Direct output
-func handleUserInput(w http.ResponseWriter, input string) {
-    fmt.Fprintf(w, "<div>%s</div>", input)
-}
-
-// ❌ Vulnerable - Template without escaping
-func renderTemplate(w http.ResponseWriter, data map[string]interface{}) {
-    tmpl := template.Must(template.New("user").Parse(`
-        <div>{{.UserInput}}</div>
-    `))
-    tmpl.Execute(w, data)
-}
+```bash
+# Detect dependency upgrades that add capabilities
+codex-cli caps lock .
 ```
 
-#### Secure Code
-
-```go
-// ✅ Secure - HTML escaping
-func handleUserInput(w http.ResponseWriter, input string) {
-    escaped := html.EscapeString(input)
-    fmt.Fprintf(w, "<div>%s</div>", escaped)
-}
-
-// ✅ Secure - Template with escaping
-func renderTemplate(w http.ResponseWriter, data map[string]interface{}) {
-    tmpl := template.Must(template.New("user").Parse(`
-        <div>{{.UserInput | html}}</div>
-    `))
-    tmpl.Execute(w, data)
-}
+```bash
+codex-cli caps verify .
 ```
 
-### Authentication Bypass Prevention
-
-#### Vulnerable Code
-
-```go
-// ❌ Vulnerable - Hardcoded bypass
-func checkAuth(user string) bool {
-    if user == "admin" {
-        return true // Hardcoded bypass
-    }
-    return validateUser(user)
-}
-
-// ❌ Vulnerable - Debug mode
-func authenticate(token string) bool {
-    if debugMode {
-        return true // Debug bypass
-    }
-    return validateToken(token)
-}
-```
-
-#### Secure Code
-
-```go
-// ✅ Secure - Proper validation
-func checkAuth(user string) bool {
-    return validateUser(user)
-}
-
-// ✅ Secure - No debug bypass
-func authenticate(token string) bool {
-    return validateToken(token)
-}
-```
-
-### Cryptographic Security
-
-#### Vulnerable Code
-
-```go
-// ❌ Vulnerable - Weak hash
-import "crypto/md5"
-
-func hashPassword(password string) string {
-    hash := md5.Sum([]byte(password))
-    return hex.EncodeToString(hash[:])
-}
-
-// ❌ Vulnerable - Weak encryption
-import "crypto/des"
-
-func encryptData(data []byte, key []byte) ([]byte, error) {
-    block, err := des.NewCipher(key)
-    if err != nil {
-        return nil, err
-    }
-    return encrypt(block, data)
-}
-```
-
-#### Secure Code
-
-```go
-// ✅ Secure - Strong hash
-import "golang.org/x/crypto/bcrypt"
-
-func hashPassword(password string) (string, error) {
-    hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-    if err != nil {
-        return "", err
-    }
-    return string(hash), nil
-}
-
-// ✅ Secure - Strong encryption
-import "crypto/aes"
-import "crypto/cipher"
-
-func encryptData(data []byte, key []byte) ([]byte, error) {
-    block, err := aes.NewCipher(key)
-    if err != nil {
-        return nil, err
-    }
-    gcm, err := cipher.NewGCM(block)
-    if err != nil {
-        return nil, err
-    }
-    nonce := make([]byte, gcm.NonceSize())
-    return gcm.Seal(nonce, nonce, data, nil), nil
-}
-```
-
-## 📊 Code Quality Examples
-
-### Complexity Management
-
-#### High Complexity Function
-
-```go
-// ❌ High complexity (15)
-func processUserData(user *User, config *Config, options *Options) error {
-    if user == nil {
-        return errors.New("user is nil")
-    }
-    if config == nil {
-        return errors.New("config is nil")
-    }
-    if options == nil {
-        return errors.New("options is nil")
-    }
-    if user.ID == "" {
-        return errors.New("user ID is empty")
-    }
-    if user.Name == "" {
-        return errors.New("user name is empty")
-    }
-    if user.Email == "" {
-        return errors.New("user email is empty")
-    }
-    if config.Database == "" {
-        return errors.New("database is empty")
-    }
-    if config.Host == "" {
-        return errors.New("host is empty")
-    }
-    if config.Port == 0 {
-        return errors.New("port is invalid")
-    }
-    if options.Timeout == 0 {
-        return errors.New("timeout is invalid")
-    }
-    if options.RetryCount == 0 {
-        return errors.New("retry count is invalid")
-    }
-    if options.MaxConnections == 0 {
-        return errors.New("max connections is invalid")
-    }
-    // Process user data...
-    return nil
-}
-```
-
-#### Refactored Function
-
-```go
-// ✅ Low complexity (3)
-func processUserData(user *User, config *Config, options *Options) error {
-    if err := validateUser(user); err != nil {
-        return err
-    }
-    if err := validateConfig(config); err != nil {
-        return err
-    }
-    if err := validateOptions(options); err != nil {
-        return err
-    }
-    return processData(user, config, options)
-}
-
-func validateUser(user *User) error {
-    if user == nil {
-        return errors.New("user is nil")
-    }
-    if user.ID == "" {
-        return errors.New("user ID is empty")
-    }
-    if user.Name == "" {
-        return errors.New("user name is empty")
-    }
-    if user.Email == "" {
-        return errors.New("user email is empty")
-    }
-    return nil
-}
-```
-
-### Function Size Management
-
-#### Large Function
-
-```go
-// ❌ Large function (80+ lines)
-func handleHTTPRequest(w http.ResponseWriter, r *http.Request) {
-    // Parse request
-    if r.Method != "POST" {
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-        return
-    }
-
-    // Parse JSON
-    var request Request
-    if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-        http.Error(w, "Invalid JSON", http.StatusBadRequest)
-        return
-    }
-
-    // Validate request
-    if request.UserID == "" {
-        http.Error(w, "User ID is required", http.StatusBadRequest)
-        return
-    }
-    if request.Data == "" {
-        http.Error(w, "Data is required", http.StatusBadRequest)
-        return
-    }
-
-    // Process data
-    processedData, err := processData(request.Data)
-    if err != nil {
-        http.Error(w, "Processing failed", http.StatusInternalServerError)
-        return
-    }
-
-    // Save to database
-    if err := saveToDatabase(request.UserID, processedData); err != nil {
-        http.Error(w, "Database error", http.StatusInternalServerError)
-        return
-    }
-
-    // Send response
-    response := Response{
-        Status: "success",
-        Data:   processedData,
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(response)
-}
-```
-
-#### Refactored Function
-
-```go
-// ✅ Small, focused functions
-func handleHTTPRequest(w http.ResponseWriter, r *http.Request) {
-    request, err := parseRequest(r)
-    if err != nil {
-        respondWithError(w, err, http.StatusBadRequest)
-        return
-    }
-
-    if err := validateRequest(request); err != nil {
-        respondWithError(w, err, http.StatusBadRequest)
-        return
-    }
-
-    result, err := processRequest(request)
-    if err != nil {
-        respondWithError(w, err, http.StatusInternalServerError)
-        return
-    }
-
-    respondWithSuccess(w, result)
-}
-
-func parseRequest(r *http.Request) (*Request, error) {
-    if r.Method != "POST" {
-        return nil, errors.New("method not allowed")
-    }
-
-    var request Request
-    if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-        return nil, errors.New("invalid JSON")
-    }
-
-    return &request, nil
-}
-```
-
-## 🔄 CI/CD Integration Examples
-
-### GitHub Actions
-
-#### Basic Security Scan
+## GitLab CI
 
 ```yaml
-name: Security Scan
-on: [push, pull_request]
-
-jobs:
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Setup Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: "1.24"
-
-      - name: Install CodexSentinel
-        run: go install github.com/Voskan/codexsentinel/cmd/codex@latest
-
-      - name: Run Security Scan
-        run: codex scan . --format sarif --out results.sarif
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: results.sarif
-```
-
-#### Advanced Security Pipeline
-
-```yaml
-name: Advanced Security Pipeline
-on: [push, pull_request]
-
-jobs:
-  security:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        analysis: [basic, comprehensive, custom]
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Setup Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: "1.24"
-
-      - name: Install CodexSentinel
-        run: go install github.com/Voskan/codexsentinel/cmd/codex@latest
-
-      - name: Basic Security Scan
-        if: matrix.analysis == 'basic'
-        run: codex scan . --format json --out basic-results.json
-
-      - name: Comprehensive Security Scan
-        if: matrix.analysis == 'comprehensive'
-        run: codex scan . --enable-ssa --enable-taint --format json --out comprehensive-results.json
-
-      - name: Custom Rules Scan
-        if: matrix.analysis == 'custom'
-        run: codex scan . --rules custom-rules.yaml --format json --out custom-results.json
-
-      - name: Upload Results
-        uses: actions/upload-artifact@v3
-        with:
-          name: security-results-${{ matrix.analysis }}
-          path: ${{ matrix.analysis }}-results.json
-```
-
-### GitLab CI
-
-#### Security Pipeline
-
-```yaml
-stages:
-  - security
-
-security-scan:
-  stage: security
+codexsentinel:
   image: golang:1.24
+  variables:
+    GIT_DEPTH: 0
   script:
-    - go install github.com/Voskan/codexsentinel/cmd/codex@latest
-    - codex scan . --format json --out results.json
+    - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+    - codex-cli scan . --strict --severity high --format sarif --out gl-codexsentinel.sarif
   artifacts:
-    reports:
-      security: results.json
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-```
-
-#### Advanced GitLab Pipeline
-
-```yaml
-variables:
-  CODEX_VERSION: "1.5.0"
-
-stages:
-  - security
-  - quality
-
-security-scan:
-  stage: security
-  image: golang:1.24
-  script:
-    - go install github.com/Voskan/codexsentinel/cmd/codex@v${CODEX_VERSION}@latest
-    - codex scan . --enable-ssa --enable-taint --format json --out security-results.json
-  artifacts:
-    reports:
-      security: security-results.json
+    when: always
     paths:
-      - security-results.json
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
-quality-scan:
-  stage: quality
-  image: golang:1.24
-  script:
-    - go install github.com/Voskan/codexsentinel/cmd/codex@v${CODEX_VERSION}@latest
-    - codex scan . --no-deps --format json --out quality-results.json
-  artifacts:
-    paths:
-      - quality-results.json
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      - gl-codexsentinel.sarif
 ```
-
-### Jenkins Pipeline
-
-#### Declarative Pipeline
-
-```groovy
-pipeline {
-    agent any
-
-    environment {
-        CODEX_VERSION = '1.5.0'
-    }
-
-    stages {
-        stage('Security Scan') {
-            steps {
-                sh 'go install github.com/Voskan/codexsentinel/cmd/codex@v${CODEX_VERSION}@latest'
-                sh 'codex scan . --format json --out security-results.json'
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'security-results.json', fingerprint: true
-                }
-            }
-        }
-
-        stage('Quality Analysis') {
-            steps {
-                sh 'codex scan . --no-deps --format json --out quality-results.json'
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'quality-results.json', fingerprint: true
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            cleanWs()
-        }
-    }
-}
-```
-
-## 🛠️ Custom Rules Examples
-
-### Custom SQL Injection Rule
-
-#### Rule Definition
-
-```yaml
-# custom-sql-rules.yaml
-rules:
-  - id: custom-sql-injection
-    title: "Custom SQL Injection Detection"
-    category: "security"
-    severity: "HIGH"
-    description: "Detects custom SQL injection patterns"
-    patterns:
-      - type: "function_call"
-        name: "executeQuery"
-        args:
-          - type: "string_concat"
-      - type: "function_call"
-        name: "executeRaw"
-        args:
-          - type: "string_concat"
-    suggestion: "Use parameterized queries instead of string concatenation"
-    references:
-      - "https://owasp.org/www-project-top-ten/2017/A1_2017-Injection"
-```
-
-#### Usage
-
-```bash
-codex scan . --rules custom-sql-rules.yaml --format json --out custom-results.json
-```
-
-### Custom Authentication Rule
-
-#### Rule Definition
-
-```yaml
-# custom-auth-rules.yaml
-rules:
-  - id: custom-auth-bypass
-    title: "Custom Authentication Bypass Detection"
-    category: "security"
-    severity: "HIGH"
-    description: "Detects custom authentication bypass patterns"
-    patterns:
-      - type: "function_call"
-        name: "skipAuth"
-      - type: "function_call"
-        name: "bypassAuth"
-      - type: "assignment"
-        target: "debugMode"
-        value: "true"
-    suggestion: "Remove authentication bypass patterns"
-    references:
-      - "https://owasp.org/www-project-top-ten/2017/A2_2017-Broken_Authentication"
-```
-
-### Custom Crypto Rule
-
-#### Rule Definition
-
-```yaml
-# custom-crypto-rules.yaml
-rules:
-  - id: custom-weak-crypto
-    title: "Custom Weak Crypto Detection"
-    category: "security"
-    severity: "HIGH"
-    description: "Detects custom weak cryptographic patterns"
-    patterns:
-      - type: "import"
-        path: "crypto/md5"
-      - type: "import"
-        path: "crypto/sha1"
-      - type: "function_call"
-        name: "md5.Sum"
-      - type: "function_call"
-        name: "sha1.Sum"
-    suggestion: "Use strong cryptographic algorithms like SHA-256 or bcrypt"
-    references:
-      - "https://owasp.org/www-project-top-ten/2017/A3_2017-Sensitive_Data_Exposure"
-```
-
-## 📊 Report Examples
-
-### JSON Report Output
-
-```json
-{
-  "summary": {
-    "total_issues": 15,
-    "high_severity": 8,
-    "medium_severity": 5,
-    "low_severity": 2,
-    "categories": {
-      "security": 12,
-      "quality": 3
-    }
-  },
-  "issues": [
-    {
-      "id": "sql-injection",
-      "title": "SQL Injection Vulnerability",
-      "description": "Potential SQL injection: avoid building queries via string concatenation",
-      "severity": "HIGH",
-      "category": "security",
-      "location": {
-        "file": "main.go",
-        "line": 42,
-        "column": 15
-      },
-      "suggestion": "Use parameterized queries instead of raw string concatenation",
-      "references": [
-        "https://owasp.org/www-project-top-ten/2017/A1_2017-Injection"
-      ]
-    },
-    {
-      "id": "high-complexity",
-      "title": "High Cyclomatic Complexity",
-      "description": "Function processData has complexity 15 (threshold: 10)",
-      "severity": "MEDIUM",
-      "category": "quality",
-      "location": {
-        "file": "utils.go",
-        "line": 15,
-        "column": 1
-      },
-      "suggestion": "Consider breaking down the function into smaller functions"
-    }
-  ]
-}
-```
-
-### Markdown Report Output
-
-```markdown
-# CodexSentinel Security Report
-
-## Summary
-
-- **Total Issues**: 15
-- **High Severity**: 8
-- **Medium Severity**: 5
-- **Low Severity**: 2
-
-## Issues
-
-### [HIGH] SQL Injection Vulnerability
-
-**File**: `main.go:42`
-**Description**: Potential SQL injection: avoid building queries via string concatenation
-**Suggestion**: Use parameterized queries instead of raw string concatenation
-**Reference**: https://owasp.org/www-project-top-ten/2017/A1_2017-Injection
-
-### [MEDIUM] High Cyclomatic Complexity
-
-**File**: `utils.go:15`
-**Description**: Function processData has complexity 15 (threshold: 10)
-**Suggestion**: Consider breaking down the function into smaller functions
-
-### [HIGH] Vulnerable Dependency
-
-**File**: `go.mod:0`
-**Description**: Module github.com/go-yaml/yaml@v2.1.0+incompatible has vulnerability: GHSA-r88r-gmrh-7j83
-**Suggestion**: Update to a fixed version or apply security patches
-```
-
-## 🔍 Troubleshooting Examples
-
-### Common Issues and Solutions
-
-#### Build Errors
-
-```bash
-# Problem: Module not found
-go: module github.com/Voskan/codexsentinel: not found
-
-# Solution: Update Go version and modules
-go version  # Ensure Go 1.24+
-go mod tidy
-go mod download
-```
-
-#### Analysis Errors
-
-```bash
-# Problem: No Go files found
-codex scan . --verbose
-
-# Solution: Check file extensions and exclusions
-find . -name "*.go"  # Verify Go files exist
-codex scan . --exclude ""  # Clear exclusions
-```
-
-#### Performance Issues
-
-```bash
-# Problem: Slow analysis on large codebase
-# Solution: Use targeted analysis
-codex scan . --exclude vendor,testdata --enable-ast
-codex scan . --no-metrics --no-deps
-```
-
-#### Memory Issues
-
-```bash
-# Problem: Out of memory
-# Solution: Use memory-efficient options
-codex scan . --no-metrics --no-deps --enable-ast
-```
-
-### Debug Mode
-
-```bash
-# Enable debug output
-codex scan . --verbose --debug
-
-# Check log files
-cat codex.log
-cat analysis.log
-cat error.log
-```
-
----
-
-_These examples demonstrate the most common use cases for CodexSentinel. For more advanced scenarios, refer to the main documentation and API reference._

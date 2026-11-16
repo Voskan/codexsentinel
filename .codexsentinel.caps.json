@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "modules": {
+    "github.com/spf13/cobra": [
+      "CAP_ENV",
+      "CAP_FS_WRITE",
+      "CAP_REFLECT"
+    ],
+    "github.com/spf13/pflag": [
+      "CAP_REFLECT"
+    ],
+    "go.uber.org/multierr": [],
+    "go.uber.org/zap": [
+      "CAP_FS_WRITE",
+      "CAP_REFLECT"
+    ],
+    "golang.org/x/mod": [],
+    "golang.org/x/sync": [],
+    "golang.org/x/tools": [
+      "CAP_ENV",
+      "CAP_EXEC",
+      "CAP_FS_READ",
+      "CAP_FS_WRITE",
+      "CAP_REFLECT",
+      "CAP_UNSAFE"
+    ],
+    "gopkg.in/yaml.v3": [
+      "CAP_REFLECT"
+    ]
+  }
+}

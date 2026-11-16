@@ -334,18 +334,6 @@ func params(info *types.Info, ft *ast.FuncType) []*types.Var {
 	return out
 }
 
-// requestParam returns the *http.Request parameter of a function, if any.
-func requestParam(info *types.Info, ft *ast.FuncType) *types.Var {
-	for _, p := range params(info, ft) {
-		if typeIs(p.Type(), "net/http", "Request") {
-			if _, ok := p.Type().(*types.Pointer); ok {
-				return p
-			}
-		}
-	}
-	return nil
-}
-
 // isHandlerFunc reports whether the function looks like an HTTP handler of
 // net/http, gin, echo or fiber.
 func isHandlerFunc(info *types.Info, ft *ast.FuncType) bool {

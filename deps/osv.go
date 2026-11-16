@@ -283,7 +283,7 @@ func (c *OSVClient) do(ctx context.Context, method, endpoint string, body []byte
 	if body != nil {
 		reader = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, reader) //codex:ignore ssrf -- endpoint is built from the configured OSV API base URL
 	if err != nil {
 		return nil, err
 	}

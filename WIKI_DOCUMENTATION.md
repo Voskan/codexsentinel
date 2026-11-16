@@ -1,1023 +1,424 @@
-# CodexSentinel Wiki Documentation
-
-## 📚 Table of Contents
-
-1. [Overview](#overview)
-2. [Architecture](#architecture)
-3. [Installation](#installation)
-4. [Quick Start](#quick-start)
-5. [Core Features](#core-features)
-6. [Security Rules](#security-rules)
-7. [Command Line Interface](#command-line-interface)
-8. [Configuration](#configuration)
-9. [Output Formats](#output-formats)
-10. [Advanced Usage](#advanced-usage)
-11. [API Reference](#api-reference)
-12. [Troubleshooting](#troubleshooting)
-13. [Contributing](#contributing)
-14. [Security Policy](#security-policy)
-
----
-
-## 🎯 Overview
-
-**CodexSentinel** is a comprehensive static code analysis and security scanning tool designed specifically for Go projects. It provides advanced SAST (Static Application Security Testing) capabilities with support for OWASP Top 10 2025 security standards.
-
-### Key Features
-
-- **🔒 OWASP Top 10 2025 Coverage**: 100% coverage of all security categories
-- **📊 Multi-Analysis Engine**: AST, SSA, Taint Analysis, and Metrics
-- **🛡️ 18+ Security Rules**: Built-in detection for common vulnerabilities
-- **📦 Dependency Scanning**: OSV integration for vulnerability detection
-- **📈 Code Quality Metrics**: Complexity, duplication, and maintainability analysis
-- **🎯 Go Language Focus**: Optimized specifically for Go codebases
-
----
-
-## 🏗️ Architecture
-
-### Core Components
-
-```
-codexsentinel/
-├── cmd/codex/           # CLI application
-├── analyzer/            # Core analysis engine
-│   ├── engine/         # Analysis coordination
-│   ├── rules/          # Security rule implementations
-│   ├── ast/           # Abstract Syntax Tree utilities
-│   ├── ssa/           # Static Single Assignment analysis
-│   └── flow/          # Taint flow analysis
-├── deps/              # Dependency scanning
-├── metrics/           # Code quality metrics
-├── report/            # Report generation
-└── internal/          # Internal utilities
-```
-
-### Analysis Pipeline
-
-1. **File Discovery**: Recursive scanning of Go files
-2. **AST Parsing**: Parse Go source into Abstract Syntax Trees
-3. **Rule Application**: Apply security rules to AST nodes
-4. **SSA Analysis**: Static Single Assignment analysis for data flow
-5. **Taint Tracking**: Track untrusted data through the codebase
-6. **Dependency Analysis**: Scan for vulnerable dependencies
-7. **Metrics Calculation**: Compute code quality metrics
-8. **Report Generation**: Generate comprehensive security reports
-
----
-
-## 🚀 Installation
-
-### Prerequisites
-
-- Go 1.24.2 or higher
-- Git
-
-### Installation Methods
-
-#### Method 1: Build from Source
-
-```bash
-git clone https://github.com/Voskan/codexsentinel.git
-cd codexsentinel
-make build
-```
-
-#### Method 2: Go Install
-
-```bash
-go install github.com/Voskan/codexsentinel/cmd/codex@latest
-```
-
-#### Method 3: Download Binary
-
-Visit the [releases page](https://github.com/Voskan/codexsentinel/releases) and download the appropriate binary for your platform.
-
----
-
-## ⚡ Quick Start
-
-### Basic Scan
-
-```bash
-# Scan current directory
-codex scan .
-
-# Scan specific directory
-codex scan /path/to/project
-
-# Scan single file
-codex scan main.go
-```
-
-### Output Formats
-
-```bash
-# JSON output
-codex scan . --format json --out results.json
-
-# Markdown report
-codex scan . --format markdown --out report.md
-
-# SARIF format (for CI/CD)
-codex scan . --format sarif --out results.sarif
-
-# HTML report
-codex scan . --format html --out report.html
-```
-
-### Advanced Usage
-
-```bash
-# Enable specific analysis types
-codex scan . --enable-ssa --enable-taint
-
-# Exclude files/directories
-codex scan . --exclude vendor,node_modules
-
-# Custom rules file
-codex scan . --rules custom-rules.yaml
-
-# Verbose output
-codex scan . --verbose
-```
-
----
-
-## 🔧 Core Features
-
-### 1. Static Analysis Engine
-
-#### AST-Based Analysis
-
-- Parses Go source code into Abstract Syntax Trees
-- Applies security rules to AST nodes
-- Detects patterns in function calls, assignments, and expressions
-
-#### SSA Analysis
-
-- Static Single Assignment form analysis
-- Tracks variable definitions and uses
-- Identifies data flow patterns
-
-#### Taint Analysis
-
-- Tracks untrusted data through the codebase
-- Identifies potential security vulnerabilities
-- Maps data flow from sources to sinks
-
-### 2. Security Rules Engine
-
-#### Built-in Rules
-
-- **18+ Security Rules**: Comprehensive coverage of common vulnerabilities
-- **OWASP Top 10 2025**: Full compliance with latest standards
-- **Custom Rules**: YAML-based rule definition system
-
-#### Rule Categories
-
-- **Access Control**: Broken access control detection
-- **Cryptographic Failures**: Weak crypto algorithm detection
-- **Injection**: SQL, Command, XSS injection detection
-- **Insecure Design**: Architectural security issues
-- **Security Misconfiguration**: Debug endpoints, unsafe settings
-- **Vulnerable Components**: Dependency vulnerability scanning
-- **Authentication Failures**: Auth bypass, session management
-- **Data Integrity**: Software and data integrity failures
-- **Logging Failures**: Security logging and monitoring issues
-- **SSRF**: Server-Side Request Forgery detection
-
-### 3. Dependency Analysis
-
-#### Vulnerability Scanning
-
-- **OSV Integration**: Open Source Vulnerabilities database
-- **GitHub Security Advisories**: GHSA vulnerability detection
-- **License Compliance**: License violation detection
-- **High Entropy Detection**: Suspicious file identification
-
-#### Supported Sources
-
-- `go.mod` and `go.sum` files
-- Vendor directories
-- Direct and indirect dependencies
-
-### 4. Code Quality Metrics
-
-#### Complexity Analysis
-
-- **Cyclomatic Complexity**: Function complexity measurement
-- **Cognitive Complexity**: Code readability metrics
-- **Function Size**: Large function detection
-
-#### Duplication Detection
-
-- **Code Duplication**: Identifies duplicate code blocks
-- **Similarity Analysis**: Finds similar code patterns
-- **Refactoring Suggestions**: Code improvement recommendations
-
-#### Maintainability Metrics
-
-- **Dead Code Detection**: Unused code identification
-- **Global Variable Analysis**: Global state tracking
-- **Code Size Metrics**: File and function size analysis
-
----
-
-## 🛡️ Security Rules
-
-### OWASP Top 10 2025 Coverage
-
-| Category | Rule                      | Description                            | Severity |
-| -------- | ------------------------- | -------------------------------------- | -------- |
-| A01:2025 | Broken Access Control     | Detects broken access control patterns | High     |
-| A02:2025 | Cryptographic Failures    | Identifies weak crypto algorithms      | High     |
-| A03:2025 | Injection                 | SQL, Command, XSS injection detection  | High     |
-| A04:2025 | Insecure Design           | Architectural security issues          | High     |
-| A05:2025 | Security Misconfiguration | Debug endpoints, unsafe settings       | Medium   |
-| A06:2025 | Vulnerable Components     | Dependency vulnerability scanning      | High     |
-| A07:2025 | Authentication Failures   | Auth bypass, session management        | High     |
-| A08:2025 | Data Integrity Failures   | Software and data integrity issues     | High     |
-| A09:2025 | Logging Failures          | Security logging and monitoring        | Medium   |
-| A10:2025 | SSRF                      | Server-Side Request Forgery detection  | High     |
-
-### Advanced Security Rules
-
-#### API Security
-
-- **Authentication**: API authentication bypass detection
-- **Authorization**: Permission checking patterns
-- **Rate Limiting**: Rate limiting implementation
-- **Input Validation**: API input sanitization
-- **CORS**: Cross-Origin Resource Sharing issues
-- **SSL/TLS**: Transport security configuration
-
-#### GraphQL Security
-
-- **Introspection**: GraphQL introspection security
-- **Depth/Complexity Limits**: Query complexity controls
-- **Authentication**: GraphQL authentication patterns
-- **Authorization**: GraphQL permission checking
-- **Rate Limiting**: GraphQL rate limiting
-- **Injection**: GraphQL injection attacks
-- **XSS**: Cross-site scripting in GraphQL
-- **CSRF**: Cross-site request forgery
-- **DoS**: Denial of service protection
-- **Batching**: Query batching security
-- **Persisted Queries**: Query persistence security
-- **Query Whitelisting**: Query filtering
-
-#### JWT Security
-
-- **Weak Algorithms**: Insecure JWT algorithms
-- **Improper Validation**: JWT validation issues
-- **Expiration**: Token expiration handling
-- **Signature Verification**: JWT signature checking
-- **Insecure Keys**: Weak JWT keys
-- **Issuer/Audience**: JWT claim validation
-- **Token Lifetime**: Token lifetime management
-- **Storage**: Secure token storage
-- **Revocation**: Token revocation mechanisms
-- **Refresh Tokens**: Refresh token security
-- **Claims Validation**: JWT claims checking
-- **Timing Attacks**: Timing attack prevention
-- **Random Generation**: Secure random generation
-- **Rate Limiting**: JWT rate limiting
-
-#### WebSocket Security
-
-- **Authentication**: WebSocket authentication
-- **Rate Limiting**: WebSocket rate limiting
-- **Input Validation**: WebSocket input validation
-- **Error Handling**: WebSocket error handling
-- **Message Size Limits**: Message size controls
-- **Ping/Pong**: WebSocket heartbeat mechanisms
-- **TLS/SSL**: Transport security
-- **Subprotocols**: WebSocket subprotocol security
-- **Headers**: WebSocket header security
-- **Cookies**: WebSocket cookie handling
-- **Query Parameters**: WebSocket query security
-- **Path Security**: WebSocket path validation
-- **HTTP Method**: WebSocket method security
-- **Timeouts**: WebSocket timeout configuration
-- **Heartbeats**: WebSocket heartbeat security
-- **Reconnection**: WebSocket reconnection logic
-- **Backoff**: Exponential backoff strategies
-- **Jitter**: Connection jitter implementation
-- **Randomness**: Secure random generation
-- **Secure Defaults**: Security by default
-- **Certificates**: SSL certificate handling
-- **Keys**: Cryptographic key management
-- **PEM**: Privacy Enhanced Mail format
-- **CRT**: Certificate file handling
-- **CA**: Certificate Authority validation
-- **CA Bundle**: CA certificate bundles
-- **Verification**: Certificate verification
-- **Sanitization**: Input sanitization
-- **Escaping**: Output escaping
-- **Encoding**: Data encoding security
-- **Decoding**: Data decoding security
-- **Serialization**: Data serialization
-- **Deserialization**: Data deserialization
-- **Marshalling**: Data marshalling
-- **Unmarshalling**: Data unmarshalling
-- **JSON**: JSON security
-- **XML**: XML security
-- **Protobuf**: Protocol Buffer security
-- **Msgpack**: MessagePack security
-- **Avro**: Apache Avro security
-- **Thrift**: Apache Thrift security
-- **gRPC**: gRPC security
-- **RPC**: Remote Procedure Call security
-- **Remote Calls**: Remote call security
-- **Invocation**: Function invocation security
-- **Execution**: Code execution security
-- **Processing**: Data processing security
-- **Handling**: Event handling security
-- **Routing**: Request routing security
-- **Dispatching**: Request dispatching
-- **Middleware**: Middleware security
-- **Interceptors**: Interceptor security
-- **Filters**: Request filtering
-- **Gateways**: API gateway security
-- **Proxies**: Proxy security
-- **Load Balancers**: Load balancer security
-- **Reverse Proxies**: Reverse proxy security
-- **CDNs**: Content Delivery Network security
-- **Caching**: Cache security
-- **Compression**: Data compression security
-- **Gzip**: Gzip compression security
-- **Deflate**: Deflate compression security
-- **Brotli**: Brotli compression security
-- **LZ4**: LZ4 compression security
-- **Snappy**: Snappy compression security
-- **Zstd**: Zstandard compression security
-- **LZMA**: LZMA compression security
-
-#### Session Management
-
-- **Session Creation**: Secure session creation
-- **Session Validation**: Session validation logic
-- **Session Timeout**: Session timeout handling
-- **Session Refresh**: Session refresh mechanisms
-- **Session Invalidation**: Session invalidation
-- **Session Storage**: Secure session storage
-- **Cookie Handling**: Cookie security
-- **Token Creation**: Secure token generation
-- **Login/Logout**: Authentication flows
-- **Remember Me**: Persistent authentication
-- **User Persistence**: User state management
-- **Session Conditions**: Session state checking
-- **Session Assignments**: Session data assignment
-- **Session Function Calls**: Session-related functions
-- **Session Arguments**: Session function arguments
-
-#### Authentication Bypass
-
-- **Hardcoded Bypasses**: Hardcoded authentication bypasses
-- **Skip/Disable Auth**: Authentication skipping patterns
-- **Admin/Superuser Bypasses**: Administrative bypass detection
-- **Debug Mode**: Debug mode authentication
-- **Test Auth**: Test authentication patterns
-- **Development Auth**: Development authentication
-- **Temporary Auth**: Temporary authentication
-- **Fake Auth**: Fake authentication patterns
-- **Ignore Auth**: Authentication ignoring
-- **Override Auth**: Authentication override patterns
-- **Admin Skip**: Administrative authentication skipping
-- **Admin Disable**: Administrative authentication disabling
-- **Set Admin**: Administrative privilege assignment
-- **Set Root**: Root privilege assignment
-- **Set Superuser**: Superuser privilege assignment
-- **Force Auth**: Forced authentication patterns
-
----
-
-## 💻 Command Line Interface
-
-### Main Commands
-
-#### `codex scan`
-
-Performs security analysis on Go code.
-
-```bash
-codex scan [PATH] [FLAGS]
-```
-
-**Arguments:**
-
-- `PATH`: Path to scan (default: current directory)
-
-**Flags:**
-
-- `--format`: Output format (json, markdown, sarif, html)
-- `--out`: Output file path
-- `--exclude`: Comma-separated list of paths to exclude
-- `--rules`: Path to custom rules file
-- `--enable-ssa`: Enable SSA analysis
-- `--enable-taint`: Enable taint analysis
-- `--verbose`: Verbose output
-- `--quiet`: Quiet mode
-- `--no-deps`: Skip dependency analysis
-- `--no-metrics`: Skip metrics analysis
-
-#### `codex version`
-
-Displays version information.
-
-```bash
-codex version
-```
-
-#### `codex mark`
-
-Marks files for analysis.
-
-```bash
-codex mark [PATH]
-```
-
-### Examples
-
-#### Basic Security Scan
-
-```bash
-codex scan .
-```
-
-#### Comprehensive Analysis
-
-```bash
-codex scan . --enable-ssa --enable-taint --verbose
-```
-
-#### Custom Output
-
-```bash
-codex scan . --format json --out security-report.json
-```
-
-#### Exclude Directories
-
-```bash
-codex scan . --exclude vendor,node_modules,testdata
-```
-
-#### Custom Rules
-
-```bash
-codex scan . --rules my-custom-rules.yaml
-```
-
----
-
-## ⚙️ Configuration
-
-### Configuration File
-
-Create a `codex.yaml` file in your project root:
+# CodexSentinel Documentation
+
+This page describes how each analysis works and documents every configuration
+key, suppression mechanism and report format. For a first run, start with the
+[Quick Start](WIKI_QUICK_START.md).
+
+## Contents
+
+- [Command line](#command-line)
+- [How a scan works](#how-a-scan-works)
+- [Security rules](#security-rules)
+- [Taint analysis](#taint-analysis)
+- [Dependency analysis](#dependency-analysis)
+- [Capability lock file](#capability-lock-file)
+- [Architecture analysis](#architecture-analysis)
+- [Metrics](#metrics)
+- [YAML rules](#yaml-rules)
+- [Suppressions](#suppressions)
+- [Baselines and diff mode](#baselines-and-diff-mode)
+- [Reports](#reports)
+- [Configuration reference](#configuration-reference)
+
+## Command line
+
+| Command | Purpose |
+| --- | --- |
+| `codex-cli scan [path]` | Analyze a module, a package pattern (`./...`) or a single `.go` file |
+| `codex-cli baseline create [path] --out FILE` | Record the current findings in a baseline file |
+| `codex-cli caps inspect [path]` | Print the capabilities each dependency uses, with a call path as evidence |
+| `codex-cli caps lock [path] --out FILE` | Write the capability lock file (default `.codexsentinel.caps.json`) |
+| `codex-cli caps verify [path] --lockfile FILE` | Exit with code 1 when a dependency gained capabilities |
+| `codex-cli mark FILE[:LINE] --rule ID --reason TEXT` | Add an entry to the ignore file |
+| `codex-cli version` | Print version, commit, build date and Go version |
+
+`scan` flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-f, --format` | `sarif` (default), `json`, `html` or `markdown` |
+| `-o, --out` | Report path; `-` writes the report to stdout. Default: `report.output_dir` (`scan_reports/`) |
+| `--severity` | Keep findings at or above `low`, `medium`, `high` or `critical` |
+| `--strict` | Exit with code 1 when findings remain after filtering |
+| `--diff REF` | Report only findings on lines changed since the git reference |
+| `--baseline FILE` | Hide findings recorded in the baseline |
+| `--fix` | Apply the suggested fixes of the reported findings to the source files |
+| `--deps` | Run only the dependency audit |
+| `--config FILE` | Use this configuration file |
+| `--ignore-file FILE` | Use this ignore file instead of `suppression.ignore_file` |
+
+Exit code 0 means the scan completed without failing findings. Exit code 1
+means one of the following:
+- Findings remain with `--strict` or with `report.fail_on_severity` set.
+- `caps verify` found escalations.
+- The scan failed. In this case an `error:` line is printed to stderr.
+
+## How a scan works
+
+1. **Load.** `go/packages` loads the target packages with syntax and type information (`analyzer/workspace`).
+   - Files under `scan.excluded_paths`, generated files and test files are excluded from the analysis unless enabled. Excluded files still take part in type checking and SSA construction.
+2. **Package rules.** The built-in rules and the YAML rules run on every package, in parallel up to `scan.concurrency`.
+3. **Whole-program analyses.** These share one SSA program and one VTA call graph (`analyzer/ssa`):
+   - taint analysis
+   - dependency reachability
+   - capability check
+   - architecture checks
+   - metrics and dead code
+4. **Post-processing** (`analyzer/engine`):
+   1. Rule selection and severity overrides.
+   2. The `suppression.min_confidence` threshold.
+   3. File paths relative to the module root.
+   4. Inline directives.
+   5. The ignore file.
+   6. Deduplication by file, line and rule, preferring the finding with the longer trace and then the higher confidence.
+   7. Fingerprints.
+   8. Ordering by severity, file, line and rule.
+
+## Security rules
+
+The built-in rules live in `analyzer/rules/builtin`. They resolve calls
+through type information, so `import sq "database/sql"` is recognized and
+a local function called `Query` is not. The README lists every rule with its
+severity, CWE and OWASP category. Notable behavior:
+
+| Area | Rules | Notes |
+| --- | --- | --- |
+| Injection | `sql-injection`, `command-injection`, `xss` | Report queries, commands and HTML built from non-constant data. The taint engine adds interprocedural flows. Supports `database/sql`, sqlx, pgx and gorm. |
+| Files | `path-traversal`, `archive-zip-slip`, `archive-decompression-bomb`, `insecure-file-permissions` | Access through `*os.Root` (Go 1.24) is confined and never reported. `filepath.Join` with request input is reported with a hint to use `os.OpenRoot`. |
+| Web | `csrf-missing-protection`, `cors-wildcard-credentials`, `websocket-origin-bypass`, `cookie-*`, `debug-endpoint-exposed` | `csrf-missing-protection` reports state-changing routes that use cookie sessions without cross-origin protection. These count as protection: `http.NewCrossOriginProtection` (Go 1.25), gorilla/csrf, justinas/nosurf, gin-csrf, the fiber CSRF middleware, and echo's `middleware.CSRF`. |
+| Denial of service | `http-server-missing-timeout`, `http-unbounded-body-read`, `untrusted-slice-allocation`, `http-client-unsafe`, `graphql-unbounded-query`, `context-propagation-missing` | `http.MaxBytesReader` and `io.LimitReader` bound a body read. |
+| Cryptography | `crypto-weak-hash`, `crypto-weak-cipher`, `crypto-weak-rand`, `crypto-weak-rsa`, `tls-insecure-config` | `tls-insecure-config` provides fixes for `InsecureSkipVerify` and old `MinVersion` values. |
+| Authentication | `jwt-*`, `auth-hardcoded-credential`, `auth-non-constant-time-compare`, `hardcoded-secret` | Covers golang-jwt and similar libraries. Secrets combine provider-specific patterns with an entropy check. |
+| Logging | `sensitive-data-in-logs` | Detailed below. |
+| Deserialization | `unsafe-gob-decode` | Reports gob decoding of request bodies. |
+| Access control | `idor-unscoped-mutation` | Reports updates and deletes keyed only by a request parameter, without an owner or tenant condition. |
+
+### Sensitive data in logs
+
+`sensitive-data-in-logs` inspects the arguments of these loggers:
+- `log/slog`: functions, `Logger` methods and `slog.Attr` constructors
+- `go.uber.org/zap`: `Logger` and `SugaredLogger`, plus field constructors such as `zap.String` and `zap.Any`
+- `github.com/rs/zerolog`: event field methods
+- the standard `log` package
+
+A value is reported when its key, variable or field name denotes a credential
+or personal data (password, token, secret, API key, card number, SSN, and so
+on), or when it is a struct containing such fields.
+
+A type that controls its own log representation is not reported:
+- `slog.LogValuer`
+- `zapcore.ObjectMarshaler`
+- `zerolog.LogObjectMarshaler`
+
+Implementing one of these is the recommended fix.
+
+## Taint analysis
+
+The taint engine (`analyzer/flow`) runs on SSA. With
+`taint.interprocedural: true` (the default) it summarizes each function, so
+taint crosses:
+- calls, return values and pointer arguments
+- closures and struct fields
+- interface and function-value calls, resolved by the VTA call graph
+
+### Sources
+
+| Tag | Sources |
+| --- | --- |
+| `http` | `net/http.Request` methods and fields (`FormValue`, `PathValue`, `URL`, `Header`, `Body`, `Cookie`, ...), `url.Values.Get`, gin, echo and fiber context accessors and binders, chi `URLParam`, gorilla/mux `Vars` |
+| `cli` | `os.Args`, `os.Stdin`, `fmt.Scan*` (confidence 0.7) |
+| `env` | `os.Getenv`, `os.LookupEnv` (confidence 0.6) |
+
+`cli` and `env` input is controlled by whoever runs the program. It is not
+reported for `path-traversal`, because opening a file the operator named is
+the normal behavior of a command-line tool.
+
+### Sinks
+
+| Category | Severity | Sinks |
+| --- | --- | --- |
+| `sql-injection` | High | `database/sql` DB/Tx/Conn queries, sqlx, pgx v4/v5 and pgxpool, gorm raw and clause methods |
+| `command-injection` | Critical | `exec.Command`, `exec.CommandContext`, `syscall.Exec`, `syscall.ForkExec`, `os.StartProcess` |
+| `path-traversal` | High | `os` file functions, `io/ioutil`, `http.ServeFile`, `http.Dir` |
+| `ssrf` | High | `http.Get`/`Post`/`Head`/`PostForm`, `http.NewRequest[WithContext]`, `http.Client` methods, `net.Dial[Timeout]` |
+| `xss` | High | `http.ResponseWriter.Write`, `fmt.Fprint*` and `io.WriteString` to a response, `text/template` execution to a response, `html/template.HTML` and the other trusted-type conversions |
+| `open-redirect` | Medium | `http.Redirect` |
+
+### Sanitizers
+
+- **All categories.** Numeric and boolean parsing (`strconv`), UUID parsing,
+  `netip.ParseAddr`, hashing and hex encoding.
+- **Specific categories.**
+  - `html.EscapeString` and the template escapers clear `xss`.
+  - `filepath.Base` clears `path-traversal`.
+  - `url.QueryEscape` and `url.PathEscape` clear `xss`, `sql-injection`, `command-injection` and `path-traversal`.
+  - `pq.QuoteIdentifier` and `pgx.Identifier.Sanitize` clear `sql-injection`.
+  - bluemonday policies clear `xss`.
+
+### Custom specifications
 
 ```yaml
-# Analysis Configuration
-analysis:
-  enable_ssa: true
-  enable_taint: true
-  enable_ast: true
-  enable_builtins: true
-
-# Output Configuration
-output:
-  format: json
-  file: results.json
-  verbose: false
-  quiet: false
-
-# Exclusion Patterns
-exclude:
-  - vendor/
-  - node_modules/
-  - testdata/
-  - *.test.go
-
-# Custom Rules
-rules:
-  - path: custom-rules.yaml
-    enabled: true
-
-# Dependency Analysis
-dependencies:
-  enable_osv: true
-  enable_ghsa: true
-  enable_license: true
-  enable_entropy: true
-
-# Metrics Configuration
-metrics:
-  complexity_threshold: 10
-  function_size_threshold: 50
-  file_size_threshold: 500
-  duplication_threshold: 0.8
+taint:
+  custom_sources:
+    - package: github.com/acme/web
+      receiver: Context        # omit for package-level functions
+      function: Param
+      tags: [http]
+  custom_sinks:
+    - package: github.com/acme/store
+      function: RawQuery
+      check_args: [0]          # argument indexes, not counting the receiver
+      category: sql-injection
+  custom_sanitizers:
+    - package: github.com/acme/security
+      function: CleanPath
+      categories: [path-traversal]
 ```
 
-### Environment Variables
+Every taint finding has a `trace`. Each step has a location, a message and a
+kind: `source`, `param`, `call`, `return`, `propagation` or `sink`. In SARIF
+the trace is a `codeFlows` thread flow.
 
-- `CODEX_CONFIG`: Path to configuration file
-- `CODEX_OUTPUT_FORMAT`: Default output format
-- `CODEX_VERBOSE`: Enable verbose output
-- `CODEX_QUIET`: Enable quiet mode
+## Dependency analysis
 
----
+Enable it with `dependencies.enable: true`, or run `codex-cli scan --deps`.
+It reads `go.mod` and checks the following.
 
-## 📊 Output Formats
+- **Vulnerabilities.**
+  - Every required module, plus the standard library version taken from the `go` and `toolchain` directives, is queried in OSV and the Go vulnerability database.
+  - GitHub Security Advisories are queried as well when `GITHUB_TOKEN` is set.
+  - The results are reported as `dependency-vulnerability`.
+- **Reachability** (`check_reachability`).
+  - When the advisory names affected symbols, the call graph decides whether the module's code can reach them.
+  - Each finding carries `reachable: true|false`. Unreachable vulnerabilities are reported as Low.
+- **Licenses** (`check_licenses`).
+  - License files of the modules (from `vendor/` or `$GOMODCACHE`) are classified, then checked against `allow_licenses` and `deny_licenses`.
+  - Violations are reported as `license-denied`.
 
-### JSON Format
+Vendored modules are also scanned for high-entropy strings, which are
+reported as `high-entropy-string`. Network failures are reported as a warning,
+and the rest of the scan completes.
 
-```json
-{
-  "summary": {
-    "total_issues": 15,
-    "high_severity": 8,
-    "medium_severity": 5,
-    "low_severity": 2
-  },
-  "issues": [
-    {
-      "id": "sql-injection",
-      "title": "SQL Injection Vulnerability",
-      "description": "Potential SQL injection: avoid building queries via string concatenation",
-      "severity": "HIGH",
-      "category": "security",
-      "location": {
-        "file": "main.go",
-        "line": 42,
-        "column": 15
-      },
-      "suggestion": "Use parameterized queries instead of raw string concatenation",
-      "references": [
-        "https://owasp.org/www-project-top-ten/2017/A1_2017-Injection"
-      ]
-    }
-  ]
-}
-```
+## Capability lock file
 
-### Markdown Format
+`codex-cli caps inspect` attributes privileged operations to the dependency
+module whose code performs them, starting from code reachable in the call
+graph:
 
-```markdown
-# CodexSentinel Security Report
+| Capability | Evidence |
+| --- | --- |
+| `CAP_FS_READ`, `CAP_FS_WRITE` | `os` file functions |
+| `CAP_NETWORK` | `net` dialers and listeners, HTTP clients and servers |
+| `CAP_ENV` | `os.Getenv`, `os.LookupEnv`, `os.Environ`, `os.ExpandEnv` |
+| `CAP_EXEC` | `exec.Command`, `exec.CommandContext`, `Cmd.Start`/`Run`/`Output`/`CombinedOutput`, `os.StartProcess`, `syscall.Exec`/`ForkExec` |
+| `CAP_REFLECT`, `CAP_UNSAFE`, `CAP_CGO`, `CAP_PLUGIN` | Importing `reflect`, `unsafe`, `runtime/cgo` or `plugin`, and calling `plugin.Open` |
 
-## Summary
+Calls into the standard library are followed through static calls only, up to
+a fixed depth. Package initializers are not attributed to the importing
+module.
 
-- **Total Issues**: 15
-- **High Severity**: 8
-- **Medium Severity**: 5
-- **Low Severity**: 2
+`caps lock` writes the result to `.codexsentinel.caps.json`. Commit this file.
+`caps verify` then fails when a dependency upgrade adds a capability. With
+`dependencies.check_capabilities: true`, `scan` reports the same escalations
+as `supply-chain-capability-escalation` findings. An escalation is Critical
+when the module gains exec, cgo or plugin access, or when it gains
+environment or network access and now has both. Otherwise it is High.
 
-## Issues
+## Architecture analysis
 
-### [HIGH] SQL Injection Vulnerability
+| Rule | Behavior |
+| --- | --- |
+| `arch-layer-violation` | Packages are assigned to layers by path segments or globs (`architecture.layers`). An import of a layer outside `allowed_deps` is reported. |
+| `arch-import-cycle` | Reports import cycles between packages of the module. |
+| `arch-god-struct` | Reports a struct with more than `god_struct_max_methods` methods, or with more than `god_struct_max_fields` fields and more than two methods. Plain data records with many fields are not reported. |
+| `arch-boundary-type-leak` | Reports exported functions and fields of outer layers whose signatures expose types of layers they should hide. For example, a handler returning a repository type. |
 
-**File**: `main.go:42`
-**Description**: Potential SQL injection: avoid building queries via string concatenation
-**Suggestion**: Use parameterized queries instead of raw string concatenation
-**Reference**: https://owasp.org/www-project-top-ten/2017/A1_2017-Injection
-```
+Without configured layers, a default Clean Architecture layout applies:
 
-### SARIF Format
+| Layer | Path segments | May depend on |
+| --- | --- | --- |
+| delivery | `handler`, `controller`, `delivery`, `transport`, `api` | usecase, service, domain |
+| usecase | `usecase`, `application` | domain, port |
+| service | `service` | usecase, domain, repository, port |
+| port | `port` | domain |
+| repository | `repository`, `repo`, `adapter`, `store`, `db`, `infra` | domain, port |
+| domain | `domain`, `entity`, `model` | nothing |
 
-```json
-{
-  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
-  "version": "2.1.0",
-  "runs": [
-    {
-      "tool": {
-        "driver": {
-          "name": "CodexSentinel",
-          "version": "1.5.0"
-        }
-      },
-      "results": [
-        {
-          "ruleId": "sql-injection",
-          "level": "error",
-          "message": {
-            "text": "Potential SQL injection: avoid building queries via string concatenation"
-          },
-          "locations": [
-            {
-              "physicalLocation": {
-                "artifactLocation": {
-                  "uri": "main.go"
-                },
-                "region": {
-                  "startLine": 42,
-                  "startColumn": 15
-                }
-              }
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-```
-
-### HTML Format
-
-Generates a comprehensive HTML report with:
-
-- Interactive issue navigation
-- Severity filtering
-- Code highlighting
-- Export functionality
-- Responsive design
-
----
-
-## 🔧 Advanced Usage
-
-### Custom Rules
-
-Create custom security rules in YAML format:
+A segment also matches its plural (`handler` matches `handlers`).
 
 ```yaml
-rules:
-  - id: custom-sql-injection
-    title: "Custom SQL Injection Detection"
-    category: "security"
-    severity: "HIGH"
-    description: "Detects custom SQL injection patterns"
-    patterns:
-      - type: "function_call"
-        name: "executeQuery"
-        args:
-          - type: "string_concat"
-    suggestion: "Use parameterized queries"
-    references:
-      - "https://owasp.org/www-project-top-ten/2017/A1_2017-Injection"
+architecture:
+  layers:
+    transport: [internal/http/*]
+    app: [internal/app]
+    storage: [internal/postgres]
+  allowed_deps:
+    transport: [app]
+    app: [storage]
+    storage: []
 ```
 
-### CI/CD Integration
+## Metrics
 
-#### GitHub Actions
+| Rule | Default | Behavior |
+| --- | --- | --- |
+| `high-complexity` | 15 | Cyclomatic complexity, counted like gocyclo: `if`, loops, non-default `case` and `select` clauses, `&&`, `\|\|` |
+| `large-function` | 80 lines | Lines of the function body |
+| `large-file` | 600 lines | Lines of the file |
+| `code-duplication` | 10 lines | Function bodies that are identical after normalization. Reported once per group, naming the other copies. |
+| `global-variable` | on | Package variables written outside `init`, or maps, slices and channels that start empty. Exempt: constants, sentinel errors, compiled regexps, `embed.FS`, `sync` values, templates, and variables declared in one `var (...)` block with a `sync.Mutex`, `sync.RWMutex` or `sync.Once`. |
+| `dead-code` | on | Functions not reachable from any entry point in the call graph: `main`, `init`, exported API of library packages, tests |
+
+A threshold of 0 disables the check.
+
+## YAML rules
+
+YAML rules are loaded from `assets/rules` in the working directory, from every
+directory in `rules.rule_paths` and from every file in `rules.rule_files`.
 
 ```yaml
-name: Security Scan
-on: [push, pull_request]
-jobs:
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: "1.24"
-      - name: Install CodexSentinel
-        run: go install github.com/Voskan/codexsentinel/cmd/codex@latest
-      - name: Run Security Scan
-        run: codex scan . --format sarif --out results.sarif
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: results.sarif
+id: go.security.plaintext-http-request
+title: Plaintext HTTP request
+category: security
+severity: MEDIUM
+cwe: CWE-319
+description: A request is sent over unencrypted HTTP.
+match:
+  pattern: "http.Get($URL)"
+  filters:
+    - type: regex
+      var: $URL
+      include: ['^"http://']
+      exclude: ['^"http://(localhost|127\.0\.0\.1|\[::1\])([:/"]|$)']
+suggestion: Use an https:// URL.
 ```
 
-#### GitLab CI
+- `pattern` is Go code with metavariables. `$X` matches any expression, a
+  repeated `$X` must match the same expression, and `$...` matches any number
+  of call arguments.
+- Package names match renamed imports.
+- `not_pattern` excludes matches that contain another pattern.
+- Filters restrict a metavariable:
+  - `type` (`include: [net/http.ResponseWriter]`)
+  - `non_const`
+  - `regex` (`include` / `exclude` regular expressions over the matched source text)
+- `fix` is a replacement template that reuses the metavariables. `--fix`
+  applies it.
 
-```yaml
-security-scan:
-  stage: test
-  image: golang:1.24
-  script:
-    - go install github.com/Voskan/codexsentinel/cmd/codex@latest
-    - codex scan . --format json --out results.json
-  artifacts:
-    reports:
-      security: results.json
-```
+See [assets/rules](assets/rules) for working examples.
 
-### IDE Integration
+## Suppressions
 
-#### VS Code Extension
-
-Install the CodexSentinel extension for real-time security analysis:
-
-```json
-{
-  "codexsentinel.enable": true,
-  "codexsentinel.rules": "custom-rules.yaml",
-  "codexsentinel.severity": "MEDIUM"
-}
-```
-
-#### GoLand Plugin
-
-Configure the CodexSentinel plugin in GoLand settings:
-
-1. Go to Settings → Plugins
-2. Install CodexSentinel Plugin
-3. Configure analysis settings
-4. Enable real-time scanning
-
----
-
-## 📚 API Reference
-
-### Core Types
-
-#### `analyzer.AnalyzerContext`
-
-Main context for analysis operations.
+### Inline directives
 
 ```go
-type AnalyzerContext struct {
-    Fset     *token.FileSet
-    Filename string
-    // ... other fields
-}
+//codex:ignore sql-injection -- the table name comes from a fixed allow list
+rows, err := db.Query("SELECT * FROM " + table)
+
+x := risky() //codex:ignore ssrf,xss -- reviewed
+
+//codex:ignore global-variable -- process-wide cache, guarded by cacheMu
+var cache = map[string]string{}
 ```
 
-#### `result.Issue`
+- A trailing comment covers its own line.
+- A comment on its own line covers the next line.
+- A doc comment covers the whole declaration it documents.
+- Rule IDs accept globs.
+- No rule ID, or `*`, suppresses every rule.
+- With `suppression.require_ignore_reason: true`, a directive without
+  `-- reason` is reported as `ignore-missing-reason`.
+- `suppression.enable_inline_ignore: false` turns directives off.
 
-Represents a security issue or code quality problem.
+### Ignore file
 
-```go
-type Issue struct {
-    ID          string
-    Title       string
-    Description string
-    Severity    Severity
-    Category    string
-    Location    *Location
-    Suggestion  string
-    References  []string
-}
+`.codexsentinel.ignore` holds one entry per line, relative to the module
+root. `#` starts a comment.
+
+```text
+# Paths: ignore every rule
+**/*.pb.go
+/vendor/
+internal/generated/
+
+# Paths with rules
+internal/legacy/** sql-injection,xss
+
+# A single line
+cmd/tool/main.go:42 path-traversal
+
+# A rule everywhere
+context-propagation-missing
 ```
 
-#### `analyzer.Rule`
-
-Defines a security rule for analysis.
-
-```go
-type Rule struct {
-    ID       string
-    Title    string
-    Category string
-    Severity result.Severity
-    Summary  string
-    Matcher  RuleMatcher
-}
-```
-
-### Engine Configuration
-
-#### `engine.Config`
-
-Configuration for the analysis engine.
-
-```go
-type Config struct {
-    EnableSSA      bool
-    EnableTaint    bool
-    EnableAST      bool
-    EnableBuiltins bool
-}
-```
-
-### Rule Matchers
-
-#### AST Rule Matcher
-
-```go
-type ASTRuleMatcher func(ctx *AnalyzerContext, pass *analysis.Pass)
-```
-
-#### SSA Rule Matcher
-
-```go
-type SSARuleMatcher func(ctx *AnalyzerContext, ssa *ssa.Program)
-```
-
-### Report Generation
-
-#### `report.Generator`
-
-Handles report generation in various formats.
-
-```go
-type Generator struct {
-    Issues []*result.Issue
-    Config *Config
-}
-```
-
----
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-#### Build Errors
-
-**Problem**: `go: module github.com/Voskan/codexsentinel: not found`
-
-**Solution**: Ensure you're using Go 1.24.2+ and have proper module setup:
-
-```bash
-go mod tidy
-go mod download
-```
-
-#### Analysis Errors
-
-**Problem**: "No Go files found in project"
-
-**Solution**: Check that your project contains `.go` files and they're not excluded:
-
-```bash
-codex scan . --verbose
-```
-
-#### Memory Issues
-
-**Problem**: Out of memory during large project analysis
-
-**Solution**: Use memory-efficient options:
-
-```bash
-codex scan . --no-metrics --no-deps
-```
-
-#### Performance Issues
-
-**Problem**: Slow analysis on large codebases
-
-**Solution**: Use targeted analysis:
-
-```bash
-codex scan . --exclude vendor,testdata --enable-ast
-```
-
-### Debug Mode
-
-Enable debug output for troubleshooting:
-
-```bash
-codex scan . --verbose --debug
-```
-
-### Log Files
-
-CodexSentinel generates detailed logs in the current directory:
-
-- `codex.log`: General application logs
-- `analysis.log`: Analysis-specific logs
-- `error.log`: Error details
-
----
-
-## 🤝 Contributing
-
-### Development Setup
-
-1. **Clone the repository**:
-
-   ```bash
-   git clone https://github.com/Voskan/codexsentinel.git
-   cd codexsentinel
-   ```
-
-2. **Install dependencies**:
-
-   ```bash
-   go mod tidy
-   go mod download
-   ```
-
-3. **Build the project**:
-
-   ```bash
-   make build
-   ```
-
-4. **Run tests**:
-   ```bash
-   make test
-   ```
-
-### Adding New Rules
-
-1. **Create rule file** in `analyzer/rules/builtin/`
-2. **Implement rule logic** following existing patterns
-3. **Add test cases** in `testdata/`
-4. **Register rule** in `analyzer/engine/engine.go`
-5. **Update documentation**
-
-### Code Style
-
-- Follow Go conventions
-- Use meaningful variable names
-- Add comprehensive comments
-- Include unit tests
-- Update documentation
-
-### Pull Request Process
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Update documentation
-6. Submit a pull request
-
----
-
-## 🔒 Security Policy
-
-### Supported Versions
-
-| Version | Supported | OWASP Coverage |
-| ------- | --------- | -------------- |
-| 1.5.x   | ✅ Yes    | A01-A10:2025   |
-| 1.4.x   | ✅ Yes    | A01-A10:2021   |
-| < 1.4   | ❌ No     | Limited        |
-
-### Reporting Vulnerabilities
-
-#### Security Issues
-
-- **Email**: voskan1989@gmail.com
-- **GitHub**: [Security Advisory](https://github.com/Voskan/codexsentinel/security)
-- **Response Time**: 48 hours
-- **Disclosure**: Coordinated disclosure
-
-#### Bug Reports
-
-- **GitHub Issues**: [Issues](https://github.com/Voskan/codexsentinel/issues)
-- **Discussions**: [Discussions](https://github.com/Voskan/codexsentinel/discussions)
-
-### Security Best Practices
-
-1. **Keep Updated**: Always use the latest version
-2. **Regular Scans**: Run security scans regularly
-3. **Custom Rules**: Create project-specific rules
-4. **CI/CD Integration**: Automate security scanning
-5. **Team Training**: Educate team on security practices
-
----
-
-## 📞 Support
-
-### Getting Help
-
-- **📧 Email**: [voskan1989@gmail.com](mailto:voskan1989@gmail.com)
-- **🐛 Issues**: [GitHub Issues](https://github.com/Voskan/codexsentinel/issues)
-- **📖 Documentation**: [Wiki](https://github.com/Voskan/codexsentinel/wiki)
-- **💬 Discussions**: [GitHub Discussions](https://github.com/Voskan/codexsentinel/discussions)
-
-### Community
-
-- **GitHub**: [Repository](https://github.com/Voskan/codexsentinel)
-- **Releases**: [Latest Release](https://github.com/Voskan/codexsentinel/releases)
-- **Security**: [Security Policy](https://github.com/Voskan/codexsentinel/security)
-
-### Resources
-
-- **OWASP Top 10**: [2025 Edition](https://owasp.org/www-project-top-ten/)
-- **Go Security**: [Go Security Best Practices](https://golang.org/doc/security)
-- **SAST Tools**: [Static Analysis Tools](https://owasp.org/www-community/Source_Code_Analysis_Tools)
-
----
-
-## 📈 Statistics
-
-### Project Metrics
-
-- **Lines of Code**: 15,000+
-- **Go Files**: 100+
-- **Security Rules**: 18+
-- **OWASP Coverage**: 100% (A01-A10:2025)
-- **Supported Formats**: 4 (JSON, Markdown, SARIF, HTML)
-- **Analysis Types**: 4 (AST, SSA, Taint, Metrics)
-
-### Performance
-
-- **Analysis Speed**: ~1000 LOC/second
-- **Memory Usage**: < 100MB for typical projects
-- **CPU Usage**: Optimized for multi-core systems
-- **Accuracy**: High precision with low false positives
-
-### Recognition
-
-- **OWASP Top 10 2025 Coverage**: 100% (A01-A10:2025)
-- **Latest OWASP Standards**: Full compliance
-- **Go Language Focus**: Optimized for Go ecosystems
-- **Enterprise Ready**: Production-grade security scanning
-
----
-
-_This documentation is maintained by the CodexSentinel team. For the latest updates, visit our [GitHub repository](https://github.com/Voskan/codexsentinel)._
+Path patterns:
+- `**` matches any number of directories.
+- A leading `/` anchors the pattern at the root.
+- A trailing `/` matches a directory and everything below it.
+- `# text` after an entry is kept as its comment.
+
+## Baselines and diff mode
+
+**Baselines.** `codex-cli baseline create` writes `.codexsentinel.baseline.json`.
+- Each entry has a fingerprint, the rule ID, the file, the enclosing function and a timestamp.
+- The fingerprint hashes the rule, the file, the enclosing declaration, the trimmed source line and its occurrence index. It therefore survives code being inserted above the finding.
+- `scan --baseline FILE` drops findings whose fingerprints are recorded.
+
+**Diff mode.** `scan --diff REF` analyzes the whole program, so interprocedural
+flows stay correct, but reports only findings on lines changed between `REF`
+and the working tree.
+- Untracked files count as fully changed.
+- Dependency findings on `go.mod` are kept when `go.mod` or `go.sum` changed.
+
+## Reports
+
+| Format | Contents |
+| --- | --- |
+| SARIF 2.1.0 | Rules with CWE/OWASP tags and `security-severity`, results with `codeFlows`, `fixes` and `partialFingerprints.primaryLocationLineHash`, git metadata |
+| JSON | `summary` (counts per severity and category), `issues`, `generated_at`, `git` |
+| HTML | A single page with summary cards, findings by category and per-finding details including traces. Icons load from cdnjs. |
+| Markdown | Repository information, summary, tables per severity, details and remediation |
+
+## Configuration reference
+
+The configuration file is found in the current directory as
+`.codexsentinel.yaml`, `.codexsentinel.yml`, `codex.yaml` or `.codex.yml`, in
+that order. It can also be given with `--config`. Unknown keys and invalid
+values are errors. Omitted keys keep their defaults.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `version` | `1` | Schema version |
+| `scan.include_tests` | `false` | Analyze `_test.go` files |
+| `scan.include_vendor` | `false` | Analyze `vendor/` |
+| `scan.include_generated` | `false` | Analyze files marked `// Code generated ... DO NOT EDIT.` |
+| `scan.excluded_paths` | `[vendor, testdata, node_modules, .git]` | Paths or globs excluded from analysis |
+| `scan.max_file_size_bytes` | `10485760` | Larger files are skipped |
+| `scan.supported_extensions` | `[.go]` | Source file extensions |
+| `scan.concurrency` | `0` | Parallel package workers; 0 uses all CPUs |
+| `rules.enabled` | `["*"]` | Rule IDs or globs to run |
+| `rules.disabled` | `[]` | Rule IDs or globs to skip |
+| `rules.severity_overrides` | `{}` | Rule ID to `low`, `medium`, `high` or `critical` |
+| `rules.rule_paths`, `rules.rule_files` | `[]` | Extra YAML rule directories and files |
+| `taint.enable` | `true` | Run the taint engine |
+| `taint.interprocedural` | `true` | Follow taint across functions |
+| `taint.custom_sources`, `custom_sinks`, `custom_sanitizers` | `[]` | See [Custom specifications](#custom-specifications) |
+| `architecture.enable` | `true` | Run architecture checks |
+| `architecture.layers`, `allowed_deps` | `{}` | Layer model; empty uses the default layout |
+| `architecture.check_cycles`, `check_god_structs`, `check_boundaries` | `true` | Individual checks |
+| `architecture.god_struct_max_methods`, `god_struct_max_fields` | `15`, `20` | God struct thresholds |
+| `metrics.enable` | `true` | Run metrics |
+| `metrics.max_cyclomatic`, `max_function_loc`, `max_file_loc`, `min_duplicate_loc` | `15`, `80`, `600`, `10` | Thresholds; 0 disables |
+| `metrics.enable_duplication`, `enable_dead_code`, `enable_globals` | `true` | Individual checks |
+| `dependencies.enable` | `false` | Run the dependency audit during `scan` |
+| `dependencies.check_vulnerabilities`, `check_reachability`, `check_licenses` | `true` | Individual checks |
+| `dependencies.check_capabilities` | `false` | Verify the capability lock file during `scan` |
+| `dependencies.capability_lockfile` | `.codexsentinel.caps.json` | Lock file path, relative to the module root |
+| `dependencies.allow_licenses`, `deny_licenses` | see README | SPDX identifiers |
+| `suppression.ignore_file` | `.codexsentinel.ignore` | Ignore file, relative to the module root |
+| `suppression.enable_inline_ignore` | `true` | Honor `//codex:ignore` |
+| `suppression.require_ignore_reason` | `false` | Report directives without a reason |
+| `suppression.min_confidence` | `0.5` | Drop findings below this confidence |
+| `report.formats` | `[sarif]` | Default report format |
+| `report.output_dir` | `scan_reports` | Default report directory |
+| `report.fail_on_severity` | `""` | Exit with code 1 when findings at or above this severity remain |

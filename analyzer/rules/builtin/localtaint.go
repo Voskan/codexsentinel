@@ -86,29 +86,12 @@ func isRequestField(info *types.Info, sel *ast.SelectorExpr) bool {
 
 // tainted reports whether e carries untrusted HTTP data not sanitized for category.
 func (lt *localTaint) tainted(e ast.Expr, category string) bool {
+	if inner := wrappedExpr(e); inner != nil {
+		return lt.tainted(inner, category)
+	}
 	switch x := e.(type) {
 	case *ast.CallExpr:
-		if tv, ok := lt.info.Types[x.Fun]; ok && tv.IsType() {
-			return len(x.Args) == 1 && lt.tainted(x.Args[0], category)
-		}
-		if t := typeOf(lt.info, x); t != nil && !carriesText(t) {
-			return false
-		}
-		fn := calleeFunc(lt.info, x)
-		if isHTTPSource(fn) {
-			return true
-		}
-		if fn != nil && sanitizes(fn, category) {
-			return false
-		}
-		if sel, ok := x.Fun.(*ast.SelectorExpr); ok && fn != nil && recvOf(fn) != nil && lt.tainted(sel.X, category) {
-			return true
-		}
-		for _, arg := range x.Args {
-			if lt.tainted(arg, category) {
-				return true
-			}
-		}
+		return lt.taintedCall(x, category)
 	case *ast.SelectorExpr:
 		if isRequestField(lt.info, x) {
 			return true
@@ -117,41 +100,78 @@ func (lt *localTaint) tainted(e ast.Expr, category string) bool {
 			return lt.tainted(x.X, category)
 		}
 	case *ast.Ident:
-		obj, ok := lt.info.Uses[x].(*types.Var)
-		if !ok || lt.visiting[obj] {
-			return false
-		}
-		lt.visiting[obj] = true
-		defer delete(lt.visiting, obj)
-		for _, rhs := range lt.assigns[obj] {
-			if lt.tainted(rhs, category) {
-				return true
-			}
-		}
+		return lt.taintedVar(x, category)
 	case *ast.BinaryExpr:
 		return lt.tainted(x.X, category) || lt.tainted(x.Y, category)
-	case *ast.ParenExpr:
-		return lt.tainted(x.X, category)
-	case *ast.IndexExpr:
-		return lt.tainted(x.X, category)
-	case *ast.SliceExpr:
-		return lt.tainted(x.X, category)
-	case *ast.StarExpr:
-		return lt.tainted(x.X, category)
-	case *ast.UnaryExpr:
-		return lt.tainted(x.X, category)
-	case *ast.TypeAssertExpr:
-		return lt.tainted(x.X, category)
 	case *ast.CompositeLit:
-		for _, elt := range x.Elts {
-			if lt.tainted(elt, category) {
-				return true
-			}
-		}
-	case *ast.KeyValueExpr:
-		return lt.tainted(x.Value, category)
+		return lt.anyTainted(x.Elts, category)
 	}
 	return false
+}
+
+func (lt *localTaint) anyTainted(exprs []ast.Expr, category string) bool {
+	for _, e := range exprs {
+		if lt.tainted(e, category) {
+			return true
+		}
+	}
+	return false
+}
+
+// taintedCall handles conversions, sources, sanitizers and calls whose
+// receiver or arguments are tainted.
+func (lt *localTaint) taintedCall(x *ast.CallExpr, category string) bool {
+	if tv, ok := lt.info.Types[x.Fun]; ok && tv.IsType() {
+		return len(x.Args) == 1 && lt.tainted(x.Args[0], category)
+	}
+	if t := typeOf(lt.info, x); t != nil && !carriesText(t) {
+		return false
+	}
+	fn := calleeFunc(lt.info, x)
+	if isHTTPSource(fn) {
+		return true
+	}
+	if fn != nil && sanitizes(fn, category) {
+		return false
+	}
+	if sel, ok := x.Fun.(*ast.SelectorExpr); ok && fn != nil && recvOf(fn) != nil && lt.tainted(sel.X, category) {
+		return true
+	}
+	return lt.anyTainted(x.Args, category)
+}
+
+// taintedVar follows the local assignments of a variable.
+func (lt *localTaint) taintedVar(id *ast.Ident, category string) bool {
+	obj, ok := lt.info.Uses[id].(*types.Var)
+	if !ok || lt.visiting[obj] {
+		return false
+	}
+	lt.visiting[obj] = true
+	defer delete(lt.visiting, obj)
+	return lt.anyTainted(lt.assigns[obj], category)
+}
+
+// wrappedExpr returns the operand of expressions that carry their operand's
+// data unchanged (parentheses, indexing, slicing, dereference, unary
+// operators, type assertions and key-value pairs), or nil.
+func wrappedExpr(e ast.Expr) ast.Expr {
+	switch x := e.(type) {
+	case *ast.ParenExpr:
+		return x.X
+	case *ast.IndexExpr:
+		return x.X
+	case *ast.SliceExpr:
+		return x.X
+	case *ast.StarExpr:
+		return x.X
+	case *ast.UnaryExpr:
+		return x.X
+	case *ast.TypeAssertExpr:
+		return x.X
+	case *ast.KeyValueExpr:
+		return x.Value
+	}
+	return nil
 }
 
 // carriesText reports whether a value of type t can hold injected text.
@@ -176,61 +196,67 @@ func carriesText(t types.Type) bool {
 // derivesFrom reports whether e is built from an expression matching source,
 // following local assignments. Calls for which barrier returns true stop the search.
 func derivesFrom(info *types.Info, assigns map[types.Object][]ast.Expr, e ast.Expr, source func(ast.Expr) bool, barrier func(*ast.CallExpr) bool) bool {
-	visiting := map[types.Object]bool{}
-	var walk func(ast.Expr) bool
-	walk = func(e ast.Expr) bool {
-		if e == nil {
-			return false
-		}
-		if source(e) {
-			return true
-		}
-		switch x := e.(type) {
-		case *ast.CallExpr:
-			if barrier != nil && barrier(x) {
-				return false
-			}
-			if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
-				if _, isMethod := info.Selections[sel]; isMethod && walk(sel.X) {
-					return true
-				}
-			}
-			for _, arg := range x.Args {
-				if walk(arg) {
-					return true
-				}
-			}
-		case *ast.SelectorExpr:
-			if _, ok := info.Selections[x]; ok {
-				return walk(x.X)
-			}
-		case *ast.Ident:
-			obj, ok := info.Uses[x].(*types.Var)
-			if !ok || visiting[obj] {
-				return false
-			}
-			visiting[obj] = true
-			for _, rhs := range assigns[obj] {
-				if walk(rhs) {
-					return true
-				}
-			}
-		case *ast.BinaryExpr:
-			return walk(x.X) || walk(x.Y)
-		case *ast.ParenExpr:
-			return walk(x.X)
-		case *ast.IndexExpr:
-			return walk(x.X)
-		case *ast.SliceExpr:
-			return walk(x.X)
-		case *ast.StarExpr:
-			return walk(x.X)
-		case *ast.UnaryExpr:
-			return walk(x.X)
-		case *ast.TypeAssertExpr:
-			return walk(x.X)
-		}
+	d := derivation{info: info, assigns: assigns, source: source, barrier: barrier, visiting: map[types.Object]bool{}}
+	return d.walk(e)
+}
+
+type derivation struct {
+	info     *types.Info
+	assigns  map[types.Object][]ast.Expr
+	source   func(ast.Expr) bool
+	barrier  func(*ast.CallExpr) bool
+	visiting map[types.Object]bool
+}
+
+func (d *derivation) walk(e ast.Expr) bool {
+	if e == nil {
 		return false
 	}
-	return walk(e)
+	if d.source(e) {
+		return true
+	}
+	if _, isKV := e.(*ast.KeyValueExpr); !isKV {
+		if inner := wrappedExpr(e); inner != nil {
+			return d.walk(inner)
+		}
+	}
+	switch x := e.(type) {
+	case *ast.CallExpr:
+		return d.walkCall(x)
+	case *ast.SelectorExpr:
+		if _, ok := d.info.Selections[x]; ok {
+			return d.walk(x.X)
+		}
+	case *ast.Ident:
+		obj, ok := d.info.Uses[x].(*types.Var)
+		if !ok || d.visiting[obj] {
+			return false
+		}
+		d.visiting[obj] = true
+		return d.walkAll(d.assigns[obj])
+	case *ast.BinaryExpr:
+		return d.walk(x.X) || d.walk(x.Y)
+	}
+	return false
+}
+
+func (d *derivation) walkCall(x *ast.CallExpr) bool {
+	if d.barrier != nil && d.barrier(x) {
+		return false
+	}
+	if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
+		if _, isMethod := d.info.Selections[sel]; isMethod && d.walk(sel.X) {
+			return true
+		}
+	}
+	return d.walkAll(x.Args)
+}
+
+func (d *derivation) walkAll(exprs []ast.Expr) bool {
+	for _, e := range exprs {
+		if d.walk(e) {
+			return true
+		}
+	}
+	return false
 }

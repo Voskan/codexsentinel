@@ -135,3 +135,21 @@ func TestCapabilitiesDiffSeverity(t *testing.T) {
 		t.Fatalf("new dependency not flagged: %+v", esc)
 	}
 }
+
+func TestCapabilitiesExecErrorIsNotExec(t *testing.T) {
+	t.Parallel()
+	report := capabilityFixture(t, `package formatter
+
+import "os/exec"
+
+// Format describes a lookup failure without starting a process.
+func Format(s string) string {
+	var err error = &exec.Error{Name: s, Err: exec.ErrNotFound}
+	return err.Error()
+}
+`)
+	m, ok := report.Module("example.com/formatter")
+	if !ok || len(m.Capabilities) != 0 {
+		t.Fatalf("formatting an exec.Error must not count as CAP_EXEC: %+v", m)
+	}
+}
