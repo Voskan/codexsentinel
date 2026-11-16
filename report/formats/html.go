@@ -15,6 +15,9 @@ import (
 // WriteHTMLReport generates a static HTML report from the given issues and writes it to the provided path.
 func WriteHTMLReport(issues []report.Issue, outPath string, gitMeta *report.GitMetadata) error {
 	summary := computeSummary(issues)
+	if gitMeta == nil {
+		gitMeta = &report.GitMetadata{}
+	}
 
 	data := struct {
 		Issues      []report.Issue

@@ -11,9 +11,11 @@ import (
 	"sync"
 
 	"github.com/Voskan/codexsentinel/analyzer"
+	"github.com/Voskan/codexsentinel/analyzer/flow"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules"
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
+	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
 	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
@@ -98,6 +100,13 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 	if err := group.Wait(); err != nil {
 		return nil, err
 	}
+	if cfg.Taint.Enable && len(ws.Packages) > 0 {
+		found, err := runTaintAnalysis(ctx, ws, cfg)
+		if err != nil {
+			return nil, err
+		}
+		issues = append(issues, found...)
+	}
 	if cfg.Dependencies.Enable && ws.GoModPath != "" {
 		found, err := runDependencyAnalysis(ctx, &analyzer.AnalyzerContext{Filename: filepath.Dir(ws.GoModPath), Cfg: cfg})
 		if err != nil {
@@ -122,6 +131,36 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 		return a.ID < b.ID
 	})
 	return issues, nil
+}
+
+// runTaintAnalysis builds SSA once for the workspace and tracks untrusted data
+// from sources to sinks, following calls when interprocedural mode is enabled.
+func runTaintAnalysis(ctx context.Context, ws *workspace.Workspace, cfg *config.Config) ([]result.Issue, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	bundle, err := codessa.BuildFromWorkspace(ws)
+	if err != nil {
+		return nil, fmt.Errorf("build SSA: %w", err)
+	}
+	engine := flow.NewEngine(bundle, flow.RegistryFromConfig(cfg.Taint), flow.Options{Interprocedural: cfg.Taint.Interprocedural})
+	ac := &analyzer.AnalyzerContext{Cfg: cfg, RootDir: ws.RootDir, Fset: ws.Fset}
+	for _, issue := range engine.Run() {
+		for i := range issue.Trace {
+			issue.Trace[i].Location.File = relativePath(ws.RootDir, issue.Trace[i].Location.File)
+		}
+		ac.Report(issue)
+	}
+	return ac.GetIssues(), ctx.Err()
+}
+
+func relativePath(root, file string) string {
+	if root != "" && filepath.IsAbs(file) {
+		if rel, err := filepath.Rel(root, file); err == nil {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return filepath.ToSlash(file)
 }
 
 func isDirectory(path string) bool { info, err := os.Stat(path); return err == nil && info.IsDir() }

@@ -472,7 +472,7 @@ func (s *funcState) call(instr ssa.CallInstruction) {
 			return
 		}
 	}
-	if s.eng.applySummaries(s, instr, recv, args) {
+	if s.eng.applySummaries(s, instr) {
 		return
 	}
 	s.defaultPropagation(instr, t, known, recv, args)

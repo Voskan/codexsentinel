@@ -202,6 +202,14 @@ func generateMarkdownContent(issues []report.Issue, summary report.Summary, gitM
 			content.WriteString(fmt.Sprintf("**Rule ID:** `%s`\n\n", issue.RuleID))
 			content.WriteString(fmt.Sprintf("**Description:** %s\n\n", issue.Description))
 
+			if len(issue.Trace) > 0 {
+				content.WriteString("**Data flow:**\n\n")
+				for _, line := range issue.TraceLines() {
+					content.WriteString("    " + line + "\n")
+				}
+				content.WriteString("\n")
+			}
+
 			if issue.Suggestion != "" {
 				content.WriteString(fmt.Sprintf("**💡 Suggestion:** %s\n\n", issue.Suggestion))
 			}

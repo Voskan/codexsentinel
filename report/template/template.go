@@ -571,6 +571,15 @@ const HTMLTemplate = `
                 </div>
                 <p><strong>Rule ID:</strong> {{.RuleID}}</p>
                 <p><strong>Description:</strong> {{.Description}}</p>
+                {{if .Trace}}
+                <div class="trace">
+                    <strong><i class="fas fa-route"></i> Data flow:</strong>
+                    <ol>
+                        {{range .Trace}}<li><code>[{{.Kind}}] {{.Location.File}}:{{.Location.Line}}</code> {{.Message}}</li>
+                        {{end}}
+                    </ol>
+                </div>
+                {{end}}
                 {{if .Suggestion}}
                 <div class="suggestion">
                     <strong><i class="fas fa-lightbulb"></i> Suggestion:</strong> {{.Suggestion}}

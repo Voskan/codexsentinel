@@ -21,10 +21,11 @@ var db *sql.DB
 
 func runIntra(t *testing.T, body string) {
 	t.Helper()
-	testutil.RunTaintOnFiles(t, map[string]string{"app.go": intraHeader + body}, nil, flow.Options{})
+	testutil.RunTaintAllModes(t, map[string]string{"app.go": intraHeader + body}, nil)
 }
 
 func TestIntraConcatenation(t *testing.T) {
+	t.Parallel()
 	runIntra(t, `func handler(w http.ResponseWriter, r *http.Request) {
 	q := "SELECT * FROM u WHERE name = '" + r.FormValue("name") + "'"
 	db.Query(q) // want "sql-injection"
@@ -34,6 +35,7 @@ func TestIntraConcatenation(t *testing.T) {
 }
 
 func TestIntraSprintfVarargs(t *testing.T) {
+	t.Parallel()
 	runIntra(t, `func handler(w http.ResponseWriter, r *http.Request) {
 	q := fmt.Sprintf("SELECT * FROM u WHERE name = '%s'", r.FormValue("name"))
 	db.Query(q) // want "sql-injection"
@@ -44,6 +46,7 @@ func TestIntraSprintfVarargs(t *testing.T) {
 }
 
 func TestIntraPhi(t *testing.T) {
+	t.Parallel()
 	runIntra(t, `func handler(w http.ResponseWriter, r *http.Request) {
 	var q string
 	if r.Method == "GET" {
@@ -58,6 +61,7 @@ func TestIntraPhi(t *testing.T) {
 }
 
 func TestIntraFieldSensitive(t *testing.T) {
+	t.Parallel()
 	runIntra(t, `type filterDTO struct {
 	Filter    string
 	SafeField string
@@ -74,6 +78,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestIntraClosure(t *testing.T) {
+	t.Parallel()
 	runIntra(t, `func handler(w http.ResponseWriter, r *http.Request) {
 	input := r.FormValue("q")
 	func() {
@@ -85,6 +90,7 @@ func TestIntraClosure(t *testing.T) {
 }
 
 func TestIntraParameterizedQueryIsSafe(t *testing.T) {
+	t.Parallel()
 	runIntra(t, `func handler(w http.ResponseWriter, r *http.Request) {
 	db.Query("SELECT * FROM u WHERE name = $1", r.FormValue("name"))
 	_ = fmt.Sprint
@@ -93,6 +99,7 @@ func TestIntraParameterizedQueryIsSafe(t *testing.T) {
 }
 
 func TestIntraTraceAndPositions(t *testing.T) {
+	t.Parallel()
 	issues := testutil.RunTaintOnFiles(t, map[string]string{"app.go": intraHeader + `func handler(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("name")
 	db.Query("SELECT " + name) // want "sql-injection"

@@ -13,10 +13,30 @@ import (
 // (nil selects the built-in registry). Issue paths are relative to the fixture.
 func AnalyzeTaint(t testing.TB, fx *Fixture, reg *flow.Registry, opts flow.Options) []result.Issue {
 	t.Helper()
+	return analyzeBundle(fx, buildBundle(t, fx), reg, opts)
+}
+
+func buildBundle(t testing.TB, fx *Fixture) *codessa.GraphBundle {
+	t.Helper()
 	bundle, err := codessa.BuildFromWorkspace(fx.Workspace)
 	if err != nil {
 		t.Fatalf("build SSA: %v", err)
 	}
+	return bundle
+}
+
+// RunTaintAllModes checks `// want` annotations in both intraprocedural and
+// interprocedural modes, building SSA only once.
+func RunTaintAllModes(t testing.TB, files map[string]string, reg *flow.Registry) {
+	t.Helper()
+	fx := LoadFixture(t, files, nil)
+	bundle := buildBundle(t, fx)
+	for _, inter := range []bool{false, true} {
+		CheckExpectations(t, files, analyzeBundle(fx, bundle, reg, flow.Options{Interprocedural: inter}))
+	}
+}
+
+func analyzeBundle(fx *Fixture, bundle *codessa.GraphBundle, reg *flow.Registry, opts flow.Options) []result.Issue {
 	issues := flow.NewEngine(bundle, reg, opts).Run()
 	for i := range issues {
 		issues[i].Location.File = relativeTo(fx.Dir, issues[i].Location.File)

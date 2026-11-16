@@ -10,10 +10,11 @@ import (
 
 func runRegistry(t *testing.T, src string) {
 	t.Helper()
-	testutil.RunTaintOnFiles(t, map[string]string{"app.go": src}, nil, flow.Options{})
+	testutil.RunTaintAllModes(t, map[string]string{"app.go": src}, nil)
 }
 
 func TestRegistrySQLContextArgumentIndex(t *testing.T) {
+	t.Parallel()
 	runRegistry(t, `package app
 
 import (
@@ -32,6 +33,7 @@ func handler(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 }
 
 func TestRegistryResponseWriterInvoke(t *testing.T) {
+	t.Parallel()
 	runRegistry(t, `package app
 
 import (
@@ -53,6 +55,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestRegistryUniversalSanitizer(t *testing.T) {
+	t.Parallel()
 	runRegistry(t, `package app
 
 import (
@@ -72,6 +75,7 @@ func handler(db *sql.DB, r *http.Request) {
 }
 
 func TestRegistryOSRoot(t *testing.T) {
+	t.Parallel()
 	runRegistry(t, `package app
 
 import (
@@ -90,6 +94,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestRegistryTemplates(t *testing.T) {
+	t.Parallel()
 	runRegistry(t, `package app
 
 import (
@@ -111,6 +116,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestRegistryCommandAndRedirect(t *testing.T) {
+	t.Parallel()
 	runRegistry(t, `package app
 
 import (
@@ -130,6 +136,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestRegistryFromConfig(t *testing.T) {
+	t.Parallel()
 	cfg := config.TaintConfig{
 		CustomSources:    []config.CustomSourceSpec{{Package: "example.com/fixture/input", Function: "Read"}},
 		CustomSinks:      []config.CustomSinkSpec{{Package: "example.com/fixture/store", Receiver: "*Store", Function: "Raw", CheckArgs: []int{0}, Category: "sql-injection"}},
