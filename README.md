@@ -114,7 +114,13 @@ codex-cli scan . --format json --out -             # write the report to stdout
 codex-cli scan . --severity high                   # only high and critical findings
 codex-cli scan . --strict                          # exit code 1 when findings remain
 codex-cli scan . --deps                            # dependency audit only
+codex-cli scan . --no-cache                        # ignore the analysis cache
+codex-cli cache status                             # cache location and size
+codex-cli cache clean                              # remove cached results
 ```
+
+Package-level results are cached on disk and reused while a package, the
+packages it imports, the configuration and the analyzer are unchanged.
 
 The target may be a module directory, a package pattern ending in `/...`, or a
 single `.go` file. Findings are reported relative to the module root.
@@ -267,6 +273,8 @@ scan:
   include_tests: false
   excluded_paths: [vendor, testdata, node_modules, .git]
   concurrency: 0                 # 0 uses all CPUs
+  enable_cache: true             # reuse results of unchanged packages
+  cache_dir: ""                  # default: the user cache directory
 rules:
   enabled: ["*"]                 # rule IDs or globs
   disabled: []

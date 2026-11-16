@@ -30,6 +30,9 @@ type Rule struct {
 	Engine      RuleFunc  // Optional Go-based rule implementation
 	YAML        *YAMLRule // Optional YAML-based definition
 	Enabled     bool      // If the rule is enabled
+	// Fingerprint identifies the rule definition, for example a hash of its
+	// YAML source. Results of rules without one are not cached.
+	Fingerprint string
 }
 
 var (

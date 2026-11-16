@@ -66,6 +66,11 @@ issues, err := engine.RunWithOptions(ctx, "./...", &cfg, opts)
 `yaml.LoadFromDir(dir)` still registers rules in the global registry used by
 `engine.Run`; loading the same files again replaces them.
 
+`Options.Cache` takes an `analyzer/cache.Cache` (`cache.Open(dir)`) to store
+package results in a directory of your choice and to read its `Stats()` after
+the run. Without it, the engine uses `scan.cache_dir` while
+`scan.enable_cache` is true.
+
 ## Configuration
 
 Package `config`:

@@ -2,6 +2,9 @@ package yaml
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -275,7 +278,19 @@ func (c *CompiledRule) Registration() *rules.Rule {
 		YAML:        &rules.YAMLRule{Pattern: r.pattern()},
 		Enabled:     r.IsEnabled(),
 		Engine:      c.Run,
+		Fingerprint: c.fingerprint(),
 	}
+}
+
+// fingerprint hashes the rule definition, so that cached results of an edited
+// rule are not reused.
+func (c *CompiledRule) fingerprint() string {
+	data, err := json.Marshal(c.Rule)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // Run matches the rule against the files of one package.

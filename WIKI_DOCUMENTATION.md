@@ -8,6 +8,7 @@ key, suppression mechanism and report format. For a first run, start with the
 
 - [Command line](#command-line)
 - [How a scan works](#how-a-scan-works)
+- [Analysis cache](#analysis-cache)
 - [Security rules](#security-rules)
 - [Taint analysis](#taint-analysis)
 - [Dependency analysis](#dependency-analysis)
@@ -29,6 +30,8 @@ key, suppression mechanism and report format. For a first run, start with the
 | `codex-cli caps inspect [path]` | Print the capabilities each dependency uses, with a call path as evidence |
 | `codex-cli caps lock [path] --out FILE` | Write the capability lock file (default `.codexsentinel.caps.json`) |
 | `codex-cli caps verify [path] --lockfile FILE` | Exit with code 1 when a dependency gained capabilities |
+| `codex-cli cache status` | Print the cache directory, the number of entries and their size |
+| `codex-cli cache clean` | Remove every cache entry |
 | `codex-cli mark FILE[:LINE] --rule ID --reason TEXT` | Add an entry to the ignore file |
 | `codex-cli version` | Print version, commit, build date and Go version |
 
@@ -46,6 +49,7 @@ key, suppression mechanism and report format. For a first run, start with the
 | `--deps` | Run only the dependency audit |
 | `--config FILE` | Use this configuration file |
 | `--ignore-file FILE` | Use this ignore file instead of `suppression.ignore_file` |
+| `--no-cache` | Do not read or write the analysis cache |
 
 Exit code 0 means the scan completed without failing findings. Exit code 1
 means one of the following:
@@ -57,13 +61,13 @@ means one of the following:
 
 1. **Load.** `go/packages` loads the target packages with syntax and type information (`analyzer/workspace`).
    - Files under `scan.excluded_paths`, generated files and test files are excluded from the analysis unless enabled. Excluded files still take part in type checking and SSA construction.
-2. **Package rules.** The built-in rules and the YAML rules run on every package, in parallel up to `scan.concurrency`.
+2. **Package rules.** The built-in rules, the YAML rules and the per-file metrics (complexity, function and file size) run on every package, in parallel up to `scan.concurrency`. Their results are cached; see [Analysis cache](#analysis-cache).
 3. **Whole-program analyses.** These share one SSA program and one VTA call graph (`analyzer/ssa`):
    - taint analysis
    - dependency reachability
    - capability check
    - architecture checks
-   - metrics and dead code
+   - duplication, mutable globals and dead code
 4. **Post-processing** (`analyzer/engine`):
    1. Rule selection and severity overrides.
    2. The `suppression.min_confidence` threshold.
@@ -73,6 +77,37 @@ means one of the following:
    6. Deduplication by file, line and rule, preferring the finding with the longer trace and then the higher confidence.
    7. Fingerprints.
    8. Ordering by severity, file, line and rule.
+
+## Analysis cache
+
+The results of step 2 are stored per package in a disk cache, so a repeated
+scan only re-analyzes packages that changed. The key of a package is a
+SHA-256 hash of:
+- the analyzer build: the release version and commit, or a hash of the
+  executable for development builds;
+- the configuration, without cache, concurrency and report settings, and the
+  definitions of the YAML rules in use;
+- the package ID and the name and content of every compiled file, and which
+  files are analyzed;
+- a digest of every imported package, applied recursively. A module from the
+  module cache is identified by its version. A standard library package is
+  identified by its file names, sizes and modification times. A package of
+  the main module or a replaced module is identified by its type-checked API:
+  declarations, types, struct fields, methods and constant values.
+
+Changing a function body therefore re-analyzes only that package, while
+changing a struct field also re-analyzes the packages that import it.
+Whole-program analyses (taint, dependencies, capabilities, architecture,
+duplication, globals and dead code) always run. Loading and type checking
+the packages is not cached either, so the saving grows with the number of
+rules and packages.
+
+Entries are stored as `<dir>/<ab>/<key>.json.gz` and written atomically, so
+parallel scans can share a directory. The directory is `scan.cache_dir`,
+otherwise `$CODEXSENTINEL_CACHE_DIR`, otherwise `codexsentinel/cache-v1` in the
+user cache directory (`~/Library/Caches` on macOS, `$XDG_CACHE_HOME` or
+`~/.cache` on Linux). Set `scan.enable_cache: false` or pass `--no-cache` to
+turn the cache off.
 
 ## Security rules
 
@@ -400,6 +435,8 @@ values are errors. Omitted keys keep their defaults.
 | `scan.max_file_size_bytes` | `10485760` | Larger files are skipped |
 | `scan.supported_extensions` | `[.go]` | Source file extensions |
 | `scan.concurrency` | `0` | Parallel package workers; 0 uses all CPUs |
+| `scan.enable_cache` | `true` | Reuse cached results of unchanged packages |
+| `scan.cache_dir` | `""` | Cache directory; empty uses `$CODEXSENTINEL_CACHE_DIR` or the user cache directory |
 | `rules.enabled` | `["*"]` | Rule IDs or globs to run |
 | `rules.disabled` | `[]` | Rule IDs or globs to skip |
 | `rules.severity_overrides` | `{}` | Rule ID to `low`, `medium`, `high` or `critical` |

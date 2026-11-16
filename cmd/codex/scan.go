@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer/baseline"
+	"github.com/Voskan/codexsentinel/analyzer/cache"
 	"github.com/Voskan/codexsentinel/analyzer/engine"
 	"github.com/Voskan/codexsentinel/analyzer/fixer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
@@ -58,6 +59,7 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.fix, "fix", false, "Apply suggested fixes to the source files")
 	cmd.Flags().StringVar(&opts.baseline, "baseline", "", "Report only findings that are not recorded in this baseline file")
 	cmd.Flags().StringVar(&opts.diffRef, "diff", "", "Report only findings on lines changed since this git reference (e.g. origin/main)")
+	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Do not read or write the analysis cache")
 
 	return cmd
 }
@@ -75,6 +77,7 @@ type scanOptions struct {
 	fix        bool
 	baseline   string
 	diffRef    string
+	noCache    bool
 }
 
 // runScan handles the main scan logic
@@ -103,6 +106,7 @@ func runScan(ctx context.Context, opts scanOptions) error {
 	if err != nil {
 		return err
 	}
+	cfg.Scan.EnableCache = cfg.Scan.EnableCache && !opts.noCache
 	if outPath == "" && cfg.Report.OutputDir != "" {
 		outPath = filepath.Join(cfg.Report.OutputDir, defaultOutputPath(format))
 	}
@@ -289,12 +293,35 @@ func runFullAnalysis(ctx context.Context, targetPath, ignoreFile string, cfg *co
 	}
 
 	// Run analysis; suppressions are applied by the engine
-	results, err := engine.RunWithOptions(ctx, targetPath, cfg, engine.Options{Rules: loadYAMLRules(cfg, logger)})
+	runOpts := engine.Options{Rules: loadYAMLRules(cfg, logger), Cache: openCache(cfg, logger)}
+	results, err := engine.RunWithOptions(ctx, targetPath, cfg, runOpts)
 	if err != nil {
 		return nil, fmt.Errorf("analysis failed: %w", err)
 	}
+	if runOpts.Cache != nil {
+		stats := runOpts.Cache.Stats()
+		logger.Infof("Analysis cache %s: %d hits, %d misses", runOpts.Cache.Dir(), stats.Hits, stats.Misses)
+	}
 
 	return filterResults(results, severity, logger), nil
+}
+
+// openCache opens the analysis cache configured for the scan, or returns nil
+// when caching is disabled or the directory cannot be used.
+func openCache(cfg *config.Config, logger *zap.SugaredLogger) *cache.Cache {
+	if !cfg.Scan.EnableCache {
+		return nil
+	}
+	dir, err := cache.ResolveDir(cfg.Scan.CacheDir)
+	if err == nil {
+		var c *cache.Cache
+		if c, err = cache.Open(dir); err == nil {
+			return c
+		}
+	}
+	logger.Warnf("Analysis cache disabled: %v", err)
+	cfg.Scan.EnableCache = false
+	return nil
 }
 
 // loadConfig loads configuration from file or default

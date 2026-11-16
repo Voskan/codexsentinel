@@ -8,6 +8,8 @@ scan:
   max_file_size_bytes: 10485760
   supported_extensions: [.go]
   concurrency: 0 # Use the available CPUs.
+  enable_cache: true # Reuse per-package results of unchanged packages.
+  cache_dir: "" # Empty: $CODEXSENTINEL_CACHE_DIR or the user cache directory.
 rules:
   enabled: ["*"]
   disabled: []

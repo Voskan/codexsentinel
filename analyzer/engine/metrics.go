@@ -9,11 +9,12 @@ import (
 	"github.com/Voskan/codexsentinel/metrics"
 )
 
-// runMetricsAnalysis computes code quality metrics once for the whole workspace,
-// using the thresholds from the metrics configuration.
+// runMetricsAnalysis computes the metrics that need the whole workspace, using
+// the thresholds from the metrics configuration. Per-file metrics are computed
+// with the package rules.
 func runMetricsAnalysis(ws *workspace.Workspace, bundle *codessa.GraphBundle, cfg *config.Config) []result.Issue {
 	ac := &analyzer.AnalyzerContext{Cfg: cfg, RootDir: ws.RootDir, Fset: ws.Fset}
-	for _, issue := range metrics.Run(ws, bundle, cfg.Metrics) {
+	for _, issue := range metrics.RunWorkspace(ws, bundle, cfg.Metrics) {
 		ac.Report(issue)
 	}
 	return ac.GetIssues()

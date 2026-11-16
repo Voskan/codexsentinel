@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/Voskan/codexsentinel/analyzer"
+	"github.com/Voskan/codexsentinel/analyzer/cache"
 	"github.com/Voskan/codexsentinel/analyzer/flow"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules"
@@ -20,6 +21,7 @@ import (
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/matcher"
+	"github.com/Voskan/codexsentinel/metrics"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
@@ -33,6 +35,9 @@ type Options struct {
 	// Passing rules here instead of registering them keeps repeated runs in
 	// one process independent of each other.
 	Rules []*rules.Rule
+	// Cache, when set, stores package results instead of the directory from
+	// the configuration. It is used only while scan.enable_cache is true.
+	Cache *cache.Cache
 }
 
 // Run loads a workspace once and analyzes its packages with bounded concurrency.
@@ -53,7 +58,8 @@ func RunWithOptions(ctx context.Context, path string, cfg *config.Config, opts O
 	if err != nil {
 		return nil, err
 	}
-	issues, err := runPackageRules(ctx, ws, cfg, packageRules(opts.Rules))
+	ruleSet := packageRules(opts.Rules)
+	issues, err := runPackageRules(ctx, ws, cfg, ruleSet, openPackageCache(cfg, opts, ruleSet))
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +91,7 @@ func packageRules(extra []*rules.Rule) []*rules.Rule {
 }
 
 // runPackageRules runs the built-in rules and ruleSet on every package.
-func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, ruleSet []*rules.Rule) ([]result.Issue, error) {
+func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, ruleSet []*rules.Rule, pc *packageCache) ([]result.Issue, error) {
 	workers := cfg.Scan.Concurrency
 	if workers <= 0 {
 		workers = runtime.NumCPU()
@@ -96,7 +102,9 @@ func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.C
 	var issues []result.Issue
 	for _, pkg := range ws.Packages {
 		group.Go(func() error {
-			found, err := analyzePackage(groupCtx, ws, pkg, cfg, ruleSet)
+			found, err := pc.analyze(ws, pkg, func() ([]result.Issue, error) {
+				return analyzePackage(groupCtx, ws, pkg, cfg, ruleSet)
+			})
 			if err != nil {
 				return err
 			}
@@ -148,7 +156,7 @@ func analyzePackage(ctx context.Context, ws *workspace.Workspace, pkg *packages.
 			ac.Report(issue)
 		}
 	}
-	return ac.GetIssues(), nil
+	return append(ac.GetIssues(), metrics.RunFiles(ws.Fset, pass.Files, pkg.PkgPath, ws.RootDir, cfg.Metrics)...), nil
 }
 
 // runWorkspaceAnalyses runs the analyses that need the whole program: taint

@@ -12,6 +12,7 @@ var DefaultConfig = Config{
 		ExcludedPaths:       []string{"vendor", "testdata", "node_modules", ".git"},
 		MaxFileSizeBytes:    10 * 1024 * 1024,
 		SupportedExtensions: []string{".go"},
+		EnableCache:         true,
 	},
 	Rules: RuleConfig{Enabled: []string{"*"}, SeverityOverrides: map[string]string{}},
 	Taint: TaintConfig{Enable: true, Interprocedural: true},

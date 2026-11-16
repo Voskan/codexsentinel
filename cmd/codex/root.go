@@ -27,6 +27,7 @@ func NewRootCmd(ctx context.Context) *cobra.Command {
 		NewMarkCmd(),
 		NewCapsCmd(),
 		NewBaselineCmd(),
+		NewCacheCmd(),
 	)
 
 	cmd.PersistentFlags().SortFlags = false

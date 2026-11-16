@@ -20,6 +20,12 @@ type ScanConfig struct {
 	MaxFileSizeBytes    int64    `yaml:"max_file_size_bytes"`
 	SupportedExtensions []string `yaml:"supported_extensions"`
 	Concurrency         int      `yaml:"concurrency"`
+	// EnableCache stores per-package results on disk and reuses them while the
+	// package, its dependencies, the configuration and the analyzer are unchanged.
+	EnableCache bool `yaml:"enable_cache"`
+	// CacheDir is the cache location; empty uses $CODEXSENTINEL_CACHE_DIR or
+	// codexsentinel/cache-v1 in the user cache directory.
+	CacheDir string `yaml:"cache_dir"`
 }
 
 type RuleConfig struct {
