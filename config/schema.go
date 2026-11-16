@@ -116,6 +116,9 @@ type SuppressionConfig struct {
 	EnableInlineIgnore  bool    `yaml:"enable_inline_ignore"`
 	RequireIgnoreReason bool    `yaml:"require_ignore_reason"`
 	MinConfidence       float64 `yaml:"min_confidence"`
+	// ForbidNewSuppressions fails scans whose changes since the diff
+	// reference add suppressions; see the --forbid-new-suppressions flag.
+	ForbidNewSuppressions bool `yaml:"forbid_new_suppressions"`
 }
 
 type ReportConfig struct {

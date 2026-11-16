@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer/baseline"
@@ -49,7 +50,7 @@ func NewScanCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&opts.path, "path", "p", ".", "Target directory or file to scan")
-	cmd.Flags().StringVarP(&opts.format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json")
+	cmd.Flags().StringVarP(&opts.format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json, agent")
 	cmd.Flags().StringVarP(&opts.outPath, "out", "o", "", "Path to write the output report to")
 	cmd.Flags().BoolVar(&opts.strict, "strict", false, "Exit with code 1 if issues are found")
 	cmd.Flags().StringVar(&opts.ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file (default: suppression.ignore_file from the config, relative to the project root)")
@@ -60,6 +61,9 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.baseline, "baseline", "", "Report only findings that are not recorded in this baseline file")
 	cmd.Flags().StringVar(&opts.diffRef, "diff", "", "Report only findings on lines changed since this git reference (e.g. origin/main)")
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Do not read or write the analysis cache")
+	cmd.Flags().BoolVar(&opts.forbidSuppressions, "forbid-new-suppressions", false,
+		"Fail when the changes since --diff (default HEAD) add inline ignores, ignore-file entries or weaker settings; "+
+			git.AllowSuppressionsEnv+"=1 approves them")
 
 	return cmd
 }
@@ -78,6 +82,8 @@ type scanOptions struct {
 	baseline   string
 	diffRef    string
 	noCache    bool
+	// forbidSuppressions reports suppressions added since diffRef.
+	forbidSuppressions bool
 }
 
 // runScan handles the main scan logic
@@ -128,6 +134,10 @@ func runScan(ctx context.Context, opts scanOptions) error {
 	if results, err = applyBaselineAndDiff(ctx, targetPath, opts, results, logger); err != nil {
 		return err
 	}
+	guard, err := checkNewSuppressions(ctx, targetPath, opts, cfg, logger)
+	if err != nil {
+		return err
+	}
 
 	logger.Infof("Analysis completed, found %d issues", len(results))
 
@@ -137,8 +147,8 @@ func runScan(ctx context.Context, opts scanOptions) error {
 		}
 	}
 
-	// Generate report
-	if err := generateReport(results, format, outPath, gitMetadata, logger); err != nil {
+	all := append(guard, results...)
+	if err := generateReport(all, format, outPath, gitMetadata, logger); err != nil {
 		return fmt.Errorf("failed to generate report: %w", err)
 	}
 
@@ -147,13 +157,45 @@ func runScan(ctx context.Context, opts scanOptions) error {
 	if outPath == "-" {
 		summaryOutput = os.Stderr
 	}
-	printSummary(summaryOutput, results)
+	printSummary(summaryOutput, all)
 
-	// Exit code control
-	if count := failingIssues(results, strict, cfg.Report.FailOnSeverity); count > 0 {
+	// Exit code control: added suppressions always fail the scan.
+	if count := len(guard) + failingIssues(results, strict, cfg.Report.FailOnSeverity); count > 0 {
 		return &IssuesFoundError{Count: count}
 	}
 	return nil
+}
+
+// checkNewSuppressions reports suppressions added since the diff reference
+// (HEAD by default) when the policy is enabled by flag or configuration. The
+// findings bypass inline ignores, the ignore file and the baseline, so a
+// suppression cannot hide itself.
+func checkNewSuppressions(ctx context.Context, targetPath string, opts scanOptions, cfg *config.Config, logger *zap.SugaredLogger) ([]result.Issue, error) {
+	if !opts.forbidSuppressions && !cfg.Suppression.ForbidNewSuppressions {
+		return nil, nil
+	}
+	if approved, _ := strconv.ParseBool(os.Getenv(git.AllowSuppressionsEnv)); approved {
+		logger.Infof("New suppressions approved by %s", git.AllowSuppressionsEnv)
+		return nil, nil
+	}
+	ref := opts.diffRef
+	if ref == "" {
+		ref = "HEAD"
+	}
+	root, err := workspace.ProjectRoot(targetPath)
+	if err != nil {
+		return nil, err
+	}
+	found, err := git.ScanAddedSuppressions(ctx, root, ref, cfg.Suppression.IgnoreFile)
+	if err != nil {
+		return nil, fmt.Errorf("suppression check against %s: %w", ref, err)
+	}
+	issues := make([]result.Issue, len(found))
+	for i, f := range found {
+		issues[i] = f.Issue()
+	}
+	logger.Infof("Suppression check against %s: %d new suppressions", ref, len(issues))
+	return issues, nil
 }
 
 // applyFixes writes the suggested fixes to the source files. Finding paths
@@ -419,6 +461,8 @@ func defaultOutputPath(format string) string {
 		return "codex-report.md"
 	case "json":
 		return "codex-report.json"
+	case "agent":
+		return "codex-report.agent.txt"
 	case "sarif":
 		fallthrough
 	default:
@@ -428,7 +472,7 @@ func defaultOutputPath(format string) string {
 
 // writeReport writes the analysis results in the requested format to the given path.
 func writeReport(results []result.Issue, format, outPath string, gitMetadata *report.GitMetadata) error {
-	if outPath == "-" && format != "json" && format != "sarif" && format != "markdown" {
+	if outPath == "-" && format == "html" {
 		return fmt.Errorf("stdout output is not supported for format: %s", format)
 	}
 	if outPath != "-" {
@@ -470,6 +514,8 @@ func writeReport(results []result.Issue, format, outPath string, gitMetadata *re
 		return formats.WriteJSONReport(reportIssues, outPath, gitMetadata)
 	case "sarif":
 		return formats.WriteSARIFReport(reportIssues, outPath, gitMetadata)
+	case "agent":
+		return formats.WriteAgentReport(reportIssues, outPath, gitMetadata)
 	default:
 		return fmt.Errorf("unsupported format: %s", format)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer/catalog"
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
 	"github.com/Voskan/codexsentinel/deps"
+	"github.com/Voskan/codexsentinel/internal/git"
 )
 
 func TestEveryBuiltinRuleIsDocumented(t *testing.T) {
@@ -41,6 +42,7 @@ func TestEngineRulesAreDocumented(t *testing.T) {
 		"arch-layer-violation", "arch-import-cycle", "arch-god-struct", "arch-boundary-type-leak",
 		"high-complexity", "large-function", "large-file", "code-duplication", "global-variable", "dead-code",
 		"ignore-missing-reason",
+		git.SuppressionRuleID,
 	}
 	for _, id := range ids {
 		if _, ok := catalog.Lookup(id); !ok {

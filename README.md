@@ -115,6 +115,7 @@ codex-cli scan .                                   # SARIF report in scan_report
 codex-cli scan ./... --format json --out report.json
 codex-cli scan . --format html --out report.html
 codex-cli scan . --format markdown --out report.md
+codex-cli scan . --format agent --out -            # compact remediation report on stdout
 codex-cli scan . --format json --out -             # write the report to stdout
 codex-cli scan . --severity high                   # only high and critical findings
 codex-cli scan . --strict                          # exit code 1 when findings remain
@@ -156,7 +157,29 @@ codex-cli scan . --diff origin/main --strict
 # Record the current findings once, then report only new ones
 codex-cli baseline create . --out .codexsentinel.baseline.json
 codex-cli scan . --baseline .codexsentinel.baseline.json --strict
+
+# Fail when the change adds suppressions instead of fixes
+codex-cli scan . --diff origin/main --forbid-new-suppressions
 ```
+
+`--forbid-new-suppressions` reports every suppression added since the `--diff`
+reference (`HEAD` when none is given) as a critical
+`unauthorized-suppression-added` finding and fails the scan: `//codex:ignore`,
+`//nolint` and `#nosec` in Go comments, new ignore-file entries, and
+configuration lines that disable rules, exclude paths or relax thresholds
+(also in `.golangci.yml`). Text in string literals, tightened settings and
+suppressions that only moved are not reported, and the finding cannot be
+suppressed itself. CI approves a reviewed change by setting
+`CODEX_ALLOW_SUPPRESSIONS=1`, for example when a security reviewer has labeled
+the pull request. `suppression.forbid_new_suppressions: true` enables the
+check from the configuration.
+
+`--format agent` writes a compact plain-text report for automated
+remediation: a `STATUS: PASS (0 issues)` or `STATUS: FAIL (...)` line, then one
+block per finding with `ISSUE [SEVERITY] rule (CWE) at file:line:col`, `WHY`,
+the data flow as `FLOW: source -> call -> sink`, `FIX` and, when a fix is
+available, `PATCH` lines with the exact replacement. Output is sorted and
+deterministic.
 
 ### Automatic fixes
 
@@ -291,6 +314,7 @@ report the same line, the finding with the longer trace is kept.
 | `global-variable` | A package variable holds mutable shared state |
 | `dead-code` | A function is unreachable from the program's entry points |
 | `ignore-missing-reason` | A suppression has no reason while `suppression.require_ignore_reason` is set |
+| `unauthorized-suppression-added` | With `--forbid-new-suppressions`, the change adds a suppression or weakens the configuration |
 
 ### YAML rules
 
@@ -375,6 +399,7 @@ suppression:
   enable_inline_ignore: true
   require_ignore_reason: false
   min_confidence: 0.5            # findings below this confidence are dropped
+  forbid_new_suppressions: false # like --forbid-new-suppressions
 report:
   formats: [sarif]
   output_dir: scan_reports

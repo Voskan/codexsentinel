@@ -45,12 +45,13 @@ key, suppression mechanism and report format. For a first run, start with the
 
 | Flag | Meaning |
 | --- | --- |
-| `-f, --format` | `sarif` (default), `json`, `html` or `markdown` |
+| `-f, --format` | `sarif` (default), `json`, `html`, `markdown` or `agent` |
 | `-o, --out` | Report path; `-` writes the report to stdout. Default: `report.output_dir` (`scan_reports/`) |
 | `--severity` | Keep findings at or above `low`, `medium`, `high` or `critical` |
 | `--strict` | Exit with code 1 when findings remain after filtering |
 | `--diff REF` | Report only findings on lines changed since the git reference |
 | `--baseline FILE` | Hide findings recorded in the baseline |
+| `--forbid-new-suppressions` | Fail with critical `unauthorized-suppression-added` findings when the changes since `--diff` (default `HEAD`) add suppressions; `CODEX_ALLOW_SUPPRESSIONS=1` approves them (see [Suppression policy in CI](#suppression-policy-in-ci)) |
 | `--fix` | Apply the suggested fixes of the reported findings to the source files |
 | `--deps` | Run only the dependency audit |
 | `--config FILE` | Use this configuration file |
@@ -526,6 +527,28 @@ and the working tree.
 - Untracked files count as fully changed.
 - Dependency findings on `go.mod` are kept when `go.mod` or `go.sum` changed.
 
+### Suppression policy in CI
+
+A failing check can be silenced instead of fixed. With
+`--forbid-new-suppressions`, the scan compares the working tree with the
+`--diff` reference (`HEAD` by default) and reports each added line that hides
+findings as a critical `unauthorized-suppression-added` finding (CWE-693):
+
+- `//codex:ignore`, `//nolint` and `#nosec` directives in Go comments. Files
+  are tokenized, so directive-like text inside string literals is ignored.
+- New entries in the ignore file (comments do not count).
+- Configuration in `.codexsentinel.yaml`, `codex.yaml` and `.golangci.yml`
+  that disables rules, excludes paths, turns inline ignores back on, raises
+  `min_confidence` or `fail_on_severity`, or turns the policy off. Adding
+  default exclusions such as `vendor` or lowering a threshold is not reported.
+
+A directive that a removed line of the same file already contained, such as a
+line that was reformatted, is not new. The findings are added after inline
+ignores, the ignore file and the baseline are applied, so they cannot be
+suppressed, and they fail the scan even without `--strict`. To approve a
+reviewed suppression, CI sets `CODEX_ALLOW_SUPPRESSIONS=1`, for instance only
+when the pull request carries a label that security reviewers apply.
+
 ## Reports
 
 | Format | Contents |
@@ -534,6 +557,21 @@ and the working tree.
 | JSON | `summary` (counts per severity and category), `issues`, `generated_at`, `git` |
 | HTML | A single page with summary cards, findings by category and per-finding details including traces. Icons load from cdnjs. |
 | Markdown | Repository information, summary, tables per severity, details and remediation |
+| Agent | Plain text for automated remediation: a status line, then per finding `ISSUE`, `WHY`, `FLOW`, `FIX` and `PATCH` lines, sorted by severity and location |
+
+Example of the `agent` format:
+
+```text
+STATUS: FAIL (1 issues: critical=0 high=1 medium=0 low=0 info=0)
+---
+ISSUE [HIGH] sql-injection (CWE-89) at internal/repo/user.go:42:15-42:68
+WHY: Untrusted input reaches SQL query execution via string concatenation.
+FLOW: handler/user.go:18 (source: (*http.Request).FormValue) -> internal/repo/user.go:42 (sink: (*sql.DB).QueryContext)
+FIX: Use parameterized placeholders ($1 / ?) instead of string concatenation.
+```
+
+`FLOW` appears for findings with a trace and `PATCH` for findings with a fix;
+a scan without findings prints only `STATUS: PASS (0 issues)`.
 
 ## Configuration reference
 
@@ -580,6 +618,7 @@ values are errors. Omitted keys keep their defaults.
 | `suppression.enable_inline_ignore` | `true` | Honor `//codex:ignore` |
 | `suppression.require_ignore_reason` | `false` | Report directives without a reason |
 | `suppression.min_confidence` | `0.5` | Drop findings below this confidence |
+| `suppression.forbid_new_suppressions` | `false` | Fail scans whose changes add suppressions, as `--forbid-new-suppressions` does |
 | `report.formats` | `[sarif]` | Default report format |
 | `report.output_dir` | `scan_reports` | Default report directory |
 | `report.fail_on_severity` | `""` | Exit with code 1 when findings at or above this severity remain |

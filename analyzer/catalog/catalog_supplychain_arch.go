@@ -222,4 +222,14 @@ rows, err := db.Query(q)`,
 		GoodExample: `//codex:ignore sql-injection -- q is built from the fixed column allowlist above
 rows, err := db.Query(q)`,
 	},
+	{
+		ID: "unauthorized-suppression-added", Code: "CS075", Title: "Unauthorized Security Suppression Added in Diff", Category: CategorySecurity, DefaultSeverity: critical,
+		CWE: "CWE-693", OWASP: "A06:2025",
+		Summary: "A change adds an inline ignore, an ignore-file entry or a setting that hides findings.",
+		Explanation: "With --forbid-new-suppressions, lines added since the --diff reference (HEAD by default) are checked: //codex:ignore, //nolint and #nosec in Go comments, entries in the ignore file, and configuration that disables rules, excludes paths or relaxes thresholds. " +
+			"Directive-like text in string literals, comments in the ignore file, tightened settings and suppressions that a removed line already contained are not reported. The finding cannot itself be suppressed; CI approves a reviewed change by setting CODEX_ALLOW_SUPPRESSIONS=1.",
+		BadExample:  `rows, err := db.Query("SELECT * FROM users WHERE id = " + id) //codex:ignore sql-injection -- fix later`,
+		GoodExample: `rows, err := db.Query("SELECT * FROM users WHERE id = $1", id)`,
+		References:  []string{cweURL + "693.html"},
+	},
 }
