@@ -1,208 +1,171 @@
 package builtin
 
 import (
+	"fmt"
 	"go/ast"
+	"go/types"
 	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
-	"golang.org/x/tools/go/analysis"
 )
 
-// RegisterInsecureDesignRule registers the insecure design detection rule.
+var (
+	contextMeta = ruleMeta{ID: "context-propagation-missing", Title: "Request Context Not Propagated", Severity: result.SeverityMedium, CWE: "CWE-400", OWASP: "A06:2025", Confidence: 0.9,
+		Suggestion: "Pass the incoming ctx (or r.Context()) to context-aware APIs such as QueryContext, NewRequestWithContext and CommandContext.",
+		References: []string{"https://go.dev/blog/context"}}
+	httpClientMeta = ruleMeta{ID: "http-client-unsafe", Title: "Unsafe HTTP Client Configuration", Severity: result.SeverityMedium, CWE: "CWE-400", OWASP: "A06:2025",
+		Suggestion: "Set http.Client.Timeout (or transport-level timeouts) and never copy credentials onto redirected requests.",
+		References: []string{"https://cwe.mitre.org/data/definitions/400.html"}}
+)
+
+// RegisterInsecureDesignRule reports lost request contexts and HTTP clients
+// without timeouts or with credential-forwarding redirect policies.
 func RegisterInsecureDesignRule(ctx *analyzer.AnalyzerContext) {
-	ctx.RegisterRule(&analyzer.Rule{
-		ID:       "insecure-design",
-		Title:    "Insecure Design (A04:2025)",
-		Category: "security",
-		Severity: result.SeverityHigh,
-		Summary:  "Architectural and design flaws that lead to security vulnerabilities.",
-		Matcher:  matchInsecureDesign,
+	registerRules(ctx, []ruleMeta{contextMeta, httpClientMeta}, func(r *reporter) {
+		info := r.pass.TypesInfo
+		for _, file := range r.pass.Files {
+			for _, unit := range funcUnits(file) {
+				if hasContextParam(info, unit.Type) {
+					checkContextUse(r, info, unit)
+				}
+				checkCredentialForwarding(r, info, unit)
+				later := literalFieldAssignments(info, unit.Body)
+				inspectShallow(unit.Body, func(n ast.Node) bool {
+					lit, ok := n.(*ast.CompositeLit)
+					if !ok || !typeIs(typeOf(info, lit), "net/http", "Client") {
+						return true
+					}
+					fields := literalFields(lit)
+					for k, v := range later[lit] {
+						fields[k] = v
+					}
+					if fields["Timeout"] == nil && fields["Transport"] == nil {
+						r.report(httpClientMeta, lit, "http.Client has no Timeout; a slow server can hang this goroutine forever.")
+					}
+					if cr, ok := fields["CheckRedirect"].(*ast.FuncLit); ok && forwardsCredentials(info, cr) {
+						r.reportWith(httpClientMeta, cr, "CheckRedirect copies headers onto redirected requests, leaking credentials to other hosts.", result.SeverityHigh, nil)
+					}
+					return true
+				})
+			}
+		}
 	})
 }
 
-// matchInsecureDesign detects insecure design patterns
-func matchInsecureDesign(ctx *analyzer.AnalyzerContext, pass *analysis.Pass) {
-	for _, file := range pass.Files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.StructType:
-				// Check for structs with sensitive fields exposed
-				if hasExposedSensitiveFields(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "insecure-design",
-						Title:       "Exposed Sensitive Fields",
-						Description: "Struct contains sensitive fields that are publicly accessible",
-						Severity:    result.SeverityHigh,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Use private fields and provide secure access methods",
-					})
-				}
-			case *ast.InterfaceType:
-				// Check for interfaces that expose too much
-				if hasOverlyPermissiveInterface(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "insecure-design",
-						Title:       "Overly Permissive Interface",
-						Description: "Interface exposes too many methods, violating principle of least privilege",
-						Severity:    result.SeverityMedium,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Split interface into smaller, more focused interfaces",
-					})
-				}
-			case *ast.FuncDecl:
-				// Check for functions with too many responsibilities
-				if hasTooManyResponsibilities(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "insecure-design",
-						Title:       "Function with Too Many Responsibilities",
-						Description: "Function violates single responsibility principle",
-						Severity:    result.SeverityMedium,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Split function into smaller, focused functions",
-					})
-				}
-			case *ast.CallExpr:
-				// Check for hardcoded secrets in code
-				if hasHardcodedSecrets(x) {
-					pos := ctx.GetFset().Position(x.Pos())
-					ctx.Report(result.Issue{
-						ID:          "insecure-design",
-						Title:       "Hardcoded Secrets",
-						Description: "Secrets should not be hardcoded in source code",
-						Severity:    result.SeverityCritical,
-						Location:    result.NewLocationFromPos(pos, "", ""),
-						Category:    "security",
-						Suggestion:  "Use environment variables or secure secret management",
-					})
-				}
-			}
+func hasContextParam(info *types.Info, ft *ast.FuncType) bool {
+	for _, p := range params(info, ft) {
+		if typeIs(p.Type(), "context", "Context") || typeIs(p.Type(), "net/http", "Request") {
 			return true
-		})
-	}
-}
-
-// hasExposedSensitiveFields checks if struct has exposed sensitive fields
-func hasExposedSensitiveFields(structType *ast.StructType) bool {
-	if structType.Fields == nil {
-		return false
-	}
-
-	for _, field := range structType.Fields.List {
-		if len(field.Names) == 0 {
-			continue
-		}
-
-		fieldName := field.Names[0].Name
-		// Check if field name suggests sensitive data
-		sensitivePatterns := []string{
-			"password", "secret", "key", "token", "credential",
-			"private", "sensitive", "confidential", "auth",
-		}
-
-		fieldNameLower := strings.ToLower(fieldName)
-		for _, pattern := range sensitivePatterns {
-			if strings.Contains(fieldNameLower, pattern) {
-				// Check if field is exported (starts with uppercase)
-				if len(fieldName) > 0 && fieldName[0] >= 'A' && fieldName[0] <= 'Z' {
-					return true
-				}
-			}
 		}
 	}
 	return false
 }
 
-// hasOverlyPermissiveInterface checks if interface has too many methods
-func hasOverlyPermissiveInterface(interfaceType *ast.InterfaceType) bool {
-	if interfaceType.Methods == nil {
-		return false
-	}
-
-	// Consider interface overly permissive if it has more than 10 methods
-	return len(interfaceType.Methods.List) > 10
+func checkContextUse(r *reporter, info *types.Info, unit funcUnit) {
+	inspectShallow(unit.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		fn := calleeFunc(info, call)
+		replacement := ""
+		switch {
+		case isMethod(fn, "database/sql", "DB", "Query", "QueryRow", "Exec", "Prepare", "Begin"),
+			isMethod(fn, "database/sql", "Tx", "Query", "QueryRow", "Exec", "Prepare"),
+			isMethod(fn, "database/sql", "Conn", "Query", "QueryRow", "Exec", "Prepare"):
+			replacement = fn.Name() + "Context"
+			if fn.Name() == "Begin" {
+				replacement = "BeginTx"
+			}
+		case isFunc(fn, "net/http", "Get", "Post", "Head", "PostForm", "NewRequest"), isMethod(fn, "net/http", "Client", "Get", "Post", "Head", "PostForm"):
+			replacement = "http.NewRequestWithContext"
+		case isFunc(fn, "os/exec", "Command"):
+			replacement = "exec.CommandContext"
+		case isFunc(fn, "net", "Dial", "DialTimeout"):
+			replacement = "(*net.Dialer).DialContext"
+		}
+		for _, arg := range call.Args {
+			if inner, ok := arg.(*ast.CallExpr); ok {
+				if bg := calleeFunc(info, inner); isFunc(bg, "context", "Background", "TODO") {
+					r.report(contextMeta, inner, fmt.Sprintf("context.%s() is passed to %s, discarding the caller's cancellation and deadline; pass the incoming context.", bg.Name(), callName(call)))
+				}
+			}
+		}
+		if replacement != "" {
+			r.report(contextMeta, call, fmt.Sprintf("%s ignores the incoming context; use %s.", fn.Name(), replacement))
+		}
+		return true
+	})
 }
 
-// hasTooManyResponsibilities checks if function has too many responsibilities
-func hasTooManyResponsibilities(funcDecl *ast.FuncDecl) bool {
-	if funcDecl.Body == nil {
-		return false
-	}
-
-	// Count different types of operations
-	var dbOps, fileOps, netOps, cryptoOps int
-
-	ast.Inspect(funcDecl.Body, func(n ast.Node) bool {
+// forwardsCredentials reports whether a CheckRedirect function copies headers
+// (or an Authorization header) from previous requests onto the redirect.
+func forwardsCredentials(info *types.Info, fn *ast.FuncLit) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		switch x := n.(type) {
+		case *ast.AssignStmt:
+			for _, lhs := range x.Lhs {
+				if sel, ok := lhs.(*ast.SelectorExpr); ok && sel.Sel.Name == "Header" && typeIs(typeOf(info, sel.X), "net/http", "Request") {
+					found = true
+				}
+			}
 		case *ast.CallExpr:
-			if fun, ok := x.Fun.(*ast.SelectorExpr); ok {
-				funcName := fun.Sel.Name
-				// Count different operation types
-				if strings.Contains(strings.ToLower(funcName), "query") ||
-					strings.Contains(strings.ToLower(funcName), "exec") {
-					dbOps++
+			if isMethod(calleeFunc(info, x), "net/http", "Header", "Set", "Add") && len(x.Args) == 2 {
+				if key, ok := constString(info, x.Args[0]); ok && (strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "Cookie")) {
+					found = true
 				}
-				if strings.Contains(strings.ToLower(funcName), "read") ||
-					strings.Contains(strings.ToLower(funcName), "write") {
-					fileOps++
-				}
-				if strings.Contains(strings.ToLower(funcName), "http") ||
-					strings.Contains(strings.ToLower(funcName), "get") {
-					netOps++
-				}
-				if strings.Contains(strings.ToLower(funcName), "encrypt") ||
-					strings.Contains(strings.ToLower(funcName), "hash") {
-					cryptoOps++
-				}
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// checkCredentialForwarding reports Authorization or Cookie headers attached to
+// outgoing requests whose URL is controlled by the incoming HTTP request.
+func checkCredentialForwarding(r *reporter, info *types.Info, unit funcUnit) {
+	lt := newLocalTaint(info, unit.Body)
+	inspectShallow(unit.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || len(call.Args) != 2 || !isMethod(calleeFunc(info, call), "net/http", "Header", "Set", "Add") {
+			return true
+		}
+		key, ok := constString(info, call.Args[0])
+		if !ok || !(strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "Cookie")) {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		hdr, ok := sel.X.(*ast.SelectorExpr)
+		if !ok || hdr.Sel.Name != "Header" {
+			return true
+		}
+		obj, ok := objOf(info, hdr.X).(*types.Var)
+		if !ok {
+			return true
+		}
+		for _, rhs := range lt.assigns[obj] {
+			req, ok := rhs.(*ast.CallExpr)
+			if !ok {
+				continue
+			}
+			fn := calleeFunc(info, req)
+			idx := -1
+			switch {
+			case isFunc(fn, "net/http", "NewRequest"):
+				idx = 1
+			case isFunc(fn, "net/http", "NewRequestWithContext"):
+				idx = 2
+			}
+			if idx >= 0 && idx < len(req.Args) && lt.tainted(req.Args[idx], "ssrf") {
+				r.reportWith(httpClientMeta, call, fmt.Sprintf("%s header is sent to a URL taken from the incoming request; the credential can be delivered to an attacker-chosen host.", key), result.SeverityHigh, nil)
+				return true
 			}
 		}
 		return true
 	})
-
-	// Function has too many responsibilities if it performs multiple different types of operations
-	operationTypes := 0
-	if dbOps > 0 {
-		operationTypes++
-	}
-	if fileOps > 0 {
-		operationTypes++
-	}
-	if netOps > 0 {
-		operationTypes++
-	}
-	if cryptoOps > 0 {
-		operationTypes++
-	}
-
-	return operationTypes > 2
-}
-
-// hasHardcodedSecrets checks if call contains hardcoded secrets
-func hasHardcodedSecrets(call *ast.CallExpr) bool {
-	for _, arg := range call.Args {
-		if lit, ok := arg.(*ast.BasicLit); ok {
-			value := lit.Value
-			// Check for common secret patterns
-			secretPatterns := []string{
-				"password", "secret", "key", "token", "credential",
-				"private", "sensitive", "auth", "api_key",
-			}
-
-			for _, pattern := range secretPatterns {
-				if strings.Contains(strings.ToLower(value), pattern) {
-					// Check if it looks like a hardcoded value (not a variable)
-					if len(value) > 8 && !strings.Contains(value, "${") {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
 }

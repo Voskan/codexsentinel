@@ -172,3 +172,65 @@ func carriesText(t types.Type) bool {
 	}
 	return true
 }
+
+// derivesFrom reports whether e is built from an expression matching source,
+// following local assignments. Calls for which barrier returns true stop the search.
+func derivesFrom(info *types.Info, assigns map[types.Object][]ast.Expr, e ast.Expr, source func(ast.Expr) bool, barrier func(*ast.CallExpr) bool) bool {
+	visiting := map[types.Object]bool{}
+	var walk func(ast.Expr) bool
+	walk = func(e ast.Expr) bool {
+		if e == nil {
+			return false
+		}
+		if source(e) {
+			return true
+		}
+		switch x := e.(type) {
+		case *ast.CallExpr:
+			if barrier != nil && barrier(x) {
+				return false
+			}
+			if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
+				if _, isMethod := info.Selections[sel]; isMethod && walk(sel.X) {
+					return true
+				}
+			}
+			for _, arg := range x.Args {
+				if walk(arg) {
+					return true
+				}
+			}
+		case *ast.SelectorExpr:
+			if _, ok := info.Selections[x]; ok {
+				return walk(x.X)
+			}
+		case *ast.Ident:
+			obj, ok := info.Uses[x].(*types.Var)
+			if !ok || visiting[obj] {
+				return false
+			}
+			visiting[obj] = true
+			for _, rhs := range assigns[obj] {
+				if walk(rhs) {
+					return true
+				}
+			}
+		case *ast.BinaryExpr:
+			return walk(x.X) || walk(x.Y)
+		case *ast.ParenExpr:
+			return walk(x.X)
+		case *ast.IndexExpr:
+			return walk(x.X)
+		case *ast.SliceExpr:
+			return walk(x.X)
+		case *ast.StarExpr:
+			return walk(x.X)
+		case *ast.UnaryExpr:
+			return walk(x.X)
+		case *ast.TypeAssertExpr:
+			return walk(x.X)
+		}
+		return false
+	}
+	return walk(e)
+}
