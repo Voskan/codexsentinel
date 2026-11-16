@@ -1,188 +1,44 @@
-# Custom Rules for CodexSentinel
+# Example custom rules. Load them with:
+#
+#   rules:
+#     rule_files: ["custom_rules.yaml"]
+#
+# Patterns are Go code. $NAME (or {{name}}) is a metavariable that matches any
+# expression; a repeated metavariable must match the same code; $... matches
+# any number of call arguments. Filters narrow where a match is reported:
+#   import     - the file imports one of `include`
+#   package    - the package name/path matches `allow` and not `exclude` (globs)
+#   type       - metavariable `var` has one of the types in `include`
+#   non_const  - metavariable `var` is not a compile-time constant
+#   regex      - the source of metavariable `var` matches `include`, not `exclude`
+# not_pattern suppresses a match that contains the given pattern, and fix
+# rewrites the match (applied with `codex scan --fix`).
 
 rules:
-  # Custom security rules
-  - id: "CUSTOM001"
-    name: "Custom SQL Injection Pattern"
-    description: "Detects custom SQL injection patterns"
-    severity: "high"
-    category: "security"
+  - id: CUSTOM001
+    title: SQL Statement Built with fmt.Sprintf
+    category: security
+    severity: HIGH
+    cwe: CWE-89
+    description: A SQL statement is formatted with %s or %v, which invites injection.
+    match:
+      pattern: "fmt.Sprintf($QUERY, $...)"
+      filters:
+        - type: regex
+          var: $QUERY
+          include: ['(?i)^["`]\s*(select|insert|update|delete)\b[^"`]*%[sv]']
+    suggestion: Use placeholders ($1 or ?) and pass values as query arguments.
+    references:
+      - https://go.dev/doc/database/sql-injection
 
-    patterns:
-      - pattern: "fmt\\.Sprintf\\(.*SELECT.*%s.*\\)"
-        message: "Potential SQL injection using fmt.Sprintf with SELECT"
-        severity: "critical"
-
-      - pattern: "fmt\\.Sprintf\\(.*INSERT.*%s.*\\)"
-        message: "Potential SQL injection using fmt.Sprintf with INSERT"
-        severity: "critical"
-
-      - pattern: "fmt\\.Sprintf\\(.*UPDATE.*%s.*\\)"
-        message: "Potential SQL injection using fmt.Sprintf with UPDATE"
-        severity: "critical"
-
-    filters:
-      - exclude_files: ["*_test.go"]
-      - exclude_functions: ["safe.*", "validate.*"]
-
-  - id: "CUSTOM002"
-    name: "Hardcoded Credentials"
-    description: "Detects hardcoded credentials in code"
-    severity: "critical"
-    category: "security"
-
-    patterns:
-      - pattern: 'password.*=.*["''][^"'']{8,}["'']'
-        message: "Hardcoded password detected"
-        severity: "critical"
-
-      - pattern: 'api_key.*=.*["''][^"'']{16,}["'']'
-        message: "Hardcoded API key detected"
-        severity: "critical"
-
-      - pattern: 'secret.*=.*["''][^"'']{8,}["'']'
-        message: "Hardcoded secret detected"
-        severity: "critical"
-
-    filters:
-      - exclude_files: ["*_test.go", "config/*"]
-      - exclude_functions: ["example.*", "demo.*"]
-
-  - id: "CUSTOM003"
-    name: "Unsafe File Operations"
-    description: "Detects unsafe file operations"
-    severity: "medium"
-    category: "security"
-
-    patterns:
-      - pattern: "os\\.Open\\(.*\\+.*\\)"
-        message: "Potential path traversal in file operation"
-        severity: "medium"
-
-      - pattern: "ioutil\\.ReadFile\\(.*\\+.*\\)"
-        message: "Potential path traversal in file read"
-        severity: "medium"
-
-      - pattern: "os\\.Create\\(.*\\+.*\\)"
-        message: "Potential path traversal in file creation"
-        severity: "medium"
-
-    filters:
-      - exclude_files: ["*_test.go"]
-      - exclude_functions: ["safe.*", "validate.*"]
-
-  # Custom metrics rules
-  - id: "CUSTOM004"
-    name: "Long Function Detection"
-    description: "Detects functions that are too long"
-    severity: "medium"
-    category: "metrics"
-
-    patterns:
-      - pattern: "func.*\\{[^}]{500,}\\}"
-        message: "Function is too long (over 500 characters)"
-        severity: "medium"
-
-    filters:
-      - exclude_files: ["*_test.go"]
-      - exclude_functions: ["main"]
-
-  - id: "CUSTOM005"
-    name: "Magic Numbers"
-    description: "Detects magic numbers in code"
-    severity: "low"
-    category: "metrics"
-
-    patterns:
-      - pattern: "[^0-9]1000[^0-9]"
-        message: "Magic number 1000 detected"
-        severity: "low"
-
-      - pattern: "[^0-9]500[^0-9]"
-        message: "Magic number 500 detected"
-        severity: "low"
-
-      - pattern: "[^0-9]100[^0-9]"
-        message: "Magic number 100 detected"
-        severity: "low"
-
-    filters:
-      - exclude_files: ["*_test.go"]
-      - exclude_functions: ["example.*", "demo.*"]
-
-  # Custom architecture rules
-  - id: "CUSTOM006"
-    name: "Direct Database Access"
-    description: "Detects direct database access in business layer"
-    severity: "medium"
-    category: "architecture"
-
-    patterns:
-      - pattern: "database/sql\\.DB"
-        message: "Direct database access detected"
-        severity: "medium"
-
-      - pattern: "gorm\\.DB"
-        message: "Direct ORM access detected"
-        severity: "medium"
-
-    filters:
-      - include_packages: ["service/*", "handler/*", "business/*"]
-      - exclude_files: ["*_test.go"]
-
-  - id: "CUSTOM007"
-    name: "HTTP Handler in Data Layer"
-    description: "Detects HTTP handlers in data layer"
-    severity: "medium"
-    category: "architecture"
-
-    patterns:
-      - pattern: "http\\.HandlerFunc"
-        message: "HTTP handler in data layer"
-        severity: "medium"
-
-      - pattern: "http\\.HandleFunc"
-        message: "HTTP handler registration in data layer"
-        severity: "medium"
-
-    filters:
-      - include_packages: ["repository/*", "dao/*", "model/*"]
-      - exclude_files: ["*_test.go"]
-
-# Rule categories
-categories:
-  security:
-    description: "Security-related rules"
-    enabled: true
-
-  metrics:
-    description: "Code quality and metrics rules"
-    enabled: true
-
-  architecture:
-    description: "Architectural pattern rules"
-    enabled: true
-
-  custom:
-    description: "Custom project-specific rules"
-    enabled: true
-
-# Global filters
-global_filters:
-  exclude_files:
-    - "*_test.go"
-    - "*_mock.go"
-    - "vendor/*"
-    - "testdata/*"
-
-  exclude_directories:
-    - "vendor"
-    - "testdata"
-    - "build"
-    - "dist"
-
-  exclude_functions:
-    - "Test.*"
-    - "Benchmark.*"
-    - "Example.*"
-    - "mock.*"
+  - id: CUSTOM002
+    title: log.Fatal in Library Code
+    category: reliability
+    severity: LOW
+    description: Library packages should return errors instead of exiting the process.
+    match:
+      pattern: "log.Fatalf($...)"
+      filters:
+        - type: package
+          exclude: ["main"]
+    suggestion: Return the error to the caller and let main decide how to exit.

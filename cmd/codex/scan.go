@@ -35,6 +35,7 @@ func NewScanCmd() *cobra.Command {
 		depsOnly   bool
 		configFile string
 		severity   string
+		fix        bool
 	)
 
 	cmd := &cobra.Command{
@@ -42,7 +43,7 @@ func NewScanCmd() *cobra.Command {
 		Short: "Run static analysis on the target source code",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runScan(path, args, format, outPath, strict, ignoreFile, depsOnly, configFile, severity)
+			return runScan(path, args, format, outPath, strict, ignoreFile, depsOnly, configFile, severity, fix)
 		},
 	}
 
@@ -54,12 +55,13 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&depsOnly, "deps", false, "Run dependency analysis only")
 	cmd.Flags().StringVar(&configFile, "config", "", "Path to a custom config file")
 	cmd.Flags().StringVar(&severity, "severity", "", "Filter issues by severity (low, medium, high, critical)")
+	cmd.Flags().BoolVar(&fix, "fix", false, "Apply suggested fixes to the source files")
 
 	return cmd
 }
 
 // runScan handles the main scan logic
-func runScan(path string, args []string, format, outPath string, strict bool, ignoreFile string, depsOnly bool, configFile, severity string) error {
+func runScan(path string, args []string, format, outPath string, strict bool, ignoreFile string, depsOnly bool, configFile, severity string, fix bool) error {
 	ctx := context.Background()
 
 	// Use path from args if provided, otherwise use flag
@@ -108,6 +110,16 @@ func runScan(path string, args []string, format, outPath string, strict bool, ig
 	}
 
 	logger.Infof("Analysis completed, found %d issues", len(results))
+
+	if fix {
+		changed, err := yaml.ApplyFixes(results)
+		for _, file := range changed {
+			logger.Infof("Applied fixes to %s", file)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to apply fixes: %w", err)
+		}
+	}
 
 	// Generate report
 	if err := generateReport(results, format, outPath, gitMetadata, logger); err != nil {
