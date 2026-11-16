@@ -171,6 +171,8 @@ set `dependencies.check_capabilities: false` to turn it off.
 
 | Rule ID | Severity | CWE | OWASP 2025 |
 | --- | --- | --- | --- |
+| `api-excessive-data-exposure` | High | CWE-200 | A01 |
+| `api-mass-assignment` | High | CWE-915 | A01 |
 | `archive-zip-slip` | Critical | CWE-22 | A01 |
 | `csrf-missing-protection` | Medium | CWE-352 | A01 |
 | `idor-unscoped-mutation` | Medium | CWE-639 | A01 |
