@@ -201,6 +201,7 @@ set `dependencies.check_capabilities: false` to turn it off.
 | `http-client-unsafe` | Medium | CWE-400 | A06 |
 | `http-unbounded-body-read` | High | CWE-400 | A06 |
 | `untrusted-slice-allocation` | High | CWE-789 | A06 |
+| `unsafe-memory-manipulation` | High | CWE-119 | A06 |
 | `auth-hardcoded-credential` | Critical | CWE-798 | A07 |
 | `auth-non-constant-time-compare` | High | CWE-208 | A07 |
 | `cookie-insecure-samesite` | Medium | CWE-1275 | A07 |
@@ -211,6 +212,7 @@ set `dependencies.check_capabilities: false` to turn it off.
 | `jwt-unverified-parse` | High | CWE-347 | A07 |
 | `unsafe-gob-decode` | High | CWE-502 | A08 |
 | `sensitive-data-in-logs` | High | CWE-532 | A09 |
+| `security-err-ignored` | Critical | CWE-252 | A10 |
 
 Rules resolve calls through type information, so renamed imports are
 recognized and look-alike local functions are not. The listed severity is the

@@ -26,6 +26,7 @@ func RegisterAll(ctx *analyzer.AnalyzerContext) {
 		RegisterHardcodedSecretRule,
 		RegisterGRPCSecurityRules,
 		RegisterResourceLeakRules,
+		RegisterUnsafeErrcheckRules,
 	} {
 		register(ctx)
 	}

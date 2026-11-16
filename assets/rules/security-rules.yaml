@@ -39,22 +39,3 @@ references:
   - https://cwe.mitre.org/data/definitions/319.html
 enabled: true
 
----
-id: go.security.unsafe-pointer-conversion
-title: unsafe.Pointer Conversion
-category: security
-severity: LOW
-cwe: CWE-704
-description: |
-  Converting through unsafe.Pointer bypasses the type system and memory
-  safety guarantees. Review that the conversion follows the rules in the
-  unsafe package documentation.
-match:
-  pattern: "unsafe.Pointer($X)"
-  filters:
-    - type: import
-      include: ["unsafe"]
-suggestion: Prefer safe alternatives such as unsafe.String/unsafe.Slice with documented invariants, or avoid unsafe entirely.
-references:
-  - https://pkg.go.dev/unsafe#Pointer
-enabled: true

@@ -130,6 +130,8 @@ severity, CWE and OWASP category. Notable behavior:
 | Logging | `sensitive-data-in-logs` | Detailed below. |
 | Deserialization | `unsafe-gob-decode` | Reports gob decoding of request bodies. |
 | Access control | `idor-unscoped-mutation` | Reports updates and deletes keyed only by a request parameter, without an owner or tenant condition. |
+| Memory safety | `unsafe-memory-manipulation` | Reports `reflect.SliceHeader` and `reflect.StringHeader`, a `uintptr(unsafe.Pointer(p))` kept in a variable and later converted back to `unsafe.Pointer`, and `unsafe.Slice`/`unsafe.String` whose length is not constant, not derived from `len`/`cap` and not compared before the call. A `uintptr` used only for printing or alignment checks and `unsafe.Add` in a single expression are not reported. |
+| Ignored errors | `security-err-ignored` | Reports a dropped error (call statement or `_`) only for calls whose failure leaves the program insecure: `crypto/rand.Read`, `rand.Reader.Read` and `io.ReadFull(rand.Reader, ...)` and bcrypt `CompareHashAndPassword` (Critical); TLS `Handshake`, `x509.Certificate.Verify`, `os.Chmod`/`Chown`/`Lchown` and `syscall.Setuid`/`Setgid`/`Chroot` (High); and `rows.Err()` ignored or never called after a `rows.Next()` loop (Medium). Other ignored errors, such as `fmt.Println` or `Close`, are not reported. |
 
 ### Sensitive data in logs
 
