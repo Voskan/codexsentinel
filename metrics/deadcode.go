@@ -2,141 +2,167 @@
 package metrics
 
 import (
+	"context"
 	"fmt"
 	"go/token"
 	"path/filepath"
+	"sort"
+	"strings"
 
-	"golang.org/x/tools/go/packages"
+	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/config"
 	"golang.org/x/tools/go/ssa"
 )
 
 // DeadFunction represents a function or method that is never used.
 type DeadFunction struct {
-	Name     string // Fully-qualified function name
+	Name     string // Function name
 	Pos      string // File and line number
+	File     string // File containing the declaration
+	Line     int    // Line of the declaration
 	Recv     string // Receiver type (for methods)
 	PkgPath  string // Package where the function is defined
 	IsExport bool   // Whether the function is exported
 }
 
-// AnalyzeDeadCode analyzes all packages for unused (dead) functions.
+// AnalyzeDeadCode loads the packages under pattern and reports unreachable functions.
 func AnalyzeDeadCode(pattern string) ([]DeadFunction, error) {
-	cfg := &packages.Config{
-		Mode:  packages.NeedName | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedDeps | packages.NeedImports | packages.NeedFiles,
-		Fset:  token.NewFileSet(),
-		Dir:   ".",
-		Tests: false,
-	}
-
-	pkgs, err := packages.Load(cfg, pattern)
+	cfg := config.NewDefaultConfig()
+	ws, err := workspace.Load(context.Background(), pattern, &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load packages: %w", err)
 	}
+	bundle, err := codessa.BuildFromWorkspace(ws)
+	if err != nil {
+		return nil, err
+	}
+	targets := map[string]bool{}
+	for _, pkg := range ws.Packages {
+		targets[pkg.PkgPath] = true
+	}
+	return AnalyzeDeadCodeFromGraph(bundle, targets), nil
+}
 
-	prog := ssa.NewProgram(cfg.Fset, ssa.SanityCheckFunctions)
-	var ssaPkgs []*ssa.Package
-
-	// Build all SSA packages
-	for _, pkg := range pkgs {
-		if pkg.Types == nil || len(pkg.Syntax) == 0 {
+// AnalyzeDeadCodeFromGraph reports declared functions of the target packages that
+// are unreachable from program entrypoints. Exported API of library packages and
+// exported methods (which may satisfy interfaces) are treated as live.
+func AnalyzeDeadCodeFromGraph(bundle *codessa.GraphBundle, targetPkgPaths map[string]bool) []DeadFunction {
+	if bundle == nil {
+		return nil
+	}
+	var roots []*ssa.Function
+	var candidates []*ssa.Function
+	for _, pkg := range bundle.Packages {
+		path := pkg.Pkg.Path()
+		if len(targetPkgPaths) > 0 && !targetPkgPaths[path] {
 			continue
 		}
-		ssaPkg := prog.CreatePackage(pkg.Types, pkg.Syntax, pkg.TypesInfo, true)
-		if ssaPkg != nil {
-			// Try to build SSA package, skip if it fails
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						// SSA build failed, skip this package
+		isMain := pkg.Pkg.Name() == "main"
+		for name, member := range pkg.Members {
+			switch m := member.(type) {
+			case *ssa.Function:
+				if m.Synthetic != "" || m.TypeParams().Len() > 0 && m.Blocks == nil {
+					continue
+				}
+				if name == "main" || name == "init" || (!isMain && token.IsExported(name)) || isTestEntrypoint(m) {
+					roots = append(roots, m)
+					continue
+				}
+				candidates = append(candidates, m)
+			case *ssa.Type:
+				for _, fn := range bundle.MethodsOf(m.Type()) {
+					if token.IsExported(fn.Name()) {
+						roots = append(roots, fn)
+					} else {
+						candidates = append(candidates, fn)
 					}
-				}()
-				ssaPkg.Build()
-				ssaPkgs = append(ssaPkgs, ssaPkg)
-			}()
-		}
-	}
-
-	callGraph := make(map[*ssa.Function]bool)
-	allFuncs := make(map[*ssa.Function]bool)
-
-	// Collect all reachable (called) functions
-	for _, p := range ssaPkgs {
-		for _, m := range p.Members {
-			fn, ok := m.(*ssa.Function)
-			if !ok || fn.Blocks == nil {
-				continue
+				}
 			}
-			markReachable(fn, callGraph)
 		}
 	}
-
-	// Collect all defined functions
-	for _, p := range ssaPkgs {
-		for _, mem := range p.Members {
-			fn, ok := mem.(*ssa.Function)
-			if !ok || fn.Pkg == nil || fn.Blocks == nil {
-				continue
-			}
-			allFuncs[fn] = true
+	roots = append(roots, referencedFunctions(bundle)...)
+	reached := bundle.ReachableFrom(roots)
+	for fn := range reached {
+		if fn.Origin() != nil {
+			reached[fn.Origin()] = true
 		}
 	}
-
-	var deadFuncs []DeadFunction
-	for fn := range allFuncs {
-		// Skip synthetic/builtin/test/init/main functions
-		if fn.Synthetic != "" || isEntrypoint(fn) {
+	var dead []DeadFunction
+	seen := map[*ssa.Function]bool{}
+	for _, fn := range candidates {
+		if seen[fn] || reached[fn] || !fn.Pos().IsValid() {
 			continue
 		}
-		if _, ok := callGraph[fn]; ok {
-			continue // called → not dead
-		}
-
-		pos := cfg.Fset.Position(fn.Pos())
+		seen[fn] = true
+		pos := bundle.Fset.Position(fn.Pos())
 		recv := ""
 		if fn.Signature.Recv() != nil {
 			recv = fn.Signature.Recv().Type().String()
 		}
-		isExported := isExportedFunc(fn)
-
-		deadFuncs = append(deadFuncs, DeadFunction{
+		dead = append(dead, DeadFunction{
 			Name:     fn.Name(),
 			Recv:     recv,
 			PkgPath:  fn.Pkg.Pkg.Path(),
-			IsExport: isExported,
+			IsExport: fn.Object() != nil && fn.Object().Exported(),
+			File:     pos.Filename,
+			Line:     pos.Line,
 			Pos:      fmt.Sprintf("%s:%d", filepath.ToSlash(pos.Filename), pos.Line),
 		})
 	}
-
-	return deadFuncs, nil
+	sort.Slice(dead, func(i, j int) bool {
+		if dead[i].File != dead[j].File {
+			return dead[i].File < dead[j].File
+		}
+		return dead[i].Line < dead[j].Line
+	})
+	return dead
 }
 
-// markReachable recursively marks reachable functions from the call tree.
-func markReachable(fn *ssa.Function, visited map[*ssa.Function]bool) {
-	if visited[fn] {
-		return
-	}
-	visited[fn] = true
-
-	for _, block := range fn.Blocks {
-		for _, instr := range block.Instrs {
-			call, ok := instr.(ssa.CallInstruction)
-			if !ok {
-				continue
-			}
-			callee := call.Common().StaticCallee()
-			if callee != nil && callee != fn {
-				markReachable(callee, visited)
+// referencedFunctions returns functions used as values (callbacks, method values,
+// struct fields), which are live even without a direct call edge.
+func referencedFunctions(bundle *codessa.GraphBundle) []*ssa.Function {
+	var out []*ssa.Function
+	for _, fn := range bundle.TargetFunctions() {
+		for _, block := range fn.Blocks {
+			for _, instr := range block.Instrs {
+				var operands []*ssa.Value
+				if call, ok := instr.(ssa.CallInstruction); ok {
+					common := call.Common()
+					for i := range common.Args {
+						operands = append(operands, &common.Args[i])
+					}
+				} else {
+					operands = instr.Operands(operands)
+				}
+				for _, op := range operands {
+					if op == nil || *op == nil {
+						continue
+					}
+					switch v := (*op).(type) {
+					case *ssa.Function:
+						out = append(out, v)
+					case *ssa.MakeClosure:
+						if f, ok := v.Fn.(*ssa.Function); ok {
+							out = append(out, f)
+						}
+					}
+				}
 			}
 		}
 	}
+	return out
 }
 
-// isExportedFunc determines if a function is exported.
-func isExportedFunc(fn *ssa.Function) bool {
-	return fn.Object() != nil && fn.Object().Exported()
-}
-
-// isEntrypoint determines if the function is considered an entrypoint.
-func isEntrypoint(fn *ssa.Function) bool {
-	return fn.Name() == "main" || fn.Name() == "init"
+func isTestEntrypoint(fn *ssa.Function) bool {
+	pos := fn.Prog.Fset.Position(fn.Pos())
+	if !strings.HasSuffix(pos.Filename, "_test.go") {
+		return false
+	}
+	for _, prefix := range []string{"Test", "Benchmark", "Example", "Fuzz"} {
+		if strings.HasPrefix(fn.Name(), prefix) {
+			return true
+		}
+	}
+	return false
 }
