@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/result"
@@ -54,7 +55,7 @@ func RegisterAuthBypassRule(ctx *analyzer.AnalyzerContext) {
 					checkComparison(r, info, x, x.X, x.Y)
 				case *ast.CallExpr:
 					if isFunc(calleeFunc(info, x), "bytes", "Equal") && len(x.Args) == 2 {
-						if secretOperand(x.Args[0]) || secretOperand(x.Args[1]) {
+						if secretOperand(info, x.Args[0]) || secretOperand(info, x.Args[1]) {
 							r.report(timingCompareMeta, x, "bytes.Equal leaks timing information when comparing secrets.")
 						}
 					}
@@ -65,7 +66,18 @@ func RegisterAuthBypassRule(ctx *analyzer.AnalyzerContext) {
 	})
 }
 
-func secretOperand(e ast.Expr) bool { return secretName(exprName(e), macWords) }
+// secretOperand reports whether e names a secret. Argument-less method calls
+// (accessors such as s.signature()) are only treated as secrets when the
+// method belongs to a cryptographic or token package.
+func secretOperand(info *types.Info, e ast.Expr) bool {
+	if call, ok := ast.Unparen(e).(*ast.CallExpr); ok && len(call.Args) == 0 {
+		fn := calleeFunc(info, call)
+		if fn == nil || fn.Pkg() == nil || !(strings.HasPrefix(fn.Pkg().Path(), "crypto/") || strings.Contains(fn.Pkg().Path(), "jwt") || strings.Contains(fn.Pkg().Path(), "jose")) {
+			return false
+		}
+	}
+	return secretName(exprName(e), macWords)
+}
 
 func checkComparison(r *reporter, info *types.Info, node ast.Node, a, b ast.Expr) {
 	if !isStringLike(typeOf(info, a)) || !isStringLike(typeOf(info, b)) {
@@ -77,7 +89,7 @@ func checkComparison(r *reporter, info *types.Info, node ast.Node, a, b ast.Expr
 		if isNil(info, a) || isNil(info, b) {
 			return
 		}
-		if secretOperand(a) || secretOperand(b) {
+		if secretOperand(info, a) || secretOperand(info, b) {
 			r.report(timingCompareMeta, node, "Secret value is compared with ==/!=, which leaks timing information.")
 		}
 	case ca != cb:

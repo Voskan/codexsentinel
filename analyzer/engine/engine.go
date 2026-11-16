@@ -305,4 +305,6 @@ func registerBuiltinRules(ctx *analyzer.AnalyzerContext) {
 	builtin.RegisterJWTSecurityRule(ctx)
 	// Register WebSocket Security rule
 	builtin.RegisterWebSocketSecurityRule(ctx)
+	// Register hardcoded secret rule
+	builtin.RegisterHardcodedSecretRule(ctx)
 }
