@@ -226,6 +226,15 @@ func IsGeneratedFile(file *ast.File) bool {
 	return false
 }
 
+// Files returns the files of pkg selected for analysis (target files without
+// excluded or generated ones).
+func (ws *Workspace) Files(pkg *packages.Package) []*ast.File {
+	if files, ok := ws.files[pkg]; ok {
+		return files
+	}
+	return pkg.Syntax
+}
+
 func NewAnalysisPass(ws *Workspace, pkg *packages.Package, reportFn func(analysis.Diagnostic)) *analysis.Pass {
 	files, ok := ws.files[pkg]
 	if !ok {

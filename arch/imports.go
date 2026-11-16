@@ -1,107 +1,140 @@
-// Package arch provides architectural structure analysis for Go projects.
 package arch
 
 import (
-	"fmt"
-	"go/token"
+	"sort"
 
 	"golang.org/x/tools/go/packages"
 )
 
-// ImportCycle represents a detected cycle between Go packages.
+// ImportCycle is a cycle of package imports, listed from its smallest package
+// path and ending where it started.
 type ImportCycle struct {
-	Packages []string // Ordered list of packages in the cycle
+	Packages []string
 }
 
-// AnalyzeImportCycles analyzes all packages starting from the given pattern (e.g. "./...")
-// and returns detected import cycles, if any.
-func AnalyzeImportCycles(pattern string) ([]ImportCycle, error) {
-	cfg := &packages.Config{
-		Mode:  packages.NeedName | packages.NeedImports | packages.NeedDeps | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes,
-		Dir:   ".",
-		Fset:  token.NewFileSet(),
-		Tests: false,
+// AnalyzeImportCycles finds import cycles among pkgs and their imports. Each
+// strongly connected group of packages is reported once.
+func AnalyzeImportCycles(pkgs []*packages.Package) []ImportCycle {
+	graph := map[string][]string{}
+	var visit func(*packages.Package)
+	visit = func(p *packages.Package) {
+		if p == nil || p.PkgPath == "" {
+			return
+		}
+		if _, done := graph[p.PkgPath]; done {
+			return
+		}
+		graph[p.PkgPath] = []string{}
+		paths := make([]string, 0, len(p.Imports))
+		for _, imp := range p.Imports {
+			paths = append(paths, imp.PkgPath)
+		}
+		sort.Strings(paths)
+		graph[p.PkgPath] = paths
+		for _, imp := range p.Imports {
+			visit(imp)
+		}
+	}
+	for _, p := range pkgs {
+		visit(p)
 	}
 
-	pkgs, err := packages.Load(cfg, pattern)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load packages: %w", err)
-	}
-
-	visited := make(map[string]bool)
-	stack := []string{}
 	var cycles []ImportCycle
-
-	for _, pkg := range pkgs {
-		detectCycle(pkg, visited, stack, make(map[string]bool), &cycles)
-	}
-
-	return cycles, nil
-}
-
-// detectCycle performs DFS traversal to detect import cycles.
-func detectCycle(
-	pkg *packages.Package,
-	visited map[string]bool,
-	stack []string,
-	stackSet map[string]bool,
-	cycles *[]ImportCycle,
-) {
-	if pkg.PkgPath == "" || visited[pkg.PkgPath] {
-		return
-	}
-
-	if stackSet[pkg.PkgPath] {
-		cycle := extractCycle(stack, pkg.PkgPath)
-		if !containsCycle(*cycles, cycle) {
-			*cycles = append(*cycles, ImportCycle{Packages: cycle})
-		}
-		return
-	}
-
-	stack = append(stack, pkg.PkgPath)
-	stackSet[pkg.PkgPath] = true
-	defer delete(stackSet, pkg.PkgPath)
-
-	for _, imp := range pkg.Imports {
-		detectCycle(imp, visited, stack, stackSet, cycles)
-	}
-
-	visited[pkg.PkgPath] = true
-}
-
-// extractCycle extracts the sequence of packages involved in the cycle.
-func extractCycle(stack []string, start string) []string {
-	var cycle []string
-	for i := len(stack) - 1; i >= 0; i-- {
-		cycle = append([]string{stack[i]}, cycle...)
-		if stack[i] == start {
-			break
-		}
-	}
-	cycle = append(cycle, start)
-	return cycle
-}
-
-// containsCycle checks if the same cycle already exists (order-insensitive).
-func containsCycle(cycles []ImportCycle, newCycle []string) bool {
-	newSet := make(map[string]struct{})
-	for _, p := range newCycle {
-		newSet[p] = struct{}{}
-	}
-
-	for _, c := range cycles {
-		if len(c.Packages) != len(newCycle) {
+	for _, scc := range stronglyConnected(graph) {
+		if len(scc) == 1 && !contains(graph[scc[0]], scc[0]) {
 			continue
 		}
-		match := true
-		for _, p := range c.Packages {
-			if _, ok := newSet[p]; !ok {
-				match = false
-				break
+		cycles = append(cycles, ImportCycle{Packages: cyclePath(graph, scc)})
+	}
+	sort.Slice(cycles, func(i, j int) bool { return cycles[i].Packages[0] < cycles[j].Packages[0] })
+	return cycles
+}
+
+// stronglyConnected returns the strongly connected components of graph.
+func stronglyConnected(graph map[string][]string) [][]string {
+	nodes := make([]string, 0, len(graph))
+	for n := range graph {
+		nodes = append(nodes, n)
+	}
+	sort.Strings(nodes)
+	index, low := map[string]int{}, map[string]int{}
+	onStack := map[string]bool{}
+	var stack []string
+	var out [][]string
+	next := 0
+	var strong func(string)
+	strong = func(v string) {
+		index[v], low[v] = next, next
+		next++
+		stack = append(stack, v)
+		onStack[v] = true
+		for _, w := range graph[v] {
+			if _, seen := index[w]; !seen {
+				strong(w)
+				low[v] = min(low[v], low[w])
+			} else if onStack[w] {
+				low[v] = min(low[v], index[w])
 			}
 		}
-		if match {
+		if low[v] == index[v] {
+			var scc []string
+			for {
+				w := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				onStack[w] = false
+				scc = append(scc, w)
+				if w == v {
+					break
+				}
+			}
+			sort.Strings(scc)
+			out = append(out, scc)
+		}
+	}
+	for _, n := range nodes {
+		if _, seen := index[n]; !seen {
+			strong(n)
+		}
+	}
+	return out
+}
+
+// cyclePath returns a concrete cycle through the component, starting at its
+// smallest package.
+func cyclePath(graph map[string][]string, scc []string) []string {
+	in := map[string]bool{}
+	for _, n := range scc {
+		in[n] = true
+	}
+	start := scc[0]
+	prev := map[string]string{start: ""}
+	queue := []string{start}
+	for len(queue) > 0 {
+		v := queue[0]
+		queue = queue[1:]
+		for _, w := range graph[v] {
+			if !in[w] {
+				continue
+			}
+			if w == start {
+				path := []string{start}
+				for n := v; n != start; n = prev[n] {
+					path = append([]string{n}, path...)
+				}
+				return append([]string{start}, path...)
+			}
+			if _, seen := prev[w]; !seen {
+				prev[w] = v
+				queue = append(queue, w)
+			}
+		}
+	}
+	return append(append([]string{}, scc...), start)
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
 			return true
 		}
 	}
@@ -111,10 +144,8 @@ func containsCycle(cycles []ImportCycle, newCycle []string) bool {
 // HasCycleFor reports whether a specific package is part of any cycle.
 func HasCycleFor(pkg string, cycles []ImportCycle) bool {
 	for _, c := range cycles {
-		for _, p := range c.Packages {
-			if p == pkg {
-				return true
-			}
+		if contains(c.Packages, pkg) {
+			return true
 		}
 	}
 	return false

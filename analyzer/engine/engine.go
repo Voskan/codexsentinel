@@ -16,6 +16,7 @@ import (
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
 	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
 	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/arch"
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/matcher"
@@ -124,6 +125,9 @@ func Run(ctx context.Context, path string, cfg *config.Config) ([]result.Issue, 
 			return nil, err
 		}
 		issues = append(issues, found...)
+	}
+	if cfg.Architecture.Enable {
+		issues = append(issues, arch.RunAll(ws, bundle, cfg.Architecture)...)
 	}
 	if capsLock != "" && bundle != nil {
 		found, err := runCapabilityCheck(ws, bundle, capsLock)
