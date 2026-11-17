@@ -631,7 +631,16 @@ stdout; logs go to stderr (warnings) or to `--log-file`.
   `rootPath`; the configuration is read from the module root.
 - Documents are analyzed when they are opened or saved
   (`textDocumentSync.change` is none). A save cancels an analysis that is still
-  running, and `--debounce` (default 200ms) merges rapid saves.
+  running, and `--debounce` (default 200ms) merges rapid saves; the documents
+  of a cancelled analysis are included in the next one.
+- Diagnostics arrive in two phases. The package-level rules (built-in, YAML
+  and per-file metrics) run first on the packages of the saved documents,
+  using the analysis cache, and their findings are published for every file
+  of those packages. The whole-program analyses (taint tracking,
+  `tx-network-io`, architecture, dependency and capability checks) then run,
+  and their complete result replaces the first set for the whole workspace.
+  Until then, whole-program findings in the saved packages are not shown. A
+  newer save cancels both phases.
 - `textDocument/publishDiagnostics` is sent for every file with findings, and
   with an empty array for files whose findings are gone. Ranges are 0-based and
   counted in UTF-16 code units. Diagnostic `code` is the rule ID, severity maps

@@ -1,7 +1,9 @@
 // Package lsp implements a Language Server Protocol server over stdio that
 // publishes CodexSentinel findings as diagnostics and offers their fixes and
 // suppressions as code actions. Analysis runs when a document is opened or
-// saved; edits that are not saved are not analyzed.
+// saved; edits that are not saved are not analyzed. Diagnostics are published
+// in two phases: the fast package-level findings for the packages of the
+// saved documents first, then the complete findings, which replace them.
 package lsp
 
 import (
@@ -21,9 +23,24 @@ import (
 	"github.com/Voskan/codexsentinel/internal/jsonrpc"
 )
 
-// Analyzer analyzes the module at root and returns findings whose file paths
-// are relative to root or absolute.
-type Analyzer func(ctx context.Context, root string) ([]result.Issue, error)
+// Analyzer analyzes the module at req.Root and returns findings whose file
+// paths are relative to req.Root or absolute.
+type Analyzer func(ctx context.Context, req Request) ([]result.Issue, error)
+
+// Request describes one analysis.
+type Request struct {
+	// Root is the directory to analyze.
+	Root string
+	// Files are the absolute paths of the documents below Root that were
+	// opened or saved since the last completed analysis.
+	Files []string
+	// Early publishes findings before the analysis completes. issues must
+	// be the complete findings for files, both with paths relative to Root
+	// or absolute; diagnostics of other files are left as they are. The
+	// final result replaces them. Calls after the analysis was superseded
+	// are ignored.
+	Early func(issues []result.Issue, files []string)
+}
 
 // ErrExitWithoutShutdown is returned when the client sends exit before
 // shutdown, which the protocol defines as an abnormal termination.
@@ -47,11 +64,15 @@ type Server struct {
 	// the directory the editor started the server in.
 	SuppressionsForbidden func(root string) bool
 
-	conn      *jsonrpc.Conn
+	conn *jsonrpc.Conn
+	// publishMu serializes publications, so that a superseded analysis
+	// cannot send diagnostics after a newer one. It is taken before mu.
+	publishMu sync.Mutex
 	mu        sync.Mutex
 	root      string
 	issues    map[string][]result.Issue // absolute path -> findings
 	published map[string]bool           // URIs with published diagnostics
+	pending   map[string]bool           // documents not yet analyzed to completion
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 	shutdown  bool
@@ -64,7 +85,7 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		return errors.New("lsp: no analyzer configured")
 	}
 	s.conn = jsonrpc.NewConn(in, out, jsonrpc.Headers)
-	s.issues, s.published = map[string][]result.Issue{}, map[string]bool{}
+	s.issues, s.published, s.pending = map[string][]result.Issue{}, map[string]bool{}, map[string]bool{}
 	ctx, stop := context.WithCancel(ctx)
 	defer func() {
 		stop()
@@ -181,7 +202,8 @@ func folderURIs(p initializeParams) []string {
 }
 
 // documentChanged schedules an analysis, cancelling one that is still
-// running or waiting.
+// running or waiting. The documents of a cancelled analysis stay pending and
+// are passed to the next one.
 func (s *Server) documentChanged(ctx context.Context, params json.RawMessage) {
 	var p documentParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -198,6 +220,14 @@ func (s *Server) documentChanged(ctx context.Context, params json.RawMessage) {
 		return
 	}
 	root := s.rootForLocked(path)
+	s.pending[path] = true
+	var files []string
+	for f := range s.pending {
+		if within(root, f) {
+			files = append(files, f)
+		}
+	}
+	sort.Strings(files)
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -206,11 +236,11 @@ func (s *Server) documentChanged(ctx context.Context, params json.RawMessage) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.run(runCtx, root)
+		s.run(runCtx, root, files)
 	}()
 }
 
-func (s *Server) run(ctx context.Context, root string) {
+func (s *Server) run(ctx context.Context, root string, files []string) {
 	if s.Debounce > 0 {
 		select {
 		case <-ctx.Done():
@@ -219,7 +249,12 @@ func (s *Server) run(ctx context.Context, root string) {
 		}
 	}
 	start := time.Now()
-	issues, err := s.Analyze(ctx, root)
+	req := Request{Root: root, Files: files, Early: func(issues []result.Issue, covered []string) {
+		if s.publishEarly(ctx, root, issues, covered) {
+			s.logf("published early findings for %d files of %s after %s", len(covered), root, time.Since(start).Round(time.Millisecond))
+		}
+	}}
+	issues, err := s.Analyze(ctx, req)
 	if ctx.Err() != nil {
 		return // superseded by a newer analysis
 	}
@@ -228,12 +263,62 @@ func (s *Server) run(ctx context.Context, root string) {
 		return
 	}
 	s.logf("analyzed %s in %s: %d findings", root, time.Since(start).Round(time.Millisecond), len(issues))
-	s.publish(ctx, root, issues)
+	s.publish(ctx, root, files, issues)
+}
+
+// publishEarly sends diagnostics for the covered files, replacing their
+// previous findings, and reports whether the analysis is still current.
+func (s *Server) publishEarly(ctx context.Context, root string, issues []result.Issue, covered []string) bool {
+	byFile := map[string][]result.Issue{}
+	paths := make([]string, 0, len(covered))
+	for _, f := range covered {
+		path := absolutePath(root, f)
+		if _, dup := byFile[path]; !dup {
+			byFile[path] = nil
+			paths = append(paths, path)
+		}
+	}
+	for _, is := range issues {
+		is = absolute(root, is)
+		if list, ok := byFile[is.Location.File]; ok {
+			byFile[is.Location.File] = append(list, is)
+		}
+	}
+	sort.Strings(paths)
+
+	s.publishMu.Lock()
+	defer s.publishMu.Unlock()
+	s.mu.Lock()
+	if ctx.Err() != nil {
+		s.mu.Unlock()
+		return false
+	}
+	var send []string
+	for _, path := range paths {
+		uri := pathToURI(path)
+		if list := byFile[path]; len(list) > 0 {
+			s.issues[path] = list
+			s.published[uri] = true
+		} else {
+			delete(s.issues, path)
+			if !s.published[uri] {
+				continue
+			}
+			delete(s.published, uri)
+		}
+		send = append(send, path)
+	}
+	s.mu.Unlock()
+	for _, path := range send {
+		s.notifyDiagnostics(pathToURI(path), diagnosticsFor(path, byFile[path]))
+	}
+	return true
 }
 
 // publish sends diagnostics for every file with findings and empty
-// diagnostics for files whose findings are gone.
-func (s *Server) publish(ctx context.Context, root string, issues []result.Issue) {
+// diagnostics for files whose findings are gone, and marks files as
+// analyzed.
+func (s *Server) publish(ctx context.Context, root string, files []string, issues []result.Issue) {
 	byFile := map[string][]result.Issue{}
 	for _, is := range issues {
 		if is.Location.File == "" {
@@ -242,10 +327,15 @@ func (s *Server) publish(ctx context.Context, root string, issues []result.Issue
 		is = absolute(root, is)
 		byFile[is.Location.File] = append(byFile[is.Location.File], is)
 	}
+	s.publishMu.Lock()
+	defer s.publishMu.Unlock()
 	s.mu.Lock()
 	if ctx.Err() != nil {
 		s.mu.Unlock()
 		return
+	}
+	for _, f := range files {
+		delete(s.pending, f)
 	}
 	var stale []string
 	for uri := range s.published {
@@ -294,12 +384,7 @@ func (s *Server) logf(format string, args ...any) {
 // absolute returns a copy of the finding whose location, trace and fix paths
 // are absolute.
 func absolute(root string, is result.Issue) result.Issue {
-	abs := func(p string) string {
-		if p == "" || filepath.IsAbs(p) {
-			return p
-		}
-		return filepath.Join(root, filepath.FromSlash(p))
-	}
+	abs := func(p string) string { return absolutePath(root, p) }
 	is.Location.File = abs(is.Location.File)
 	is.Trace = append([]result.TraceStep(nil), is.Trace...)
 	for i := range is.Trace {
@@ -314,6 +399,14 @@ func absolute(root string, is result.Issue) result.Issue {
 		is.Fix = &fix
 	}
 	return is
+}
+
+// absolutePath resolves p, relative to root or absolute, to an absolute path.
+func absolutePath(root, p string) string {
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(root, filepath.FromSlash(p))
 }
 
 // within reports whether path is root or below it.

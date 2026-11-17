@@ -51,3 +51,75 @@ func TestRunWithOptionsIsRepeatable(t *testing.T) {
 		}
 	}
 }
+
+func TestEarlyFindingsCoverFocusPackages(t *testing.T) {
+	rules.Clear()
+	t.Cleanup(rules.Clear)
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod":  "module example.test/m\n\ngo 1.24\n",
+		"a/a.go":  "package a\n",
+		"a/a2.go": "package a\n",
+		"b/b.go":  "package b\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var earlyCalls int
+	var earlyIssues []result.Issue
+	var earlyFiles []string
+	opts := Options{
+		Rules: []*rules.Rule{countingRule("per-package", "found")},
+		Focus: []string{filepath.Join(dir, "a", "a2.go")},
+		Early: func(issues []result.Issue, files []string) {
+			earlyCalls++
+			earlyIssues, earlyFiles = issues, files
+		},
+	}
+	final, err := RunWithOptions(context.Background(), dir, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if earlyCalls != 1 {
+		t.Fatalf("Early called %d times, want 1", earlyCalls)
+	}
+	if len(earlyFiles) != 2 || earlyFiles[0] != "a/a.go" || earlyFiles[1] != "a/a2.go" {
+		t.Fatalf("early files = %v, want [a/a.go a/a2.go]", earlyFiles)
+	}
+	locations := func(issues []result.Issue) map[string]bool {
+		out := map[string]bool{}
+		for _, issue := range issues {
+			if issue.ID == "per-package" {
+				out[issue.Location.File] = true
+			}
+		}
+		return out
+	}
+	if got := locations(earlyIssues); len(got) != 1 || !got["a/a.go"] && !got["a/a2.go"] {
+		t.Fatalf("early findings in %v, want one in package a", got)
+	}
+	for _, issue := range earlyIssues {
+		if issue.Fingerprint == "" {
+			t.Fatalf("early finding %+v is not post-processed", issue)
+		}
+	}
+	if got := locations(final); len(got) != 2 || got["b/b.go"] != true {
+		t.Fatalf("final findings in %v, want packages a and b", got)
+	}
+
+	// A focus that matches no package publishes nothing early.
+	earlyCalls = 0
+	opts.Focus = []string{filepath.Join(dir, "go.mod")}
+	if _, err := RunWithOptions(context.Background(), dir, nil, opts); err != nil {
+		t.Fatal(err)
+	}
+	if earlyCalls != 0 {
+		t.Fatalf("Early called %d times for a focus outside every package", earlyCalls)
+	}
+}
