@@ -15,16 +15,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The minimum supported release, the one that adds
-        # http.CrossOriginProtection, which the CSRF rule recognizes, and the
+        # The minimum supported release (the one named in go.mod) and the
         # newest stable release.
-        go: [ '1.24.x', '1.25.x', 'stable' ]
+        go: [ '1.26.x', 'stable' ]
     name: test (Go ${{ matrix.go }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go }}
 
@@ -52,12 +51,14 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: '1.24.x'
+          # The analyzer type-checks the scanned code and the standard
+          # library with the Go it was built with, so build with the newest.
+          go-version: 'stable'
 
       - name: Build
         run: go build -v -trimpath -o codex-cli ./cmd/codex-cli
@@ -73,7 +74,7 @@ jobs:
 
       - name: Upload SARIF
         if: always() && hashFiles('results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
           category: codexsentinel
