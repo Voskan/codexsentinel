@@ -64,8 +64,42 @@ func (g *GraphBundle) buildCallGraph() (err error) {
 			err = fmt.Errorf("build call graph: %v", r)
 		}
 	}()
-	g.CallGraph = vta.CallGraph(ssautil.AllFunctions(g.Program), cha.CallGraph(g.Program))
+	initial := cha.CallGraph(g.Program)
+	g.CallGraph = vta.CallGraph(chaReachable(initial, g.TargetFunctions()), initial)
 	return nil
+}
+
+// chaReachable returns the functions reachable from roots in the CHA call
+// graph. CHA treats every function as address-taken and every type as
+// converted to every interface it implements, so the set contains every
+// function the analyzed code can call; VTA refines the edges between them.
+// Restricting VTA to this set leaves out the many standard library and
+// dependency functions the program never reaches, which would otherwise
+// dominate the cost of the call graph.
+func chaReachable(cg *callgraph.Graph, roots []*ssa.Function) map[*ssa.Function]bool {
+	reached := make(map[*ssa.Function]bool, len(roots))
+	queue := make([]*ssa.Function, 0, len(roots))
+	for _, fn := range roots {
+		if !reached[fn] {
+			reached[fn] = true
+			queue = append(queue, fn)
+		}
+	}
+	for len(queue) > 0 {
+		fn := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		node := cg.Nodes[fn]
+		if node == nil {
+			continue
+		}
+		for _, edge := range node.Out {
+			if callee := edge.Callee.Func; callee != nil && !reached[callee] {
+				reached[callee] = true
+				queue = append(queue, callee)
+			}
+		}
+	}
+	return reached
 }
 
 // IsTarget reports whether fn belongs to one of the analyzed project packages.
@@ -308,12 +342,26 @@ func EffectiveArgs(common *ssa.CallCommon) (recv ssa.Value, args []ssa.Value) {
 	return nil, common.Args
 }
 
+// sortFuncs orders functions by name and position. The names are computed
+// once: Function.String formats the full signature path and is too costly to
+// call in every comparison of a large call graph.
 func sortFuncs(fns []*ssa.Function) {
-	sort.Slice(fns, func(i, j int) bool {
-		a, b := fns[i].String(), fns[j].String()
-		if a != b {
-			return a < b
+	type keyed struct {
+		name string
+		pos  token.Pos
+		fn   *ssa.Function
+	}
+	keys := make([]keyed, len(fns))
+	for i, fn := range fns {
+		keys[i] = keyed{fn.String(), fn.Pos(), fn}
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		if keys[i].name != keys[j].name {
+			return keys[i].name < keys[j].name
 		}
-		return fns[i].Pos() < fns[j].Pos()
+		return keys[i].pos < keys[j].pos
 	})
+	for i, k := range keys {
+		fns[i] = k.fn
+	}
 }
