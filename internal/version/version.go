@@ -11,7 +11,7 @@ import (
 var (
 	Version   = "dev"     // CLI version tag, e.g., v1.0.0
 	Commit    = "unknown" // Git commit SHA
-	BuildDate = "unknown" // Build timestamp (e.g., 2025-07-09T12:34:56Z)
+	BuildDate = "unknown" // Build date or timestamp (e.g., 2025-07-09 or 2025-07-09T12:34:56Z)
 )
 
 // FullVersion returns a human-readable version string.
@@ -59,10 +59,14 @@ func IsDevelopment() bool {
 	return Version == "dev" || Commit == "unknown"
 }
 
-// GetBuildTime returns the build time as a time.Time if available.
+// GetBuildTime returns the build time as a time.Time if available. Release
+// builds record the date only; other builds may record an RFC 3339 time.
 func GetBuildTime() (time.Time, error) {
 	if BuildDate == "unknown" {
 		return time.Time{}, fmt.Errorf("build date not available")
+	}
+	if t, err := time.Parse(time.DateOnly, BuildDate); err == nil {
+		return t, nil
 	}
 	return time.Parse(time.RFC3339, BuildDate)
 }
