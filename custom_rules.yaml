@@ -12,7 +12,7 @@
 #   non_const  - metavariable `var` is not a compile-time constant
 #   regex      - the source of metavariable `var` matches `include`, not `exclude`
 # not_pattern suppresses a match that contains the given pattern, and fix
-# rewrites the match (applied with `codex scan --fix`).
+# rewrites the match (applied with `codex-cli scan --fix`).
 
 rules:
   - id: CUSTOM001

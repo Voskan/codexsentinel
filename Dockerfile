@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 
-ARG GO_VERSION=1.24
+# The newest Go release; see the release workflow for why.
+ARG GO_VERSION=1.27
 
 FROM golang:${GO_VERSION}-alpine AS builder
 WORKDIR /src

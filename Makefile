@@ -86,14 +86,9 @@ vet:
 	@echo "Vetting code..."
 	go vet ./...
 
-# Generate documentation
-.PHONY: docs
-docs:
-	@echo "Generating documentation..."
-	godoc -http=:6060
-
 # Regenerate the rule reference from the rule catalog
-.PHONY: docs-generate
+.PHONY: docs docs-generate
+docs: docs-generate
 docs-generate:
 	go run ./cmd/docgen -out docs/rules
 
@@ -127,8 +122,7 @@ help:
 	@echo "  lint           - Lint the code"
 	@echo "  fmt            - Format the code"
 	@echo "  vet            - Vet the code"
-	@echo "  docs           - Generate documentation"
-	@echo "  docs-generate  - Regenerate the rule reference in docs/rules"
+	@echo "  docs           - Regenerate the rule reference in docs/rules (alias of docs-generate)"
 	@echo "  clean          - Clean build artifacts"
 	@echo "  run            - Run the application"
 	@echo "  dev            - Development workflow (fmt + lint + test + build)"
@@ -138,8 +132,7 @@ help:
 	@echo "  audit          - Dependency audit with codex-cli"
 	@echo "  docker-build   - Build Docker image"
 	@echo "  docker-run     - Run Docker container"
-	@echo "  scan           - Scan current project (full analysis)"
-	@echo "  scan-quick     - Quick scan of current project"
+	@echo "  scan           - Scan this repository the way CI does (--strict --severity low)"
 	@echo "  help           - Show this help"
 
 # Development targets
@@ -184,16 +177,7 @@ docker-run:
 	@echo "Running Docker container..."
 	docker run --rm -v $(CURDIR):/workspace codexsentinel:latest scan /workspace
 
-# Scan current project
+# Scan this repository the way CI does
 .PHONY: scan
 scan: build
-	@echo "Scanning current project..."
-	./$(BUILD_DIR)/$(BINARY_NAME) scan . --format json --out scan_reports/makefile-scan.json
-	@echo "Scan complete. Report saved to scan_reports/makefile-scan.json"
-
-# Quick scan with summary
-.PHONY: scan-quick
-scan-quick: build
-	@echo "Quick scan of current project..."
-	./$(BUILD_DIR)/$(BINARY_NAME) scan . --format json --out scan_reports/quick-scan.json
-	@echo "Quick scan complete. Report saved to scan_reports/quick-scan.json" 
+	./$(BUILD_DIR)/$(BINARY_NAME) scan . --strict --severity low --format agent --out -
