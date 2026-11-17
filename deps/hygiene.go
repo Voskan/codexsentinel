@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"golang.org/x/mod/modfile"
 )
 
@@ -61,6 +62,7 @@ func AnalyzeGoModHygiene(goModPath string, opts HygieneOptions) ([]ModuleFinding
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse go.mod: %w", err)
 	}
+	dropWorkspaceRequires(f, goModPath)
 	project := ""
 	if f.Module != nil {
 		project = f.Module.Mod.Path
@@ -139,6 +141,27 @@ func lineOf(line *modfile.Line) int {
 		return 1
 	}
 	return line.Start.Line
+}
+
+// dropWorkspaceRequires removes requirements on modules of the go.work
+// workspace that governs goModPath. The go command builds those from their
+// directories, so they have no downloaded version, checksum or vulnerability
+// record of their own.
+func dropWorkspaceRequires(f *modfile.File, goModPath string) {
+	if len(f.Require) == 0 {
+		return
+	}
+	used := workspace.WorkspaceModulePaths(filepath.Dir(goModPath))
+	if len(used) == 0 {
+		return
+	}
+	kept := f.Require[:0]
+	for _, req := range f.Require {
+		if !used[req.Mod.Path] {
+			kept = append(kept, req)
+		}
+	}
+	f.Require = kept
 }
 
 // localReplaces reports replace directives that point at a directory, which

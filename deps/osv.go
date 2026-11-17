@@ -56,8 +56,9 @@ const StdlibModule = "stdlib"
 
 // ReadGoMod returns the required modules of a go.mod file with replace
 // directives applied, followed by the standard library at the version named
-// by the toolchain or go directive. Modules replaced by local directories are
-// omitted because they are part of the project itself.
+// by the toolchain or go directive. Modules replaced by local directories or
+// used by the governing go.work file are omitted because they are part of the
+// project itself.
 func ReadGoMod(goModPath string) ([]ModuleVersion, error) {
 	data, err := os.ReadFile(goModPath)
 	if err != nil {
@@ -67,6 +68,7 @@ func ReadGoMod(goModPath string) ([]ModuleVersion, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse go.mod: %w", err)
 	}
+	dropWorkspaceRequires(f, goModPath)
 	replaced := map[string]modfile.Replace{}
 	for _, r := range f.Replace {
 		key := r.Old.Path

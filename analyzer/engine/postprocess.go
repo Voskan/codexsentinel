@@ -41,6 +41,7 @@ func postProcess(ws *workspace.Workspace, cfg *config.Config, issues []result.Is
 		}
 		issue.Location.File = relativePath(ws.RootDir, issue.Location.File)
 		issue.Fix = relativeFix(ws.RootDir, issue.Fix)
+		issue.Trace = relativeTrace(ws.RootDir, issue.Trace)
 		if inline.Suppressed(issue.Location.File, issue.Location.Line, issue.ID) {
 			continue
 		}
@@ -68,6 +69,21 @@ func relativeFix(root string, fix *result.SuggestedFix) *result.SuggestedFix {
 	for i, e := range fix.Edits {
 		e.File = relativePath(root, e.File)
 		out.Edits[i] = e
+	}
+	return out
+}
+
+// relativeTrace returns a copy of trace whose step locations are relative to
+// root. Every analysis that records a trace gets the same paths as the
+// finding itself, whichever package produced it.
+func relativeTrace(root string, trace []result.TraceStep) []result.TraceStep {
+	if len(trace) == 0 {
+		return trace
+	}
+	out := make([]result.TraceStep, len(trace))
+	for i, step := range trace {
+		step.Location.File = relativePath(root, step.Location.File)
+		out[i] = step
 	}
 	return out
 }

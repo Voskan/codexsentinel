@@ -185,7 +185,7 @@ func runWorkspaceAnalyses(ctx context.Context, ws *workspace.Workspace, cfg *con
 			return nil, err
 		}
 	}
-	if cfg.Dependencies.Enable && ws.GoModPath != "" {
+	if cfg.Dependencies.Enable && len(ws.GoModPaths) > 0 {
 		depBundle := bundle
 		if !needReachability {
 			depBundle = nil
@@ -194,7 +194,7 @@ func runWorkspaceAnalyses(ctx context.Context, ws *workspace.Workspace, cfg *con
 			return nil, err
 		}
 	}
-	if !cfg.Dependencies.Enable && ws.GoModPath != "" && (cfg.Dependencies.CheckHygiene || cfg.Dependencies.CheckProvenance) {
+	if !cfg.Dependencies.Enable && len(ws.GoModPaths) > 0 && (cfg.Dependencies.CheckHygiene || cfg.Dependencies.CheckProvenance) {
 		issues = append(issues, runModuleHygiene(ws, cfg)...)
 	}
 	if needCritsec && bundle != nil {
@@ -223,9 +223,6 @@ func runTaintAnalysis(ctx context.Context, ws *workspace.Workspace, cfg *config.
 	engine := flow.NewEngine(bundle, flow.RegistryFromConfig(cfg.Taint), flow.Options{Interprocedural: cfg.Taint.Interprocedural})
 	ac := &analyzer.AnalyzerContext{Cfg: cfg, RootDir: ws.RootDir, Fset: ws.Fset}
 	for _, issue := range engine.Run() {
-		for i := range issue.Trace {
-			issue.Trace[i].Location.File = relativePath(ws.RootDir, issue.Trace[i].Location.File)
-		}
 		ac.Report(issue)
 	}
 	return ac.GetIssues(), ctx.Err()
@@ -250,33 +247,41 @@ func ruleEnabled(id string, cfg *config.Config) bool {
 func runDependencyAnalysis(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, bundle *codessa.GraphBundle) ([]result.Issue, error) {
 	opts := deps.OptionsFromConfig(cfg.Dependencies)
 	opts.Bundle = bundle
-	reports, err := deps.ScanDependencies(ctx, ws.GoModPath, opts)
-	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+	var issues []result.Issue
+	for _, goMod := range ws.GoModPaths {
+		reports, err := deps.ScanDependencies(ctx, goMod, opts)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			fmt.Fprintf(os.Stderr, "Warning: dependency analysis of %s incomplete: %v\n", goMod, err)
 		}
-		fmt.Fprintf(os.Stderr, "Warning: dependency analysis incomplete: %v\n", err)
+		issues = append(issues, deps.ReportIssues(reports, relativePath(ws.RootDir, goMod))...)
 	}
-	return deps.ReportIssues(reports, relativePath(ws.RootDir, ws.GoModPath)), nil
+	return issues, nil
 }
 
 // runModuleHygiene runs the offline go.mod checks when the full dependency
 // audit is off. Problems reading go.mod are reported as a warning.
 func runModuleHygiene(ws *workspace.Workspace, cfg *config.Config) []result.Issue {
-	findings, err := deps.AnalyzeGoModHygiene(ws.GoModPath, deps.HygieneOptions{
-		Typosquatting: cfg.Dependencies.CheckProvenance, Hygiene: cfg.Dependencies.CheckHygiene,
-		AllowedPrefixes: cfg.Dependencies.AllowedPrefixes, DeniedPrefixes: cfg.Dependencies.DeniedPrefixes,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: go.mod checks incomplete: %v\n", err)
+	var issues []result.Issue
+	for _, goMod := range ws.GoModPaths {
+		findings, err := deps.AnalyzeGoModHygiene(goMod, deps.HygieneOptions{
+			Typosquatting: cfg.Dependencies.CheckProvenance, Hygiene: cfg.Dependencies.CheckHygiene,
+			AllowedPrefixes: cfg.Dependencies.AllowedPrefixes, DeniedPrefixes: cfg.Dependencies.DeniedPrefixes,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: go.mod checks of %s incomplete: %v\n", goMod, err)
+		}
+		issues = append(issues, deps.FindingIssues(findings, relativePath(ws.RootDir, goMod))...)
 	}
-	return deps.FindingIssues(findings, relativePath(ws.RootDir, ws.GoModPath))
+	return issues
 }
 
 // capabilityLockPath returns the capability lock file to verify, or "" when
 // the check is disabled or the project has no lock file.
 func capabilityLockPath(ws *workspace.Workspace, cfg *config.Config) string {
-	if !cfg.Dependencies.CheckCapabilities || ws.GoModPath == "" {
+	if !cfg.Dependencies.CheckCapabilities || len(ws.GoModPaths) == 0 {
 		return ""
 	}
 	path := cfg.Dependencies.CapabilityLockfile

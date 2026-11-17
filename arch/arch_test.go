@@ -2,12 +2,14 @@ package arch
 
 import (
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
 	"github.com/Voskan/codexsentinel/analyzer/testutil"
+	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"github.com/Voskan/codexsentinel/config"
 	"golang.org/x/tools/go/packages"
 )
@@ -200,5 +202,29 @@ func TestArchMainPackageIsCompositionRoot(t *testing.T) {
 	// The main package wires the layers; a library under api/ is still delivery.
 	if !reflect.DeepEqual(got, []string{"example.com/app/api/client"}) {
 		t.Fatalf("layer violations in %v", got)
+	}
+}
+
+func TestModuleIndexOfGoWorkspace(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "repo")
+	api := &packages.Module{Path: "example.test/api", Dir: filepath.Join(root, "svc", "api"), Main: true}
+	apiV2 := &packages.Module{Path: "example.test/api/v2", Dir: filepath.Join(root, "svc", "apiv2"), Main: true}
+	ws := &workspace.Workspace{RootDir: root, Packages: []*packages.Package{
+		{PkgPath: "example.test/api", Module: api},
+		{PkgPath: "example.test/api/internal/handler", Module: api},
+		{PkgPath: "example.test/api/v2/repository", Module: apiV2},
+	}}
+	idx := newModuleIndex(ws)
+	for pkg, want := range map[string]string{
+		"example.test/api":                  "svc/api",
+		"example.test/api/internal/handler": "svc/api/internal/handler",
+		"example.test/api/v2/repository":    "svc/apiv2/repository",
+	} {
+		if got, ok := idx.rel(pkg); !ok || got != want {
+			t.Errorf("rel(%s) = %q, %v; want %q", pkg, got, ok, want)
+		}
+	}
+	if _, ok := idx.rel("example.test/other"); ok {
+		t.Error("package outside the workspace modules has a layer path")
 	}
 }

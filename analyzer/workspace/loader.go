@@ -22,12 +22,17 @@ import (
 )
 
 type Workspace struct {
-	RootDir   string
+	RootDir string
+	// GoModPath is the go.mod of the analyzed module; it is empty when the
+	// target is the root of a go.work workspace.
 	GoModPath string
-	Fset      *token.FileSet
-	Packages  []*packages.Package
-	AllPkgs   []*packages.Package
-	files     map[*packages.Package][]*ast.File
+	// GoModPaths lists the go.mod files of every analyzed module: GoModPath,
+	// or the modules of a go.work workspace below the target.
+	GoModPaths []string
+	Fset       *token.FileSet
+	Packages   []*packages.Package
+	AllPkgs    []*packages.Package
+	files      map[*packages.Package][]*ast.File
 }
 
 // Load preserves complete package syntax for SSA while filtering analysis files.
@@ -56,22 +61,42 @@ func Load(ctx context.Context, targetPath string, cfg *config.Config) (*Workspac
 		root = filepath.Dir(mod)
 	}
 	ws := &Workspace{RootDir: root, GoModPath: mod, Fset: token.NewFileSet(), files: make(map[*packages.Package][]*ast.File)}
-	if mod == "" && !isDir {
+	var patterns []string
+	switch {
+	case mod != "":
+		ws.GoModPaths = []string{mod}
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			return nil, err
+		}
+		pattern := "./" + filepath.ToSlash(rel)
+		if isDir {
+			pattern += "/..."
+		}
+		patterns = []string{pattern}
+	case !isDir:
 		return loadFile(ctx, ws, target, cfg)
-	}
-	if mod == "" {
-		return nil, fmt.Errorf("no go.mod found for directory %s", target)
-	}
-	rel, err := filepath.Rel(root, dir)
-	if err != nil {
-		return nil, err
-	}
-	pattern := "./" + filepath.ToSlash(rel)
-	if isDir {
-		pattern += "/..."
+	default:
+		work, mods, err := findWorkRoot(dir, target)
+		if err != nil {
+			return nil, err
+		}
+		if work == "" || len(mods) == 0 {
+			return nil, fmt.Errorf("no go.mod found for directory %s, and no go.work module below it", target)
+		}
+		ws.RootDir = filepath.Dir(work)
+		for _, m := range mods {
+			rel, err := filepath.Rel(ws.RootDir, filepath.Dir(m.GoMod))
+			if err != nil {
+				return nil, err
+			}
+			ws.GoModPaths = append(ws.GoModPaths, m.GoMod)
+			patterns = append(patterns, "./"+filepath.ToSlash(rel)+"/...")
+		}
+		root = ws.RootDir
 	}
 	mode := packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedTypesSizes | packages.NeedModule
-	loaded, err := packages.Load(&packages.Config{Context: ctx, Dir: root, Fset: ws.Fset, Mode: mode, Tests: cfg.Scan.IncludeTests}, pattern)
+	loaded, err := packages.Load(&packages.Config{Context: ctx, Dir: root, Fset: ws.Fset, Mode: mode, Tests: cfg.Scan.IncludeTests}, patterns...)
 	if err != nil {
 		return nil, fmt.Errorf("load Go packages: %w", err)
 	}
@@ -155,8 +180,9 @@ func (ws *Workspace) selectPackages(loaded []*packages.Package, target string, i
 }
 
 // ProjectRoot returns the directory that findings of an analysis of target
-// are reported relative to: the module root, or the target directory when it
-// is not inside a module.
+// are reported relative to: the module root; for a directory outside any
+// module, the directory of the go.work file that governs it; otherwise the
+// target directory.
 func ProjectRoot(target string) (string, error) {
 	abs, err := filepath.Abs(target)
 	if err != nil {
@@ -172,6 +198,11 @@ func ProjectRoot(target string) (string, error) {
 	}
 	if mod := findGoMod(dir); mod != "" {
 		return filepath.Dir(mod), nil
+	}
+	if stat.IsDir() {
+		if work := WorkFile(dir); work != "" {
+			return filepath.Dir(work), nil
+		}
 	}
 	return dir, nil
 }

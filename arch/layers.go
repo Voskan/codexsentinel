@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/token"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -127,32 +128,50 @@ func (l *Layering) Allowed(from, to string) bool {
 	return from == to || from == "" || to == "" || l.allowed[from][to]
 }
 
-// moduleIndex relates package paths of the main module to their layers.
+// moduleIndex relates package paths of the analyzed modules to their
+// directories relative to the workspace root, which layer patterns match.
+// A go.work workspace has several main modules, each in its own directory.
 type moduleIndex struct {
-	module string
-	pkgs   map[string]*packages.Package
+	modules []mainModule // longest path first
+	pkgs    map[string]*packages.Package
+}
+
+type mainModule struct {
+	path string // module path
+	dir  string // slash-separated directory relative to the workspace root
 }
 
 func newModuleIndex(ws *workspace.Workspace) moduleIndex {
 	idx := moduleIndex{pkgs: map[string]*packages.Package{}}
+	seen := map[string]bool{}
 	for _, pkg := range ws.Packages {
-		if pkg.Module != nil && pkg.Module.Main {
-			idx.module = pkg.Module.Path
+		if m := pkg.Module; m != nil && m.Main && !seen[m.Path] {
+			seen[m.Path] = true
+			dir := "."
+			if m.Dir != "" && ws.RootDir != "" {
+				if rel, err := filepath.Rel(ws.RootDir, m.Dir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					dir = filepath.ToSlash(rel)
+				}
+			}
+			idx.modules = append(idx.modules, mainModule{path: m.Path, dir: dir})
 		}
 		idx.pkgs[pkg.PkgPath] = pkg
 	}
+	sort.Slice(idx.modules, func(i, j int) bool { return len(idx.modules[i].path) > len(idx.modules[j].path) })
 	return idx
 }
 
 func (m moduleIndex) rel(pkgPath string) (string, bool) {
-	if m.module == "" {
+	if len(m.modules) == 0 {
 		return pkgPath, true
 	}
-	if pkgPath == m.module {
-		return ".", true
-	}
-	if strings.HasPrefix(pkgPath, m.module+"/") {
-		return strings.TrimPrefix(pkgPath, m.module+"/"), true
+	for _, mod := range m.modules {
+		if pkgPath == mod.path {
+			return mod.dir, true
+		}
+		if strings.HasPrefix(pkgPath, mod.path+"/") {
+			return path.Join(mod.dir, strings.TrimPrefix(pkgPath, mod.path+"/")), true
+		}
 	}
 	return "", false
 }
