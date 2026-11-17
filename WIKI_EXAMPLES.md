@@ -631,7 +631,7 @@ including GitLab Free:
 
 ```yaml
 codexsentinel:
-  image: golang:1.24
+  image: golang:1.26
   variables:
     GIT_DEPTH: 0
   script:

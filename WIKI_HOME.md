@@ -1,10 +1,10 @@
 # CodexSentinel Wiki
 
-CodexSentinel is an interprocedural static analyzer for Go 1.24 and newer.
-It covers security, production reliability, architecture, code quality and the
-supply chain of a module, and writes its findings as SARIF, JSON, HTML,
-Markdown, GitHub annotations, GitLab Code Quality or a compact plain-text
-report.
+CodexSentinel is an interprocedural static analyzer for code written for Go
+1.24 and newer; building it requires Go 1.26 or newer. It covers security,
+production reliability, architecture, code quality and the supply chain of a
+module, and writes its findings as SARIF, JSON, HTML, Markdown, GitHub
+annotations, GitLab Code Quality or a compact plain-text report.
 
 ## Pages
 

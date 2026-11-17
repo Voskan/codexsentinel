@@ -197,7 +197,7 @@ curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/i
 ```
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/install.sh | sh -s -- --version v1.2.3 --dir "$HOME/bin"
+curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/install.sh | sh -s -- --version v2.0.0 --dir "$HOME/bin"
 ```
 
 The script never edits shell startup files; it prints a hint when the target
@@ -655,7 +655,7 @@ display on every GitLab tier, including Free:
 
 ```yaml
 codexsentinel:
-  image: golang:1.24
+  image: golang:1.26
   script:
     - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
     - codex-cli scan . --format gitlab --out gl-code-quality-report.json --strict
@@ -784,7 +784,7 @@ make docs-generate  # regenerate docs/rules after changing a rule
 go vet ./...
 ```
 
-At the time of writing, `go test -cover ./...` reports 78.9% total statement
+At the time of writing, `go test -cover ./...` reports 79.7% total statement
 coverage. See [CONTRIBUTING.md](CONTRIBUTING.md) for the architecture overview
 and how to write and test rules. Report vulnerabilities as described in
 [SECURITY.md](SECURITY.md).

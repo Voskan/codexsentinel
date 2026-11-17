@@ -34,12 +34,14 @@ case "$TAG" in
 esac
 VERSION="${TAG#v}"
 
-[ -f "$CHECKSUMS" ] || fail "checksums file not found: $CHECKSUMS"
+# CHECKSUMS may be a pipe such as <(...), so it is read only once.
+[ -r "$CHECKSUMS" ] || fail "checksums file not found: $CHECKSUMS"
 [ -f "$TEMPLATE" ] || fail "template not found: $TEMPLATE"
+SUMS="$(cat "$CHECKSUMS")"
 
 sha_for() {
   asset="codex-cli-$1"
-  sum="$(awk -v name="$asset" '$2 == name || $2 == "*"name {print $1}' "$CHECKSUMS" | head -n 1)"
+  sum="$(printf '%s\n' "$SUMS" | awk -v name="$asset" '$2 == name || $2 == "*"name {print $1}' | head -n 1)"
   printf '%s' "$sum" | grep -Eq '^[0-9a-f]{64}$' || fail "no SHA-256 for ${asset} in ${CHECKSUMS}"
   printf '%s' "$sum"
 }
