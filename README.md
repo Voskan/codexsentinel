@@ -65,6 +65,10 @@ script to reproduce them are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 Install it in one of these ways:
 
 ```bash
+brew install Voskan/tap/codexsentinel
+```
+
+```bash
 curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/install.sh | sh
 ```
 
@@ -175,6 +179,13 @@ the container image are built that way.
 
 ```bash
 go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+```
+
+On macOS and Linux (amd64 and arm64), Homebrew installs the release binary,
+verified against its SHA-256 sum, and the shell completions:
+
+```bash
+brew install Voskan/tap/codexsentinel
 ```
 
 Or use the install script. It downloads a release binary and verifies it
@@ -704,9 +715,16 @@ name = "go"
 language-servers = ["gopls", "codexsentinel"]
 ```
 
-VS Code and Zed start additional language servers through extensions: with a
-generic language client extension, set the server command to `codex-cli lsp`
-and the document language to `go`.
+VS Code: the extension in [editors/vscode](editors/vscode) starts
+`codex-cli lsp` for Go files. Its settings are `codexsentinel.path` (the
+binary, `codex-cli` on `PATH` by default), `codexsentinel.args` (extra server
+arguments) and `codexsentinel.trace.server`; the
+[extension README](editors/vscode/README.md) shows how to build and install
+it.
+
+Zed starts additional language servers through extensions: with a generic
+language client extension, set the server command to `codex-cli lsp` and the
+document language to `go`.
 
 `codex-cli mcp` is a Model Context Protocol server on stdio with five tools:
 

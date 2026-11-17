@@ -1,0 +1,93 @@
+{
+  "name": "codexsentinel",
+  "displayName": "CodexSentinel",
+  "description": "Security, reliability and supply-chain findings for Go from the CodexSentinel language server",
+  "version": "2.0.0",
+  "publisher": "Voskan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Voskan/codexsentinel.git",
+    "directory": "editors/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/Voskan/codexsentinel/issues"
+  },
+  "homepage": "https://github.com/Voskan/codexsentinel/tree/main/editors/vscode#readme",
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "go",
+    "golang",
+    "security",
+    "sast",
+    "static analysis"
+  ],
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:go"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexsentinel.restartServer",
+        "title": "Restart Language Server",
+        "category": "CodexSentinel"
+      },
+      {
+        "command": "codexsentinel.showOutput",
+        "title": "Show Output",
+        "category": "CodexSentinel"
+      }
+    ],
+    "configuration": {
+      "title": "CodexSentinel",
+      "properties": {
+        "codexsentinel.path": {
+          "type": "string",
+          "default": "codex-cli",
+          "scope": "machine-overridable",
+          "markdownDescription": "Path to the `codex-cli` binary. A bare name is looked up on `PATH`; `~` and `${workspaceFolder}` are expanded, and a relative path is resolved against the first workspace folder."
+        },
+        "codexsentinel.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine-overridable",
+          "markdownDescription": "Extra arguments for `codex-cli lsp`, e.g. `[\"--debounce\", \"500ms\"]` or `[\"--log-file\", \"/tmp/codexsentinel-lsp.log\"]`."
+        },
+        "codexsentinel.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "scope": "window",
+          "description": "Trace the messages between VS Code and the language server in the CodexSentinel output channel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "~1.82.0",
+    "typescript": "^5.4.0"
+  }
+}
