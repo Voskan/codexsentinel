@@ -24,6 +24,7 @@ Findings are written as SARIF 2.1.0, JSON, HTML or Markdown.
 - [Configuration](#configuration)
 - [Suppressing findings](#suppressing-findings)
 - [CI integration](#ci-integration)
+- [Editors and MCP clients](#editors-and-mcp-clients)
 - [golangci-lint and go/analysis](#golangci-lint-and-goanalysis)
 - [Development](#development)
 - [License](#license)
@@ -127,6 +128,8 @@ codex-cli sbom . > sbom.cdx.json                   # CycloneDX 1.6 SBOM
 codex-cli sbom . --vex --vex-out openvex.json      # add vulnerabilities and write OpenVEX
 codex-cli rules --category reliability             # list rules (table, json or markdown)
 codex-cli explain sql-injection                    # description, examples and references for a rule
+codex-cli lsp                                      # language server for editors (stdio)
+codex-cli mcp                                      # Model Context Protocol server (stdio)
 ```
 
 `codex-cli init` reads `go.mod` and the directory tree and writes a commented
@@ -469,6 +472,37 @@ For pull requests, scan only the changed lines with
 This repository runs `go vet`, the race-enabled tests, a self-scan with
 `--strict --severity medium` and `caps verify` on every push to `main` and every pull request
 ([.github/workflows/go.yml](.github/workflows/go.yml)).
+
+## Editors and MCP clients
+
+`codex-cli lsp` is a Language Server Protocol server on stdio. Editors show
+findings as diagnostics when a Go file is opened or saved, with CWE, OWASP and
+the data flow in the hover text. Code actions apply a finding's fix or append
+`//codex:ignore <rule> -- TODO: document reason` to the line. The suppression
+action is not offered when `suppression.forbid_new_suppressions` is set.
+Neovim example:
+
+```lua
+vim.lsp.config("codexsentinel", { cmd = { "codex-cli", "lsp" }, filetypes = { "go" }, root_markers = { "go.mod" } })
+vim.lsp.enable("codexsentinel")
+```
+
+`codex-cli mcp` is a Model Context Protocol server on stdio with five tools:
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `scan_path` | `path`, optional `severity`, `deps_only` | Findings in the compact `agent` format |
+| `scan_diff` | `path`, `git_ref`, optional `forbid_new_suppressions` | Findings on lines changed since `git_ref` |
+| `verify_capabilities` | `path`, optional `lockfile` | Capability escalations against the lock file |
+| `explain_rule` | `rule` (ID or code) | The rule's explanation and examples |
+| `list_rules` | optional `category` | The rule catalog |
+
+```json
+{ "mcpServers": { "codexsentinel": { "command": "codex-cli", "args": ["mcp"] } } }
+```
+
+Both servers write only protocol messages to stdout. Warnings go to stderr,
+and `--log-file` records detailed logs.
 
 ## golangci-lint and go/analysis
 

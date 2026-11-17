@@ -21,6 +21,7 @@ key, suppression mechanism and report format. For a first run, start with the
 - [Suppressions](#suppressions)
 - [Baselines and diff mode](#baselines-and-diff-mode)
 - [Reports](#reports)
+- [Language server and MCP server](#language-server-and-mcp-server)
 - [Configuration reference](#configuration-reference)
 
 ## Command line
@@ -39,6 +40,8 @@ key, suppression mechanism and report format. For a first run, start with the
 | `codex-cli cache clean` | Remove every cache entry |
 | `codex-cli sbom [path]` | Write a CycloneDX 1.6 or SPDX 2.3 SBOM, optionally with VEX data (see [SBOM and VEX](#sbom-and-vex)) |
 | `codex-cli mark FILE[:LINE] --rule ID --reason TEXT` | Add an entry to the ignore file |
+| `codex-cli lsp [--log-file F] [--debounce D]` | Language Server Protocol server on stdio (see [Language server and MCP server](#language-server-and-mcp-server)) |
+| `codex-cli mcp [--log-file F]` | Model Context Protocol server on stdio |
 | `codex-cli version` | Print version, commit, build date and Go version |
 
 `scan` flags:
@@ -572,6 +575,48 @@ FIX: Use parameterized placeholders ($1 / ?) instead of string concatenation.
 
 `FLOW` appears for findings with a trace and `PATCH` for findings with a fix;
 a scan without findings prints only `STATUS: PASS (0 issues)`.
+
+## Language server and MCP server
+
+Both servers speak JSON-RPC 2.0 on stdin/stdout and write nothing else to
+stdout; logs go to stderr (warnings) or to `--log-file`.
+
+**`codex-cli lsp`**
+
+- `initialize` takes the workspace from `rootUri`, `workspaceFolders` or
+  `rootPath`; the configuration is read from the module root.
+- Documents are analyzed when they are opened or saved
+  (`textDocumentSync.change` is none). A save cancels an analysis that is still
+  running, and `--debounce` (default 200ms) merges rapid saves.
+- `textDocument/publishDiagnostics` is sent for every file with findings, and
+  with an empty array for files whose findings are gone. Ranges are 0-based and
+  counted in UTF-16 code units. Diagnostic `code` is the rule ID, severity maps
+  critical and high to Error, medium to Warning and low to Information, and the
+  message contains CWE, OWASP, the fix and the data flow; trace steps are also
+  listed as related information.
+- `textDocument/codeAction` returns, for findings in the requested range, the
+  rule's fix as a preferred quick fix and an action that appends
+  `//codex:ignore <rule> -- TODO: document reason` to the line, unless
+  `suppression.forbid_new_suppressions` is set.
+- `shutdown` followed by `exit` ends the server with status 0.
+
+**`codex-cli mcp`**
+
+Messages are one JSON object per line; Content-Length framed input is
+accepted as well. The server negotiates protocol versions 2025-06-18,
+2025-03-26 and 2024-11-05 and answers `initialize`, `ping`, `tools/list` and
+`tools/call`. Tool arguments are validated against their schema: unknown
+arguments, missing required ones and invalid severities are rejected with
+error -32602. Scan results use the [agent report format](#reports); a failed
+analysis is returned as a result with `isError: true`.
+
+| Tool | Arguments |
+| --- | --- |
+| `scan_path` | `path` (required), `severity`, `deps_only` |
+| `scan_diff` | `path`, `git_ref` (required), `forbid_new_suppressions` |
+| `verify_capabilities` | `path` (required), `lockfile` |
+| `explain_rule` | `rule` (required): ID or code |
+| `list_rules` | `category` |
 
 ## Configuration reference
 

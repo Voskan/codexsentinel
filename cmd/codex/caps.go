@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/spf13/cobra"
 )
@@ -64,25 +65,19 @@ func NewCapsCmd() *cobra.Command {
 		Short: "Fail when a dependency gained capabilities missing from the lock file",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			report, root, err := capabilityReport(cmd.Context(), targetArg(args), configFile)
+			path, issues, err := verifyCapabilities(cmd.Context(), targetArg(args), configFile, lockfile)
 			if err != nil {
 				return err
 			}
-			path := resolveLockfile(root, lockfile)
-			locked, err := deps.LoadCapabilityLock(path)
-			if err != nil {
-				return fmt.Errorf("read capability lock: %w", err)
-			}
-			escalations := deps.DiffCapabilities(locked, report)
 			w := cmd.OutOrStdout()
-			if len(escalations) == 0 {
+			if len(issues) == 0 {
 				fmt.Fprintf(w, "No capability escalations against %s\n", path)
 				return nil
 			}
-			for _, issue := range deps.EscalationIssues(escalations, path) {
+			for _, issue := range issues {
 				fmt.Fprintf(w, "[%s] %s\n", issue.Severity, issue.Description)
 			}
-			return &IssuesFoundError{Count: len(escalations)}
+			return &IssuesFoundError{Count: len(issues)}
 		},
 	}
 	verify.Flags().StringVar(&lockfile, "lockfile", defaultCapsLockfile, "Lock file to verify against")
@@ -119,6 +114,22 @@ func capabilityReport(ctx context.Context, target, configFile string) (*deps.Cap
 	}
 	report, err := deps.AnalyzeCapabilities(ws, bundle)
 	return report, ws.RootDir, err
+}
+
+// verifyCapabilities compares the capabilities of the module's dependencies
+// with the lock file and returns the lock file path and one finding per
+// escalation.
+func verifyCapabilities(ctx context.Context, target, configFile, lockfile string) (string, []result.Issue, error) {
+	report, root, err := capabilityReport(ctx, target, configFile)
+	if err != nil {
+		return "", nil, err
+	}
+	path := resolveLockfile(root, lockfile)
+	locked, err := deps.LoadCapabilityLock(path)
+	if err != nil {
+		return path, nil, fmt.Errorf("read capability lock: %w", err)
+	}
+	return path, deps.EscalationIssues(deps.DiffCapabilities(locked, report), path), nil
 }
 
 func printCapabilities(w io.Writer, report *deps.CapabilityReport) {

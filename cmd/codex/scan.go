@@ -481,29 +481,7 @@ func writeReport(results []result.Issue, format, outPath string, gitMetadata *re
 		}
 	}
 
-	// Convert result.Issue to report.Issue
-	reportIssues := make([]report.Issue, len(results))
-	for i, issue := range results {
-		reportIssues[i] = report.Issue{
-			RuleID:      issue.ID,
-			Title:       issue.Title,
-			Description: issue.Description,
-			Severity:    report.SeverityLevel(issue.Severity.String()),
-			File:        issue.Location.File,
-			Line:        issue.Location.Line,
-			Column:      issue.Location.Column,
-			Category:    issue.Category,
-			Package:     issue.Location.PackagePath,
-			References:  issue.References,
-			Suggestion:  issue.Suggestion,
-			EndLine:     issue.Location.EndLine, EndColumn: issue.Location.EndColumn,
-			Confidence: issue.Confidence, CWE: issue.CWE, OWASP: issue.OWASP,
-			Trace: issue.Trace, Fix: issue.Fix, Fingerprint: issue.Fingerprint, Reachable: issue.Reachable,
-		}
-		if len(issue.References) > 0 {
-			reportIssues[i].Reference = issue.References[0]
-		}
-	}
+	reportIssues := report.FromResults(results)
 
 	switch format {
 	case "html":

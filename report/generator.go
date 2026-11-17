@@ -120,3 +120,36 @@ func ComputeSummary(issues []Issue) Summary {
 	}
 	return s
 }
+
+// FromResults converts analysis findings into report issues.
+func FromResults(results []result.Issue) []Issue {
+	out := make([]Issue, len(results))
+	for i, issue := range results {
+		out[i] = Issue{
+			RuleID:      issue.ID,
+			Title:       issue.Title,
+			Description: issue.Description,
+			Severity:    SeverityLevel(issue.Severity.String()),
+			File:        issue.Location.File,
+			Line:        issue.Location.Line,
+			Column:      issue.Location.Column,
+			EndLine:     issue.Location.EndLine,
+			EndColumn:   issue.Location.EndColumn,
+			Category:    issue.Category,
+			Package:     issue.Location.PackagePath,
+			References:  issue.References,
+			Suggestion:  issue.Suggestion,
+			Confidence:  issue.Confidence,
+			CWE:         issue.CWE,
+			OWASP:       issue.OWASP,
+			Trace:       issue.Trace,
+			Fix:         issue.Fix,
+			Fingerprint: issue.Fingerprint,
+			Reachable:   issue.Reachable,
+		}
+		if len(issue.References) > 0 {
+			out[i].Reference = issue.References[0]
+		}
+	}
+	return out
+}
