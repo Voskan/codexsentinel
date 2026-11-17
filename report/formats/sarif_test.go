@@ -138,3 +138,37 @@ func TestRuleHelpURI(t *testing.T) {
 		t.Errorf("custom rule help URI = %q", got)
 	}
 }
+
+// The HTML report is self-contained: nothing is loaded from the network, and
+// each finding shows its classification and fix.
+func TestHTMLReportIsSelfContained(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "r.html")
+	is := tracedIssue()
+	is.CWE, is.OWASP, is.Confidence = "CWE-89", "A05:2025", 0.9
+	is.Fix = &result.SuggestedFix{Message: "Use a placeholder", Edits: []result.TextEdit{{StartLine: 52, StartColumn: 10, EndLine: 52, EndColumn: 20, NewText: "$1"}}}
+	if err := WriteHTMLReport([]report.Issue{is}, path, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(data)
+	for _, external := range []string{"<script src", "<link", "cdn", "@import", "url("} {
+		if strings.Contains(html, external) {
+			t.Errorf("report loads external resources (%q)", external)
+		}
+	}
+	for _, want := range []string{"CWE-89", "OWASP A05:2025", "confidence 90%", "replace 52:10-52:20 with `$1`", "docs/rules/sql-injection.md", "Content-Security-Policy"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("report does not contain %q", want)
+		}
+	}
+	empty := filepath.Join(t.TempDir(), "empty.html")
+	if err := WriteHTMLReport(nil, empty, nil); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(empty); !strings.Contains(string(data), "No findings") {
+		t.Error("an empty report must say that there are no findings")
+	}
+}

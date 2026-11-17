@@ -60,6 +60,8 @@ type Summary struct {
 	Style       int `json:"style"`
 	Metrics     int `json:"metrics"`
 	License     int `json:"license"`
+	Correctness int `json:"correctness"`
+	Suppression int `json:"suppression"`
 }
 
 // GitMetadata represents Git repository information.
@@ -116,6 +118,10 @@ func ComputeSummary(issues []Issue) Summary {
 			s.Architecture++
 		case "supply-chain":
 			s.SupplyChain++
+		case "correctness":
+			s.Correctness++
+		case "suppression":
+			s.Suppression++
 		}
 	}
 	return s

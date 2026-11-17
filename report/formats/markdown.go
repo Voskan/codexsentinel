@@ -101,8 +101,8 @@ func writeSummarySection(b *strings.Builder, summary report.Summary) {
 	}
 	fmt.Fprintf(b, "| **Total** | **%d** | **100.0%%** |\n\n", summary.Total)
 	b.WriteString("| Category | Count |\n|----------|-------|\n")
-	fmt.Fprintf(b, "| 🔒 Security | %d |\n| 🛡️ Reliability | %d |\n| 🏗️ Architecture | %d |\n| 📦 Supply chain | %d |\n| 🎨 Style | %d |\n| 📊 Metrics | %d |\n| 📄 License | %d |\n\n",
-		summary.Security, summary.Reliability, summary.Architecture, summary.SupplyChain, summary.Style, summary.Metrics, summary.License)
+	fmt.Fprintf(b, "| 🔒 Security | %d |\n| 🛡️ Reliability | %d |\n| 🏗️ Architecture | %d |\n| 📦 Supply chain | %d |\n| 🎨 Style | %d |\n| ✔️ Correctness | %d |\n| 📊 Metrics | %d |\n| 📄 License | %d |\n| 🚫 Suppression | %d |\n\n",
+		summary.Security, summary.Reliability, summary.Architecture, summary.SupplyChain, summary.Style, summary.Correctness, summary.Metrics, summary.License, summary.Suppression)
 }
 
 func writeIssueTables(b *strings.Builder, issues []report.Issue) {
@@ -115,7 +115,7 @@ func writeIssueTables(b *strings.Builder, issues []report.Issue) {
 		fmt.Fprintf(b, "### %s\n\n", sec.label)
 		b.WriteString("| File | Line | Rule | Description |\n|------|------|------|-------------|\n")
 		for _, issue := range group {
-			fmt.Fprintf(b, "| `%s` | %d | `%s` | %s |\n", issue.File, issue.Line, issue.RuleID, issue.Description)
+			fmt.Fprintf(b, "| `%s` | %d | `%s` | %s |\n", issue.File, issue.Line, issue.RuleID, tableCell(issue.Description))
 		}
 		b.WriteString("\n")
 	}
@@ -128,6 +128,9 @@ func writeIssueDetails(b *strings.Builder, issues []report.Issue) {
 		fmt.Fprintf(b, "**Severity:** %s\n\n", getSeverityBadge(string(issue.Severity)))
 		fmt.Fprintf(b, "**File:** `%s:%d`\n\n", issue.File, issue.Line)
 		fmt.Fprintf(b, "**Rule ID:** `%s`\n\n", issue.RuleID)
+		if tags := classification(issue); tags != "" {
+			fmt.Fprintf(b, "**Classification:** %s\n\n", tags)
+		}
 		fmt.Fprintf(b, "**Description:** %s\n\n", issue.Description)
 		if len(issue.Trace) > 0 {
 			b.WriteString("**Data flow:**\n\n")
@@ -138,6 +141,13 @@ func writeIssueDetails(b *strings.Builder, issues []report.Issue) {
 		}
 		if issue.Suggestion != "" {
 			fmt.Fprintf(b, "**💡 Suggestion:** %s\n\n", issue.Suggestion)
+		}
+		if issue.Fix != nil && len(issue.Fix.Edits) > 0 {
+			b.WriteString("**Patch:**\n\n")
+			for _, e := range issue.Fix.Edits {
+				b.WriteString("    " + agentEdit(e, issue.File) + "\n")
+			}
+			b.WriteString("\n")
 		}
 		if issue.Reference != "" {
 			fmt.Fprintf(b, "**📚 Reference:** [%s](%s)\n\n", issue.Reference, issue.Reference)
@@ -189,4 +199,31 @@ func getSeverityBadge(severity string) string {
 	default:
 		return severity
 	}
+}
+
+// classification lists the CWE, OWASP category, rule category and
+// confidence of a finding.
+func classification(issue report.Issue) string {
+	var tags []string
+	for _, tag := range []string{issue.CWE, owaspTag(issue.OWASP), issue.Category} {
+		if tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	if issue.Confidence > 0 {
+		tags = append(tags, fmt.Sprintf("confidence %.0f%%", issue.Confidence*100))
+	}
+	return strings.Join(tags, " · ")
+}
+
+func owaspTag(owasp string) string {
+	if owasp == "" {
+		return ""
+	}
+	return "OWASP " + owasp
+}
+
+// tableCell keeps text on one line and escapes the column separator.
+func tableCell(s string) string {
+	return strings.ReplaceAll(oneLine(s), "|", "\\|")
 }
