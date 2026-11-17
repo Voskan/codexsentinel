@@ -60,3 +60,64 @@ jobs:
           rm -f ./*.intoto.jsonl
           sha256sum codex-cli-* > checksums.txt
           gh release upload "$TAG" checksums.txt --repo "$GITHUB_REPOSITORY" --clobber
+
+  # Commits the formula for this release to the Voskan/homebrew-tap repository.
+  # Needs the HOMEBREW_TAP_TOKEN secret: a fine-grained personal access token
+  # with "Contents: read and write" on Voskan/homebrew-tap only. Without the
+  # secret the job is skipped with a warning. Pre-release tags are not
+  # published.
+  homebrew:
+    needs: checksums
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Check the tap token
+        id: token
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set; the Homebrew formula was not updated."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.present == 'true'
+        with:
+          path: source
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.present == 'true'
+        with:
+          repository: Voskan/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Render the formula
+        if: steps.token.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir "$RUNNER_TEMP"
+          mkdir -p tap/Formula
+          sh source/scripts/homebrew-formula.sh "$TAG" "$RUNNER_TEMP/checksums.txt" > tap/Formula/codexsentinel.rb
+
+      - name: Commit and push the formula
+        if: steps.token.outputs.present == 'true'
+        working-directory: tap
+        run: |
+          git add Formula/codexsentinel.rb
+          if git diff --cached --quiet; then
+            echo "The formula is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "codexsentinel ${TAG#v}"
+          git push
