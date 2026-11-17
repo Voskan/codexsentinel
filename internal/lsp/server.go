@@ -41,6 +41,11 @@ type Server struct {
 	// ForbidSuppressions hides the code action that adds a suppression
 	// comment, for projects that reject new suppressions.
 	ForbidSuppressions bool
+	// SuppressionsForbidden, when set, reports whether the project analyzed
+	// at root rejects new suppressions. It is asked for each code action
+	// request, so the policy follows the project's configuration rather than
+	// the directory the editor started the server in.
+	SuppressionsForbidden func(root string) bool
 
 	conn      *jsonrpc.Conn
 	mu        sync.Mutex
@@ -192,10 +197,7 @@ func (s *Server) documentChanged(ctx context.Context, params json.RawMessage) {
 	if s.shutdown {
 		return
 	}
-	root := s.root
-	if root == "" || !within(root, path) {
-		root = moduleRoot(filepath.Dir(path))
-	}
+	root := s.rootForLocked(path)
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -322,6 +324,16 @@ func within(root, path string) bool {
 
 // moduleRoot returns the nearest directory at or above dir containing go.mod,
 // or dir itself.
+// rootForLocked returns the directory analyzed for path: the workspace root
+// when path is inside it, otherwise the module containing path. s.mu must be
+// held.
+func (s *Server) rootForLocked(path string) string {
+	if s.root != "" && within(s.root, path) {
+		return s.root
+	}
+	return moduleRoot(filepath.Dir(path))
+}
+
 func moduleRoot(dir string) string {
 	for d := dir; ; {
 		if _, err := os.Stat(filepath.Join(d, "go.mod")); err == nil {

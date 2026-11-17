@@ -8,10 +8,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
 	"github.com/Voskan/codexsentinel/analyzer/workspace"
-	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/version"
 	"github.com/spf13/cobra"
@@ -70,11 +70,15 @@ func runSBOM(ctx context.Context, target string, opts sbomOptions, stdout, stder
 	if opts.vex && opts.offline {
 		return errors.New("--vex needs the vulnerability databases; it cannot be combined with --offline")
 	}
-	root, err := workspace.ProjectRoot(target)
+	root, goMods, err := workspace.GoModFiles(target)
 	if err != nil {
 		return err
 	}
-	goModPath := filepath.Join(root, "go.mod")
+	if len(goMods) != 1 {
+		return fmt.Errorf("an SBOM describes one module, but %s is a go.work workspace of %d modules; run sbom in one of: %s",
+			target, len(goMods), strings.Join(relativeDirs(root, goMods), ", "))
+	}
+	goModPath := goMods[0]
 	sb, err := deps.ReadSBOM(goModPath)
 	if err != nil {
 		return err
@@ -126,18 +130,14 @@ func runSBOM(ctx context.Context, target string, opts sbomOptions, stdout, stder
 	return nil
 }
 
-func loadProgram(ctx context.Context, root, configFile string) (*workspace.Workspace, *codessa.GraphBundle, error) {
-	var cfg *config.Config
-	var err error
-	if configFile != "" {
-		cfg, err = config.LoadFromPath(configFile)
-	} else {
-		cfg, err = config.LoadDefaultPathPtr()
-	}
+// loadProgram loads the module containing target with the configuration of
+// its project (see loadTargetConfig) and builds its SSA program.
+func loadProgram(ctx context.Context, target, configFile string) (*workspace.Workspace, *codessa.GraphBundle, error) {
+	loaded, err := loadTargetConfig(target, configFile, true)
 	if err != nil {
 		return nil, nil, err
 	}
-	ws, err := workspace.Load(ctx, root, cfg)
+	ws, err := workspace.Load(ctx, loaded.Root, loaded.Config)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -162,4 +162,17 @@ func writeJSON(path string, v any, stdout io.Writer) error {
 		}
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// relativeDirs returns the directories of files relative to root.
+func relativeDirs(root string, files []string) []string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		rel, err := filepath.Rel(root, filepath.Dir(f))
+		if err != nil {
+			rel = filepath.Dir(f)
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	return out
 }

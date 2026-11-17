@@ -41,11 +41,11 @@ func createBaseline(cmd *cobra.Command, target, out, configFile string) error {
 	}
 	defer logx.Sync()
 	logger := logx.L()
-	cfg, err := loadConfig(configFile, logger)
+	loaded, err := loadTargetConfig(target, configFile, true)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load config: %w", err)
 	}
-	results, err := runFullAnalysis(cmd.Context(), target, "", cfg, "", logger)
+	results, err := runFullAnalysis(cmd.Context(), target, "", loaded.Config, "", logger)
 	if err != nil {
 		return err
 	}

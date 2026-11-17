@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/internal/lsp"
 	"github.com/Voskan/codexsentinel/internal/mcp"
@@ -40,10 +39,6 @@ suppression comment. The configuration is read from the workspace root.`,
 				return err
 			}
 			defer closeLog()
-			forbid := false
-			if cfg, err := configForTarget("."); err == nil {
-				forbid = cfg.Suppression.ForbidNewSuppressions
-			}
 			srv := &lsp.Server{
 				Analyze: func(ctx context.Context, root string) ([]result.Issue, error) {
 					cfg, err := configForTarget(root)
@@ -52,7 +47,11 @@ suppression comment. The configuration is read from the workspace root.`,
 					}
 					return runFullAnalysis(ctx, root, "", cfg, "", logger)
 				},
-				Log: logOut, Debounce: debounce, ForbidSuppressions: forbid,
+				SuppressionsForbidden: func(root string) bool {
+					cfg, err := configForTarget(root)
+					return err == nil && cfg.Suppression.ForbidNewSuppressions
+				},
+				Log: logOut, Debounce: debounce,
 			}
 			return srv.Serve(cmd.Context(), os.Stdin, os.Stdout)
 		},
@@ -111,18 +110,15 @@ func serverLogger(logFile string) (*zap.SugaredLogger, io.Writer, func(), error)
 	return logger, logOut, closeFn, nil
 }
 
-// configForTarget loads the configuration of the module containing target,
-// or the defaults when it has none.
+// configForTarget loads the configuration of the project containing target
+// (see loadTargetConfig), or the defaults when it has none. The servers do
+// not fall back to their working directory, which editors choose freely.
 func configForTarget(target string) (*config.Config, error) {
-	root, err := workspace.ProjectRoot(target)
+	loaded, err := loadTargetConfig(target, "", false)
 	if err != nil {
 		return nil, err
 	}
-	if path := config.FindDefaultConfigFile(root); path != "" {
-		return config.LoadFromPath(path)
-	}
-	cfg := config.NewDefaultConfig()
-	return &cfg, nil
+	return loaded.Config, nil
 }
 
 // mcpBackend runs the same analyses as the scan and caps commands.

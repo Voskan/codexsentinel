@@ -3,7 +3,6 @@ package codex
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -25,7 +24,6 @@ import (
 	"github.com/Voskan/codexsentinel/internal/git"
 	"github.com/Voskan/codexsentinel/internal/logx"
 	"github.com/Voskan/codexsentinel/report"
-	"github.com/Voskan/codexsentinel/report/formats"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
@@ -45,12 +43,14 @@ func NewScanCmd() *cobra.Command {
 			if len(args) > 0 {
 				opts.path = args[0]
 			}
+			opts.formatSet = cmd.Flags().Changed("format")
 			return runScan(cmd.Context(), opts)
 		},
 	}
 
 	cmd.Flags().StringVarP(&opts.path, "path", "p", ".", "Target directory or file to scan")
-	cmd.Flags().StringVarP(&opts.format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json, agent, github, gitlab")
+	cmd.Flags().StringVarP(&opts.format, "format", "f", "sarif",
+		"Output report format: sarif, html, markdown, json, agent, github, gitlab (default: report.formats from the config)")
 	cmd.Flags().StringVarP(&opts.outPath, "out", "o", "", "Path to write the output report to")
 	cmd.Flags().BoolVar(&opts.strict, "strict", false, "Exit with code 1 if issues are found")
 	cmd.Flags().StringVar(&opts.ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file (default: suppression.ignore_file from the config, relative to the project root)")
@@ -72,8 +72,11 @@ func NewScanCmd() *cobra.Command {
 
 // scanOptions holds the flags of the scan command.
 type scanOptions struct {
-	path       string
-	format     string
+	path   string
+	format string
+	// formatSet reports whether --format was given; otherwise the formats
+	// come from report.formats.
+	formatSet  bool
 	outPath    string
 	strict     bool
 	ignoreFile string
@@ -96,44 +99,34 @@ func runScan(ctx context.Context, opts scanOptions) error {
 		ctx = context.Background()
 	}
 	targetPath := normalizeTargetPath(opts.path)
-	format, outPath, strict, severity := opts.format, opts.outPath, opts.strict, opts.severity
 
-	// Initialize logger
 	if err := logx.Init(true); err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 	defer logx.Sync()
-
 	logger := logx.L()
 	logger.Infof("Starting CodexSentinel analysis on path: %s", targetPath)
 
-	// Get Git metadata if available
-	gitMetadata := getGitMetadata(logger)
-
-	var results []result.Issue
-	var err error
-	cfg, err := loadConfig(opts.configFile, logger)
+	cfg, root, err := scanConfig(targetPath, opts, logger)
 	if err != nil {
 		return err
 	}
-	cfg.Scan.EnableCache = cfg.Scan.EnableCache && !opts.noCache
-	if outPath == "" && format == "github" {
-		outPath = "-" // workflow commands only work on stdout
+	outputs, err := reportOutputs(opts, cfg)
+	if err != nil {
+		return err
 	}
-	if outPath == "" && cfg.Report.OutputDir != "" {
-		outPath = filepath.Join(cfg.Report.OutputDir, defaultOutputPath(format))
-	}
+	gitMetadata := getGitMetadata(root, logger)
 
+	var results []result.Issue
 	if opts.depsOnly {
-		// Run only dependency analysis
 		logger.Infof("Running dependency analysis only")
 		results, err = runDependencyAnalysis(ctx, targetPath, cfg, logger)
 		if err != nil {
 			return fmt.Errorf("dependency analysis failed: %w", err)
 		}
+		results = filterResults(results, opts.severity, logger)
 	} else {
-		// Run full analysis
-		results, err = runFullAnalysis(ctx, targetPath, opts.ignoreFile, cfg, severity, logger)
+		results, err = runFullAnalysis(ctx, targetPath, opts.ignoreFile, cfg, opts.severity, logger)
 		if err != nil {
 			return fmt.Errorf("analysis failed: %w", err)
 		}
@@ -155,44 +148,33 @@ func runScan(ctx context.Context, opts scanOptions) error {
 	}
 
 	all := append(guard, results...)
-	if err := publishResults(all, format, outPath, opts.githubSummary, gitMetadata, logger); err != nil {
+	if err := publishResults(all, outputs, opts.githubSummary, gitMetadata, logger); err != nil {
 		return err
 	}
 
 	// Exit code control: added suppressions always fail the scan.
-	if count := len(guard) + failingIssues(results, strict, cfg.Report.FailOnSeverity); count > 0 {
+	if count := len(guard) + failingIssues(results, opts.strict, cfg.Report.FailOnSeverity); count > 0 {
 		return &IssuesFoundError{Count: count}
 	}
 	return nil
 }
 
-// publishResults writes the report, prints the summary (to stderr when the
-// report goes to stdout) and appends the job summary.
-func publishResults(all []result.Issue, format, outPath, githubSummary string, gitMetadata *report.GitMetadata, logger *zap.SugaredLogger) error {
-	if err := generateReport(all, format, outPath, gitMetadata, logger); err != nil {
-		return fmt.Errorf("failed to generate report: %w", err)
+// scanConfig loads the configuration for the target (see loadTargetConfig)
+// and applies the command-line overrides. It returns the module root too.
+func scanConfig(targetPath string, opts scanOptions, logger *zap.SugaredLogger) (*config.Config, string, error) {
+	loaded, err := loadTargetConfig(targetPath, opts.configFile, true)
+	if err != nil {
+		if opts.configFile != "" {
+			return nil, "", fmt.Errorf("failed to load config from %s: %w", opts.configFile, err)
+		}
+		return nil, "", fmt.Errorf("failed to load config: %w", err)
 	}
-	summaryOutput := io.Writer(os.Stdout)
-	if outPath == "-" {
-		summaryOutput = os.Stderr
+	if loaded.Path != "" {
+		logger.Infof("Loaded config from: %s", loaded.Path)
 	}
-	printSummary(summaryOutput, all)
-	if err := writeGitHubSummary(githubSummary, format, all); err != nil {
-		return fmt.Errorf("failed to write job summary: %w", err)
-	}
-	return nil
-}
-
-// writeGitHubSummary appends the Markdown job summary to the given file, or
-// to $GITHUB_STEP_SUMMARY for the github format.
-func writeGitHubSummary(path, format string, results []result.Issue) error {
-	if path == "" && format == "github" {
-		path = os.Getenv("GITHUB_STEP_SUMMARY")
-	}
-	if path == "" {
-		return nil
-	}
-	return formats.AppendGitHubStepSummary(report.FromResults(results), path)
+	cfg := loaded.Config
+	cfg.Scan.EnableCache = cfg.Scan.EnableCache && !opts.noCache
+	return cfg, loaded.Root, nil
 }
 
 // checkNewSuppressions reports suppressions added since the diff reference
@@ -293,9 +275,10 @@ func filterByDiff(results []result.Issue, changed git.ChangedLines) []result.Iss
 	return out
 }
 
-// getGitMetadata retrieves and logs Git metadata
-func getGitMetadata(logger *zap.SugaredLogger) *report.GitMetadata {
-	if gitMeta, err := git.GetGitMetadata(); err == nil {
+// getGitMetadata returns the metadata of the Git repository containing the
+// scanned module, or nil outside a repository.
+func getGitMetadata(root string, logger *zap.SugaredLogger) *report.GitMetadata {
+	if gitMeta, err := git.GetGitMetadata(root); err == nil {
 		logger.Infof("Git repository root: %s", gitMeta.RepoRoot)
 		if gitMeta.CommitHash != "" {
 			logger.Infof("Latest commit: %s by %s", gitMeta.CommitShort, gitMeta.Author)
@@ -323,13 +306,13 @@ func getGitMetadata(logger *zap.SugaredLogger) *report.GitMetadata {
 // runDependencyAnalysis audits the dependencies of the module at targetPath.
 // With reachability enabled, the module is loaded to build a call graph.
 func runDependencyAnalysis(ctx context.Context, targetPath string, cfg *config.Config, logger *zap.SugaredLogger) ([]result.Issue, error) {
-	goModPath := filepath.Join(targetPath, "go.mod")
-	if _, err := os.Stat(goModPath); err != nil {
-		return nil, fmt.Errorf("go.mod file not found in %s", targetPath)
+	root, goMods, err := workspace.GoModFiles(targetPath)
+	if err != nil {
+		return nil, err
 	}
 	opts := deps.OptionsFromConfig(cfg.Dependencies)
 	if cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability {
-		if ws, err := workspace.Load(ctx, targetPath, cfg); err != nil {
+		if ws, err := workspace.Load(ctx, root, cfg); err != nil {
 			logger.Warnf("Reachability analysis skipped: %v", err)
 		} else if bundle, err := codessa.BuildFromWorkspace(ws); err != nil {
 			logger.Warnf("Reachability analysis skipped: %v", err)
@@ -337,14 +320,22 @@ func runDependencyAnalysis(ctx context.Context, targetPath string, cfg *config.C
 			opts.Bundle = bundle
 		}
 	}
-	reports, err := deps.ScanDependencies(ctx, goModPath, opts)
-	if err != nil {
-		if len(reports) == 0 {
-			return nil, err
+	var issues []result.Issue
+	for _, goModPath := range goMods {
+		reports, err := deps.ScanDependencies(ctx, goModPath, opts)
+		if err != nil {
+			if len(reports) == 0 {
+				return nil, err
+			}
+			logger.Warnf("Dependency analysis of %s incomplete: %v", goModPath, err)
 		}
-		logger.Warnf("Dependency analysis incomplete: %v", err)
+		rel, err := filepath.Rel(root, goModPath)
+		if err != nil {
+			rel = goModPath
+		}
+		issues = append(issues, deps.ReportIssues(reports, filepath.ToSlash(rel))...)
 	}
-	return deps.ReportIssues(reports, goModPath), nil
+	return issues, nil
 }
 
 // runFullAnalysis performs the complete analysis workflow
@@ -388,24 +379,6 @@ func openCache(cfg *config.Config, logger *zap.SugaredLogger) *cache.Cache {
 	logger.Warnf("Analysis cache disabled: %v", err)
 	cfg.Scan.EnableCache = false
 	return nil
-}
-
-// loadConfig loads configuration from file or default
-func loadConfig(configFile string, logger *zap.SugaredLogger) (*config.Config, error) {
-	if configFile != "" {
-		cfg, err := config.LoadFromPath(configFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load config from %s: %w", configFile, err)
-		}
-		logger.Infof("Loaded custom config from: %s", configFile)
-		return cfg, nil
-	}
-
-	cfg, err := config.LoadDefaultPathPtr()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-	return cfg, nil
 }
 
 // loadYAMLRules compiles the YAML rules for one scan: the rules embedded in
@@ -464,101 +437,6 @@ func filterResults(results []result.Issue, severity string, logger *zap.SugaredL
 	}
 
 	return results
-}
-
-// generateReport creates and writes the analysis report
-func generateReport(results []result.Issue, format, outPath string, gitMetadata *report.GitMetadata, logger *zap.SugaredLogger) error {
-	if outPath == "" {
-		outPath = filepath.Join("scan_reports", defaultOutputPath(format))
-	}
-
-	// Generate report
-	if err := writeReport(results, format, outPath, gitMetadata); err != nil {
-		return fmt.Errorf("failed to write report: %w", err)
-	}
-
-	logger.Infof("Report generated: %s", outPath)
-	return nil
-}
-
-// defaultOutputPath returns the default filename for a given report format.
-func defaultOutputPath(format string) string {
-	switch format {
-	case "html":
-		return "codex-report.html"
-	case "markdown":
-		return "codex-report.md"
-	case "json":
-		return "codex-report.json"
-	case "agent":
-		return "codex-report.agent.txt"
-	case "github":
-		return "codex-report.github.txt"
-	case "gitlab":
-		return "gl-code-quality-report.json"
-	case "sarif":
-		fallthrough
-	default:
-		return "codex-report.sarif"
-	}
-}
-
-// writeReport writes the analysis results in the requested format to the given path.
-func writeReport(results []result.Issue, format, outPath string, gitMetadata *report.GitMetadata) error {
-	if outPath == "-" && format == "html" {
-		return fmt.Errorf("stdout output is not supported for format: %s", format)
-	}
-	if outPath != "-" {
-		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
-			return fmt.Errorf("failed to create output directory: %w", err)
-		}
-	}
-
-	reportIssues := report.FromResults(results)
-
-	switch format {
-	case "html":
-		return formats.WriteHTMLReport(reportIssues, outPath, gitMetadata)
-	case "markdown":
-		return formats.WriteMarkdownReport(reportIssues, outPath, gitMetadata)
-	case "json":
-		return formats.WriteJSONReport(reportIssues, outPath, gitMetadata)
-	case "sarif":
-		return formats.WriteSARIFReport(reportIssues, outPath, gitMetadata)
-	case "agent":
-		return formats.WriteAgentReport(reportIssues, outPath, gitMetadata)
-	case "github":
-		return formats.WriteGitHubReport(reportIssues, outPath, gitMetadata)
-	case "gitlab":
-		return formats.WriteGitLabReport(reportIssues, outPath, gitMetadata)
-	default:
-		return fmt.Errorf("unsupported format: %s", format)
-	}
-}
-
-// printSummary prints a summary of the analysis results.
-func printSummary(w io.Writer, results []result.Issue) {
-	fmt.Fprintf(w, "Analysis complete. Found %d issues.\n", len(results))
-
-	if len(results) > 0 {
-		fmt.Fprintln(w, "\nIssues found:")
-		for _, issue := range results {
-			fmt.Fprintf(w, "  [%s] %s at %s:%d\n",
-				issue.Severity.String(),
-				issue.Title,
-				issue.Location.File,
-				issue.Location.Line)
-			if issue.Description != "" {
-				fmt.Fprintf(w, "      Description: %s\n", issue.Description)
-			}
-			if issue.Suggestion != "" {
-				fmt.Fprintf(w, "      Remediation: %s\n", issue.Suggestion)
-			}
-			if len(issue.References) > 0 && issue.References[0] != "" {
-				fmt.Fprintf(w, "      Reference:   %s\n", issue.References[0])
-			}
-		}
-	}
 }
 
 // IssuesFoundError indicates a completed scan that failed the severity policy.

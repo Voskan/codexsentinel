@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	goversion "go/version"
 	"io"
 	"io/fs"
 	"os"
@@ -134,29 +135,48 @@ var layerDeps = []struct {
 
 var skipDirs = map[string]bool{"vendor": true, "testdata": true, "node_modules": true, ".git": true}
 
-func inspectProject(root string) (*projectProfile, error) {
-	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+// readModules fills the module path and Go version of p from the go.mod of
+// the module at root, or of every module of the go.work workspace there, and
+// returns the frameworks their requirements name.
+func readModules(root string, p *projectProfile) (map[string]bool, error) {
+	_, goMods, err := workspace.GoModFiles(root)
 	if err != nil {
-		return nil, fmt.Errorf("init needs a Go module: %w", err)
+		return nil, fmt.Errorf("init needs a Go module or go.work workspace: %w", err)
 	}
-	f, err := modfile.Parse("go.mod", data, nil)
-	if err != nil {
-		return nil, err
-	}
-	p := &projectProfile{Layers: map[string][]string{}}
-	if f.Module != nil {
-		p.Module = f.Module.Mod.Path
-	}
-	if f.Go != nil {
-		p.GoVersion = f.Go.Version
-	}
+	var modules []string
 	found := map[string]bool{}
-	for _, req := range f.Require {
-		for _, fw := range frameworkModules {
-			if req.Mod.Path == fw.prefix || strings.HasPrefix(req.Mod.Path, fw.prefix+"/") {
-				found[fw.name] = true
+	for _, goMod := range goMods {
+		data, err := os.ReadFile(goMod)
+		if err != nil {
+			return nil, err
+		}
+		f, err := modfile.Parse(goMod, data, nil)
+		if err != nil {
+			return nil, err
+		}
+		if f.Module != nil {
+			modules = append(modules, f.Module.Mod.Path)
+		}
+		if f.Go != nil && (p.GoVersion == "" || goversion.Compare("go"+f.Go.Version, "go"+p.GoVersion) > 0) {
+			p.GoVersion = f.Go.Version
+		}
+		for _, req := range f.Require {
+			for _, fw := range frameworkModules {
+				if req.Mod.Path == fw.prefix || strings.HasPrefix(req.Mod.Path, fw.prefix+"/") {
+					found[fw.name] = true
+				}
 			}
 		}
+	}
+	p.Module = strings.Join(modules, ", ")
+	return found, nil
+}
+
+func inspectProject(root string) (*projectProfile, error) {
+	p := &projectProfile{Layers: map[string][]string{}}
+	found, err := readModules(root, p)
+	if err != nil {
+		return nil, err
 	}
 	excludes := map[string]bool{}
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -326,5 +346,9 @@ func printProfile(w io.Writer, p *projectProfile) {
 		}
 		layers = strings.Join(edges, "; ")
 	}
-	fmt.Fprintf(w, "Detected Go %s module %s\n  libraries: %s\n  layers:    %s\n", goVersion, p.Module, frameworks, layers)
+	kind := "module"
+	if strings.Contains(p.Module, ", ") {
+		kind = "workspace modules"
+	}
+	fmt.Fprintf(w, "Detected Go %s %s %s\n  libraries: %s\n  layers:    %s\n", goVersion, kind, p.Module, frameworks, layers)
 }

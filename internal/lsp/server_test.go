@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -124,9 +125,13 @@ func (c *client) diagnosticsFor(uri string) []diagnostic {
 
 func startServer(t *testing.T) (*client, chan error) {
 	t.Helper()
+	return startWith(t, &Server{Analyze: analyze})
+}
+
+func startWith(t *testing.T, srv *Server) (*client, chan error) {
+	t.Helper()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
-	srv := &Server{Analyze: analyze}
 	done := make(chan error, 1)
 	go func() {
 		done <- srv.Serve(context.Background(), inR, outW)
@@ -271,5 +276,53 @@ func TestURIConversion(t *testing.T) {
 	}
 	if _, ok := uriToPath("https://example.com/x.go"); ok {
 		t.Fatal("non-file URI accepted")
+	}
+}
+
+// The suppression policy is read for the project of the document, after the
+// workspace is known, not for the directory the server was started in.
+func TestSuppressionPolicyFollowsProject(t *testing.T) {
+	dir := t.TempDir()
+	mainPath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.test/lsp\n\ngo 1.24\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainPath, []byte(insecure), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	var mu sync.Mutex
+	c, _ := startWith(t, &Server{Analyze: analyze, SuppressionsForbidden: func(root string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		asked = append(asked, root)
+		return true
+	}})
+	uri := pathToURI(mainPath)
+	c.response(c.request("initialize", map[string]any{"rootUri": pathToURI(dir), "capabilities": map[string]any{}}))
+	c.notify("textDocument/didOpen", map[string]any{"textDocument": map[string]any{"uri": uri, "languageId": "go", "version": 1, "text": insecure}})
+	if diags := c.diagnosticsFor(uri); len(diags) == 0 {
+		t.Fatal("no diagnostics")
+	}
+	resp := c.response(c.request("textDocument/codeAction", map[string]any{
+		"textDocument": map[string]any{"uri": uri},
+		"range":        lspRange{Start: position{Line: 5}, End: position{Line: 5, Character: 80}},
+	}))
+	var actions []codeAction
+	if err := json.Unmarshal(resp.Result, &actions); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) == 0 {
+		t.Fatal("the fix must still be offered")
+	}
+	for _, a := range actions {
+		if strings.HasPrefix(a.Title, "Suppress") {
+			t.Fatalf("suppression offered although the project forbids it: %+v", actions)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) != 1 || asked[0] != dir {
+		t.Fatalf("policy asked for %v, want [%s]", asked, dir)
 	}
 }

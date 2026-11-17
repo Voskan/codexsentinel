@@ -124,7 +124,9 @@ func (s *Server) codeActions(params json.RawMessage) (any, *jsonrpc.Error) {
 	}
 	s.mu.Lock()
 	issues := append([]result.Issue(nil), s.issues[path]...)
+	root := s.rootForLocked(path)
 	s.mu.Unlock()
+	forbid := s.ForbidSuppressions || len(issues) > 0 && s.SuppressionsForbidden != nil && s.SuppressionsForbidden(root)
 	lines := fileLines(path)
 	actions := []codeAction{}
 	for _, is := range issues {
@@ -143,7 +145,7 @@ func (s *Server) codeActions(params json.RawMessage) (any, *jsonrpc.Error) {
 				Edit: &workspaceEdit{Changes: fixEdits(path, is.Fix.Edits)},
 			})
 		}
-		if !s.ForbidSuppressions && is.Location.Line > 0 {
+		if !forbid && is.Location.Line > 0 {
 			end := position{Line: is.Location.Line - 1, Character: utf16Len(lineText(lines, is.Location.Line))}
 			actions = append(actions, codeAction{
 				Title: fmt.Sprintf("Suppress %s on this line", is.ID), Kind: "quickfix", Diagnostics: diag,
