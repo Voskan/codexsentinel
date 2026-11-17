@@ -50,6 +50,9 @@ coverage.out
 !report/template/report.html
 !.codexsentinel.caps.json
 !benchmarks/corpus/*/manifest.json
+!editors/vscode/package.json
+!editors/vscode/package-lock.json
+!editors/vscode/tsconfig.json
 
 # Temporary files
 *.tmp
