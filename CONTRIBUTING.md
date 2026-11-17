@@ -23,10 +23,13 @@ Before opening a pull request, run:
 gofmt -l $(go list -f '{{.Dir}}' ./...)   # must print nothing
 go vet ./...
 go test -race ./...
-go run ./cmd/codex-cli scan . --strict --severity medium --format json --out scan_reports/self.json
+go run ./cmd/docgen -out docs/rules && git diff --exit-code docs/rules
+go run ./cmd/codex-cli scan . --strict --severity low --format agent --out -
 ```
 
-The project scans itself in CI; a change must not introduce new findings.
+The project scans itself in CI with `--strict --severity low` and must stay
+at `STATUS: PASS (0 issues)`; a change must not introduce new findings, and
+the rule reference in `docs/rules` must match the catalog.
 
 ## Architecture
 
@@ -38,15 +41,22 @@ A scan loads the target module once and shares the result between all analyses.
 | `analyzer/ssa` | Builds the SSA program and the VTA call graph for the workspace; entrypoints and reachability queries. |
 | `analyzer/flow` | Interprocedural taint engine: sources, sanitizers and sinks with function summaries and traces. |
 | `analyzer/rules/builtin` | Built-in AST and type-based rules (`sql-injection`, `path-traversal`, `jwt-missing-alg-check`, ...). |
+| `analyzer/catalog` | The rule catalog: code, ID, severity, category, CWE, OWASP, explanation and examples of every rule. |
+| `analyzer/cache` | The per-package result cache. |
 | `analyzer/rules/yaml` | Structural pattern rules loaded from YAML (`assets/rules`), including autofixes. |
 | `analyzer/engine` | Orchestrates the analyses, applies configuration, suppressions, deduplication, fingerprints and ordering. |
 | `analyzer/baseline` | Stable finding fingerprints and the baseline file. |
+| `analyzer/fixer` | Applies suggested fixes to source files. |
 | `arch` | Architecture checks: layer dependencies, import cycles, god structs, boundary type leaks. |
-| `deps` | Dependency audit: OSV/GitHub advisories with call-graph reachability, licenses, capability lock file. |
+| `deps` | Dependency audit: OSV/GitHub advisories with call-graph reachability, licenses, module provenance, capability lock file, SBOM and VEX. |
 | `metrics` | Complexity, size, duplication, mutable global state and dead code. |
-| `report`, `report/formats` | SARIF, JSON, HTML and Markdown reports. |
+| `report`, `report/formats` | SARIF, JSON, HTML, Markdown, agent, GitHub and GitLab reports. |
+| `internal/git` | Diff mode and the detection of newly added suppressions. |
+| `internal/jsonrpc`, `internal/lsp`, `internal/mcp` | The language server and the Model Context Protocol server. |
+| `internal/docgen`, `cmd/docgen` | Generates `docs/rules` from the catalog. |
 | `pkg/codexlint` | The built-in rules as `go/analysis` analyzers for multichecker, gopls and golangci-lint. |
 | `cmd/codex`, `cmd/codex-cli` | The command line interface. |
+| `benchmarks` | Precision, recall and speed benchmarks on the corpora in `benchmarks/corpus`. |
 
 Findings are `result.Issue` values. File paths are relative to the module root
 and positions are 1-based.
@@ -90,10 +100,13 @@ Guidelines:
 - Set `Confidence` honestly; findings below `suppression.min_confidence` are dropped.
 - Attach a `result.SuggestedFix` when the fix is mechanical.
 - Add the registration function to `RegisterAll` in `analyzer/rules/builtin/registry.go`.
-- Document the rule in `analyzer/catalog` with the next free code, an
-  explanation and a problematic and a safe example that parse as Go, then run
-  `make docs-generate` to update `docs/rules`. Tests fail when a registered
-  rule is missing from the catalog or the reference is out of date.
+- Document the rule in `analyzer/catalog` with the next free code (the
+  highest is `CS075`), an explanation and a problematic and a safe example
+  that parse as Go, then run `make docs-generate` to update `docs/rules`.
+  Tests fail when a registered rule is missing from the catalog or the
+  reference is out of date.
+- Run the benchmarks (`go test ./benchmarks/`) when a rule could report code
+  in the safe corpus; the test fails on any false positive there.
 
 ## Testing a rule
 

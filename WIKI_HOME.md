@@ -1,24 +1,43 @@
 # CodexSentinel Wiki
 
-CodexSentinel is a static analyzer for Go modules. It covers security,
-dependencies, architecture and code quality, and writes its findings as
-SARIF, JSON, HTML and Markdown.
+CodexSentinel is an interprocedural static analyzer for Go 1.24 and newer.
+It covers security, production reliability, architecture, code quality and the
+supply chain of a module, and writes its findings as SARIF, JSON, HTML,
+Markdown, GitHub annotations, GitLab Code Quality or a compact plain-text
+report.
 
 ## Pages
 
 | Page | Contents |
 | --- | --- |
-| [Quick Start](WIKI_QUICK_START.md) | Install, first scan, reading the report, CI setup |
-| [Documentation](WIKI_DOCUMENTATION.md) | How each analysis works, configuration reference, suppressions, report formats |
-| [Examples](WIKI_EXAMPLES.md) | Vulnerable and fixed code for the main rules, with the findings they produce |
-| [API Reference](WIKI_API_REFERENCE.md) | Using CodexSentinel as a Go library and through `go/analysis` |
+| [Quick Start](WIKI_QUICK_START.md) | Install, `init`, first scan, pull request gate, baseline, fixes, capabilities, SBOM and CI |
+| [Documentation](WIKI_DOCUMENTATION.md) | The scan pipeline, how each analysis works, cache, suppressions, report formats, language and MCP servers, configuration reference |
+| [Examples](WIKI_EXAMPLES.md) | Vulnerable and fixed code for the main rules; CI pipelines for GitHub, GitLab and pre-commit; custom YAML rules and taint specifications; OpenVEX with Trivy and Grype |
+| [API Reference](WIKI_API_REFERENCE.md) | Every command and flag, exit codes, report formats, and the Go API: engine, catalog, reports, `go/analysis` analyzers and the golangci-lint plugin |
+| [Rule reference](docs/rules/README.md) | One page per rule (CS001 to CS075), generated from the rule catalog |
+| [Benchmarks](docs/BENCHMARKS.md) | Precision, recall and speed on reproducible corpora, compared with gosec and govulncheck |
+
+## Commands at a glance
+
+| Command | Purpose |
+| --- | --- |
+| `codex-cli init` | Write a configuration tailored to the module |
+| `codex-cli scan` | Analyze a module; `--diff`, `--baseline`, `--fix`, `--forbid-new-suppressions` |
+| `codex-cli rules`, `codex-cli explain` | List and explain the rules |
+| `codex-cli caps inspect\|lock\|verify` | Dependency capability lock file |
+| `codex-cli sbom` | CycloneDX or SPDX SBOM, OpenVEX with `--vex-out` |
+| `codex-cli baseline create` | Accept the current findings |
+| `codex-cli mark` | Add an ignore-file entry |
+| `codex-cli cache status\|clean` | Analysis cache |
+| `codex-cli lsp`, `codex-cli mcp` | Language Server Protocol and Model Context Protocol servers |
+| `codex-cli version` | Version and build information |
 
 ## What a scan does
 
 1. **Load.** The module is loaded once with `go/packages`, with syntax and type information.
    - Excluded paths, generated files and (by default) tests are left out of the analysis.
    - They stay available for type checking.
-2. **Package rules.** 37 built-in rules run on every package. Each resolves calls through type information.
+2. **Package rules.** The built-in and YAML rules run on every package, and their results are cached per package. Built-in rules resolve calls through type information.
 3. **Whole-program analyses.** These share one SSA program and VTA call graph:
    - interprocedural taint tracking
    - dependency vulnerability reachability
@@ -43,8 +62,11 @@ SARIF, JSON, HTML and Markdown.
 - **Capability lock file**: `codex-cli caps lock` / `caps verify` detect dependencies that start using the file system, network, environment, processes, `reflect`, `unsafe`, cgo or plugins.
 - **Architecture**: layer rules, import cycles, god structs, boundary type leaks.
 - **Metrics**: cyclomatic complexity, function and file length, duplicated function bodies, mutable globals, dead code.
-- **Workflow**: `--diff` for pull requests, `--baseline` for existing code, `--fix` for mechanical fixes, `//codex:ignore` with reasons.
-- **Integration**: `pkg/codexlint` exposes the built-in rules as `go/analysis` analyzers for gopls, multichecker and golangci-lint v2 module plugins.
+- **Reliability**: network calls inside transactions or under a mutex, missing rollbacks, unclosed bodies and rows, `defer` in loops, leaking goroutines.
+- **API exposure**: secrets and internal fields serialized to JSON responses, request bodies decoded into stored models.
+- **Supply chain**: typosquatted, young, retracted and deprecated modules, local `replace` directives, missing `go.sum` hashes, module allow and deny lists, CycloneDX 1.6 and SPDX 2.3 SBOMs with reachability-based OpenVEX.
+- **Workflow**: `init` for a tailored configuration, `--diff` for pull requests, `--baseline` for existing code, `--fix` for mechanical fixes, `//codex:ignore` with reasons, and `--forbid-new-suppressions` to stop changes that silence findings instead of fixing them.
+- **Integration**: a GitHub Action with pull request annotations, GitLab Code Quality reports, pre-commit hooks, a language server for editors, an MCP server, and `pkg/codexlint` with the built-in rules as `go/analysis` analyzers for gopls, multichecker and golangci-lint v2 module plugins.
 
 ## Limits
 
@@ -53,8 +75,9 @@ SARIF, JSON, HTML and Markdown.
   are not followed.
 - Package-level rules are intraprocedural unless noted; data crossing
   functions is covered by the taint engine.
-- Dependency checks need network access and are disabled by default
-  (`dependencies.enable`).
+- The dependency audit (vulnerabilities, licenses and module proxy lookups)
+  needs network access and is disabled by default (`dependencies.enable`); the `go.mod` hygiene,
+  typosquatting and capability checks run offline.
 - The `go/analysis` analyzers contain only the package-level rules; taint,
   dependency, architecture and metrics analyses run in `codex-cli scan`.
 

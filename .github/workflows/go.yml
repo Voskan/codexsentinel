@@ -15,9 +15,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The minimum supported release and the one that adds
-        # http.CrossOriginProtection, which the CSRF rule recognizes.
-        go: [ '1.24.x', '1.25.x' ]
+        # The minimum supported release, the one that adds
+        # http.CrossOriginProtection, which the CSRF rule recognizes, and the
+        # newest stable release.
+        go: [ '1.24.x', '1.25.x', 'stable' ]
     name: test (Go ${{ matrix.go }})
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +63,7 @@ jobs:
         run: go build -v -trimpath -o codex-cli ./cmd/codex-cli
 
       - name: Scan the repository
-        run: ./codex-cli scan . --strict --severity medium --format sarif --out results.sarif
+        run: ./codex-cli scan . --strict --severity low --format sarif --out results.sarif
 
       - name: Verify dependency capabilities
         run: |

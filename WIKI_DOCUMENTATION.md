@@ -70,6 +70,17 @@ means one of the following:
 
 ## How a scan works
 
+```text
+Workspace: go/packages with syntax and type information
+  |-- package rules: built-in, YAML, per-file metrics          (cached per package)
+  `-- SSA program + VTA call graph
+        `-- interprocedural taint, dependency reachability, capabilities,
+            architecture, duplication, mutable globals, dead code
+-> post-processing: rule selection, confidence, suppressions, dedup, fingerprints, order
+-> --baseline, --diff and --severity filters
+-> report: sarif, json, html, markdown, agent, github or gitlab
+```
+
 1. **Load.** `go/packages` loads the target packages with syntax and type information (`analyzer/workspace`).
    - Files under `scan.excluded_paths`, generated files and test files are excluded from the analysis unless enabled. Excluded files still take part in type checking and SSA construction.
 2. **Package rules.** The built-in rules, the YAML rules and the per-file metrics (complexity, function and file size) run on every package, in parallel up to `scan.concurrency`. Their results are cached; see [Analysis cache](#analysis-cache).

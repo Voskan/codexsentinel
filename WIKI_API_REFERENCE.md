@@ -1,17 +1,21 @@
 # API Reference
 
-CodexSentinel can be embedded as a Go library or run through the standard
-`go/analysis` framework. This page covers the stable entry points. For every
-exported identifier, see the
+This page is the reference for the `codex-cli` command line and for the Go
+API: embedding the engine as a library, the rule catalog, the report writers,
+and the `go/analysis` analyzers. For every exported identifier, see the
 [package documentation](https://pkg.go.dev/github.com/Voskan/codexsentinel).
 
 Module path: `github.com/Voskan/codexsentinel`
 
 ## Contents
 
+- [Command line](#command-line)
+- [Exit codes](#exit-codes)
+- [Report formats](#report-formats)
 - [Running a scan](#running-a-scan)
 - [Configuration](#configuration)
 - [Findings](#findings)
+- [Rule catalog](#rule-catalog)
 - [Reports](#reports)
 - [Baselines](#baselines)
 - [Applying fixes](#applying-fixes)
@@ -19,6 +23,108 @@ Module path: `github.com/Voskan/codexsentinel`
 - [go/analysis analyzers](#goanalysis-analyzers)
 - [golangci-lint v2 plugin](#golangci-lint-v2-plugin)
 - [Writing built-in rules](#writing-built-in-rules)
+
+## Command line
+
+Every command takes `-h` for its flags. Commands that analyze a module accept
+the module directory as `[path]` (default `.`) and `--config FILE`; without
+it, `.codexsentinel.yaml`, `.codexsentinel.yml`, `codex.yaml` or `.codex.yml`
+in the module root is used.
+
+### scan
+
+`codex-cli scan [path] [flags]` analyzes a module directory, a package
+pattern ending in `/...` or a single `.go` file.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `-f, --format` | `sarif` | `sarif`, `json`, `html`, `markdown`, `agent`, `github` or `gitlab` |
+| `-o, --out` | `report.output_dir` (`scan_reports/`) with the format's file name | Report file; `-` writes to stdout (default for `github`; not available for `html`) |
+| `--severity` | all | Keep findings at or above `low`, `medium`, `high` or `critical` |
+| `--strict` | `false` | Exit with code 1 when findings remain |
+| `--diff REF` | | Only findings on lines changed since a git reference; untracked files count as changed |
+| `--baseline FILE` | | Hide findings recorded in a baseline file |
+| `--forbid-new-suppressions` | `false` | Report suppressions added since `--diff` (default `HEAD`) as critical findings; `CODEX_ALLOW_SUPPRESSIONS=1` approves them |
+| `--fix` | `false` | Apply the findings' suggested fixes to the source files |
+| `--deps` | `false` | Run only the dependency audit (needs network access) |
+| `--ignore-file FILE` | `suppression.ignore_file` | Ignore file to use |
+| `--no-cache` | `false` | Do not read or write the analysis cache |
+| `--github-summary FILE` | `$GITHUB_STEP_SUMMARY` with `--format github` | Append a Markdown summary of the findings |
+
+### init
+
+`codex-cli init [path] [--force] [--with-caps]` writes a commented
+`.codexsentinel.yaml` with the architecture layers, libraries and generated
+code found in the module, and an empty `.codexsentinel.ignore`. An existing
+configuration is kept unless `--force` is given. `--with-caps` also writes the
+capability lock file.
+
+### rules and explain
+
+| Command | Meaning |
+| --- | --- |
+| `codex-cli rules [--category C] [--severity S] [--format table\|json\|markdown]` | List the rule catalog: code, ID, default severity, category, CWE, OWASP and title. Categories: `security`, `reliability`, `supply-chain`, `architecture`, `metrics`, `license`, `suppression` |
+| `codex-cli explain RULE` | Print a rule's description, why it matters, CWE and OWASP mapping, a vulnerable and a safe example, references, configuration and suppression, and a link to its [reference page](docs/rules/README.md). `RULE` is an ID (`sql-injection`) or a code (`CS001`); a typo gets suggestions |
+
+### caps
+
+| Command | Meaning |
+| --- | --- |
+| `codex-cli caps inspect [path]` | Print the capabilities each dependency uses from reachable code, with a call path as evidence |
+| `codex-cli caps lock [path] [--out FILE]` | Write the lock file (default `.codexsentinel.caps.json`) |
+| `codex-cli caps verify [path] [--lockfile FILE]` | Exit with code 1 when a dependency uses capabilities the lock file does not approve |
+
+### sbom
+
+`codex-cli sbom [path] [flags]` writes a bill of materials.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--format` | `cyclonedx` | `cyclonedx` (CycloneDX 1.6) or `spdx` (SPDX 2.3) |
+| `--out` | `-` | Output file; `-` writes to stdout |
+| `--vex` | `false` | Add known vulnerabilities with a reachability-based VEX status |
+| `--vex-out FILE` | | Also write an OpenVEX document (implies `--vex`) |
+| `--offline` | `false` | Do not contact vulnerability databases |
+| `--no-caps` | `false` | Do not record dependency capabilities |
+
+### baseline, cache and mark
+
+| Command | Meaning |
+| --- | --- |
+| `codex-cli baseline create [path] [--out FILE]` | Scan and record every current finding (default `.codexsentinel.baseline.json`) |
+| `codex-cli cache status` | Print the cache directory, number of entries and size |
+| `codex-cli cache clean` | Remove every cache entry |
+| `codex-cli mark FILE[:LINE] --rule ID [-r REASON] [--ignore-file FILE]` | Append an entry to the ignore file |
+
+### lsp, mcp and version
+
+| Command | Meaning |
+| --- | --- |
+| `codex-cli lsp [--debounce 200ms] [--log-file FILE]` | Language Server Protocol server on stdio: diagnostics on open and save, quick fixes and suppression actions |
+| `codex-cli mcp [--log-file FILE]` | Model Context Protocol server on stdio with the tools `scan_path`, `scan_diff`, `verify_capabilities`, `explain_rule` and `list_rules` |
+| `codex-cli version` | Print the version, commit, build date and Go version |
+
+The servers are described in the
+[documentation](WIKI_DOCUMENTATION.md#language-server-and-mcp-server).
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The command completed; no findings at or above the failure threshold |
+| 1 | Findings remain with `--strict` or `report.fail_on_severity`; a suppression was added under `--forbid-new-suppressions`; `caps verify` found escalations; or the command failed, with an `error:` line on stderr |
+
+## Report formats
+
+| `--format` | File name in `report.output_dir` | Contents |
+| --- | --- | --- |
+| `sarif` | `codex-report.sarif` | SARIF 2.1.0 with rule help links, CWE and OWASP tags, `security-severity`, `codeFlows`, `fixes` and fingerprints |
+| `json` | `codex-report.json` | Summary counts and the findings with traces, fixes and fingerprints |
+| `html` | `codex-report.html` | A single page with summary cards and finding details |
+| `markdown` | `codex-report.md` | Summary and tables per severity |
+| `agent` | `codex-report.agent.txt` | Plain text for automated remediation: `STATUS`, then `ISSUE`, `WHY`, `FLOW`, `FIX` and `PATCH` per finding |
+| `github` | stdout | GitHub workflow commands that annotate pull requests, plus a job summary |
+| `gitlab` | `gl-code-quality-report.json` | GitLab Code Quality report |
 
 ## Running a scan
 
@@ -114,6 +220,22 @@ type Issue struct {
 `result.AllSeverities` lists the levels from highest to lowest. An `Issue`
 marshals to JSON directly.
 
+## Rule catalog
+
+Package `analyzer/catalog` documents every rule. The `rules` and `explain`
+commands, the MCP tools, SARIF help links and the generated
+[rule reference](docs/rules/README.md) all read it.
+
+| Function | Purpose |
+| --- | --- |
+| `All() []RuleDoc` | Every rule, ordered by code |
+| `Lookup(idOrCode) (RuleDoc, bool)` | A rule by ID (`sql-injection`) or code (`CS001`) |
+| `ByCategory(category) []RuleDoc` | The rules of a category |
+| `Filter(category, severity) ([]RuleDoc, error)` | Rules by category and minimum default severity; unknown values are errors |
+| `Similar(query, limit) []string` | Rule IDs close to a mistyped query |
+| `DocURL(id) string` | The rule's reference page |
+| `WriteTable`, `WriteMarkdownTable`, `WriteCard` | Text renderings used by the commands |
+
 ## Reports
 
 The report writers in `report/formats` take `report.Issue`, the flat
@@ -126,26 +248,20 @@ representation used by all formats:
 | `formats.WriteJSONReport(issues, path, git)` | JSON with summary |
 | `formats.WriteHTMLReport(issues, path, git)` | HTML page |
 | `formats.WriteMarkdownReport(issues, path, git)` | Markdown |
+| `formats.AgentReport(issues) string`, `WriteAgentReport` | Plain-text remediation report |
+| `formats.GitHubAnnotations(issues) string`, `WriteGitHubReport` | GitHub workflow commands |
+| `formats.GitHubStepSummary(issues) string`, `AppendGitHubStepSummary(issues, path)` | Markdown job summary |
+| `formats.GitLabCodeQuality(issues)`, `WriteGitLabReport` | GitLab Code Quality issues |
 
 `git` is an optional `*report.GitMetadata` (repository, branch, commit,
-author). Convert engine findings field by field:
+author). `report.FromResults` converts engine findings:
 
 ```go
-func toReport(in []result.Issue) []report.Issue {
-	out := make([]report.Issue, len(in))
-	for i, is := range in {
-		out[i] = report.Issue{
-			RuleID: is.ID, Title: is.Title, Description: is.Description,
-			Severity: report.SeverityLevel(is.Severity), Confidence: is.Confidence,
-			CWE: is.CWE, OWASP: is.OWASP, Category: is.Category, Suggestion: is.Suggestion,
-			File: is.Location.File, Line: is.Location.Line, Column: is.Location.Column,
-			EndLine: is.Location.EndLine, EndColumn: is.Location.EndColumn, Package: is.Location.PackagePath,
-			References: is.References, Trace: is.Trace, Fix: is.Fix,
-			Fingerprint: is.Fingerprint, Reachable: is.Reachable,
-		}
-	}
-	return out
+issues, err := engine.Run(ctx, ".", &cfg)
+if err != nil {
+	log.Fatal(err)
 }
+fmt.Print(formats.AgentReport(report.FromResults(issues)))
 ```
 
 `report.ComputeSummary(issues)` returns the counts per severity and category

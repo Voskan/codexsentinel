@@ -19,7 +19,8 @@ that it does not. The findings are the actual output of
 - [Custom taint sinks](#custom-taint-sinks)
 - [Custom YAML rule](#custom-yaml-rule)
 - [Pull request workflow](#pull-request-workflow)
-- [GitLab CI](#gitlab-ci)
+- [Continuous integration](#continuous-integration)
+- [OpenVEX with Trivy and Grype](#openvex-with-trivy-and-grype)
 
 ## SQL injection across functions
 
@@ -329,8 +330,32 @@ rules:
 ```
 
 Patterns are Go expressions or statements. `$X` matches any expression and
-`$...` any number of arguments. Add `fix:` with a replacement template to
-make the rule fixable with `--fix`.
+`$...` any number of arguments.
+
+A rule with `fix:` is applied by `--fix`. The metavariables bound by the
+pattern are substituted in the replacement:
+
+```yaml
+id: acme.strings-contains
+title: Use strings.Contains
+category: style
+severity: LOW
+description: strings.Index compared with -1 is clearer as strings.Contains.
+match:
+  pattern: "strings.Index($S, $SUB) != -1"
+fix: "strings.Contains($S, $SUB)"
+suggestion: Use strings.Contains.
+```
+
+```text
+ISSUE [LOW] acme.strings-contains at main.go:9:5-9:36
+WHY: strings.Index compared with -1 is clearer as strings.Contains.
+FIX: Use strings.Contains.
+PATCH: replace 9:5-9:36 with `strings.Contains("abc", "b")`
+```
+
+After `codex-cli scan . --fix` the line reads
+`if strings.Contains("abc", "b") {`.
 
 ## Pull request workflow
 
@@ -358,7 +383,72 @@ codex-cli caps lock .
 codex-cli caps verify .
 ```
 
-## GitLab CI
+## Continuous integration
+
+### GitHub Actions
+
+Pull request annotations and a job summary, without GitHub Advanced
+Security:
+
+```yaml
+name: CodexSentinel
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: Voskan/codexsentinel@v2
+        with:
+          severity: medium
+          diff: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+          forbid-new-suppressions: ${{ github.event_name == 'pull_request' }}
+```
+
+With code scanning, upload SARIF so that findings appear as alerts with
+their data-flow paths:
+
+```yaml
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Voskan/codexsentinel@v2
+        with:
+          format: sarif
+          output: results.sarif
+          strict: false
+      - if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+```
+
+A reviewed pull request that has to add a suppression can be approved by
+setting `CODEX_ALLOW_SUPPRESSIONS=1`, for example only when a security
+reviewer has applied a label:
+
+```yaml
+      - uses: Voskan/codexsentinel@v2
+        env:
+          CODEX_ALLOW_SUPPRESSIONS: ${{ contains(github.event.pull_request.labels.*.name, 'security-approved') && '1' || '' }}
+        with:
+          diff: origin/${{ github.base_ref }}
+          forbid-new-suppressions: true
+```
+
+### GitLab CI
+
+The Code Quality report is shown in merge request widgets on every tier,
+including GitLab Free:
 
 ```yaml
 codexsentinel:
@@ -367,9 +457,53 @@ codexsentinel:
     GIT_DEPTH: 0
   script:
     - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
-    - codex-cli scan . --strict --severity high --format sarif --out gl-codexsentinel.sarif
+    - codex-cli scan . --format gitlab --out gl-code-quality-report.json --strict --severity medium
   artifacts:
     when: always
-    paths:
-      - gl-codexsentinel.sarif
+    reports:
+      codequality: gl-code-quality-report.json
 ```
+
+For merge requests only, add
+`--diff origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME --forbid-new-suppressions`
+and a `rules: [{if: $CI_PIPELINE_SOURCE == "merge_request_event"}]` clause.
+
+### pre-commit
+
+`.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/Voskan/codexsentinel
+    rev: v2.0.0
+    hooks:
+      - id: codexsentinel-scan   # codex-cli scan . --strict --severity high
+      - id: codexsentinel-caps   # codex-cli caps verify . when go.mod, go.sum or the lock file change
+```
+
+pre-commit builds `codex-cli` from the pinned revision with the local Go
+toolchain the first time the hooks run.
+
+## OpenVEX with Trivy and Grype
+
+Generic scanners report every known vulnerability of every dependency.
+CodexSentinel knows which vulnerable functions the program can reach, and
+`sbom --vex-out` writes that knowledge as OpenVEX: unreachable
+vulnerabilities are `not_affected` with the justification
+`vulnerable_code_not_in_execute_path`, reachable ones `affected`.
+
+```bash
+codex-cli sbom . --vex --out sbom.cdx.json --vex-out openvex.json
+```
+
+```bash
+trivy sbom sbom.cdx.json --vex openvex.json
+```
+
+```bash
+grype sbom:sbom.cdx.json --vex openvex.json
+```
+
+Both scanners then hide the vulnerabilities the VEX document marks
+`not_affected`. Publish both files with the release so that consumers can do
+the same.

@@ -4,19 +4,22 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/Voskan/codexsentinel.svg)](https://pkg.go.dev/github.com/Voskan/codexsentinel)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-CodexSentinel is a static analyzer for Go modules. It loads the module once
-with full type information, builds SSA and a call graph, and runs four kinds
-of analysis over it:
-
-- **Security**: type-aware rules and an interprocedural taint engine.
-- **Dependencies**: known vulnerabilities, with call-graph reachability, plus license policy and a capability lock file.
-- **Architecture**: layer rules, import cycles, god structs and leaking boundary types.
-- **Code quality**: complexity, size, duplication, mutable global state and dead code.
-
-Findings are written as SARIF 2.1.0, JSON, HTML or Markdown.
+CodexSentinel is an interprocedural static analyzer for modern Go (Go 1.24
+through 1.26 and newer). It loads a module once with full type information,
+builds SSA and a VTA call graph, and follows untrusted data across functions
+and packages to report security flaws with a source-to-sink trace. The same
+pass finds production reliability bugs (network calls inside transactions,
+leaked bodies, rows and goroutines), architecture violations, and
+supply-chain risks: reachable vulnerabilities, risky module provenance and
+dependencies that gain new privileges. It is a single binary that needs only
+the Go toolchain of the project it analyzes, makes no network requests unless
+the dependency audit is enabled, and writes SARIF, JSON, HTML, Markdown,
+GitHub, GitLab and compact plain-text reports.
 
 ## Contents
 
+- [Why CodexSentinel](#why-codexsentinel)
+- [60-second quick start](#60-second-quick-start)
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -29,6 +32,93 @@ Findings are written as SARIF 2.1.0, JSON, HTML or Markdown.
 - [Benchmarks](#benchmarks)
 - [Development](#development)
 - [License](#license)
+
+## Why CodexSentinel
+
+CodexSentinel complements `golangci-lint` and `govulncheck` rather than
+replacing them: keep golangci-lint for style and general correctness, and add
+CodexSentinel for the questions that need the whole program.
+
+| Capability | CodexSentinel | golangci-lint (with gosec) | govulncheck |
+| --- | --- | --- | --- |
+| Taint tracking across functions and packages, with source-to-sink traces | Yes (SSA + VTA) | Per-call patterns | No |
+| Go 1.24 `os.Root` and Go 1.25 `http.CrossOriginProtection` recognized as safe | Yes | No | No |
+| Network I/O inside database transactions or under a mutex | Yes | No | No |
+| Unclosed response bodies and rows, missing rollbacks, `defer` in loops | Yes | Partly (`bodyclose`, `sqlclosecheck`) | No |
+| Excessive JSON exposure and mass assignment in APIs | Yes | No | No |
+| Credentials and personal data in `slog`, `zap`, `zerolog` and `log` | Yes | No | No |
+| Known vulnerabilities with call-graph reachability | Yes (opt-in, OSV and GHSA) | No | Yes |
+| Capability lock file for dependencies (`.codexsentinel.caps.json`) | Yes | No | No |
+| `go.mod` provenance: typosquatting, young, retracted and deprecated modules | Yes | Partly (`gomodguard`, `gomoddirectives`) | No |
+| CycloneDX 1.6 SBOM with reachability-based OpenVEX | Yes | No | OpenVEX only |
+| Architecture layers, import cycles and boundary type leaks | Yes | Partly (`depguard`) | No |
+| Built-in language server and Model Context Protocol server | Yes | No | No |
+| Style and general correctness linters | A few YAML rules | Yes, over 100 linters | No |
+
+On the benchmark corpora CodexSentinel finds 14 of 14 seeded defects with no
+false positives, against 6 of 14 for gosec; it is also slower and uses more
+memory, because it builds the whole program. The corpora, numbers and the
+script to reproduce them are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
+## 60-second quick start
+
+Install it in one of these ways:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/install.sh | sh
+```
+
+```bash
+go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+```
+
+```bash
+docker build -t codexsentinel . && docker run --rm -v "$PWD:/workspace" codexsentinel scan . --format agent --out -
+```
+
+```yaml
+# .github/workflows/codexsentinel.yml, see CI integration below
+- uses: Voskan/codexsentinel@v2
+```
+
+Then, in the module root:
+
+```bash
+codex-cli init --with-caps
+```
+
+writes a `.codexsentinel.yaml` tailored to the module's layout, an empty
+ignore file and the capability lock file.
+
+```bash
+codex-cli scan .
+```
+
+scans the module and writes a SARIF report to `scan_reports/`.
+
+```bash
+codex-cli scan . --diff origin/main --forbid-new-suppressions --strict
+```
+
+is the pull request gate: only findings on changed lines, and a failure when
+the change adds suppressions instead of fixes.
+
+```bash
+codex-cli sbom . --vex --out sbom.cdx.json --vex-out openvex.json
+```
+
+writes a CycloneDX SBOM and an OpenVEX document that marks unreachable
+vulnerabilities `not_affected`.
+
+```bash
+codex-cli rules
+```
+
+```bash
+codex-cli explain sql-injection
+```
+
+list the 75 rules and explain one, with a vulnerable and a safe example.
 
 ## Features
 
@@ -508,7 +598,7 @@ With GitHub Advanced Security, upload SARIF to code scanning instead:
 ### GitLab
 
 `--format gitlab` writes a Code Quality report that merge request widgets
-display on every GitLab tier:
+display on every GitLab tier, including Free:
 
 ```yaml
 codexsentinel:
@@ -541,7 +631,7 @@ For pull requests, scan only the changed lines with
 `fetch-depth: 0`, as above, so the base branch is available.
 
 This repository runs `go vet`, the race-enabled tests, a self-scan with
-`--strict --severity medium` and `caps verify` on every push to `main` and every pull request
+`--strict --severity low` and `caps verify` on every push to `main` and every pull request
 ([.github/workflows/go.yml](.github/workflows/go.yml)).
 
 ## Editors and MCP clients
@@ -551,12 +641,30 @@ findings as diagnostics when a Go file is opened or saved, with CWE, OWASP and
 the data flow in the hover text. Code actions apply a finding's fix or append
 `//codex:ignore <rule> -- TODO: document reason` to the line. The suppression
 action is not offered when `suppression.forbid_new_suppressions` is set.
-Neovim example:
+It runs next to gopls; neither replaces the other.
+
+Neovim (0.11 or newer):
 
 ```lua
 vim.lsp.config("codexsentinel", { cmd = { "codex-cli", "lsp" }, filetypes = { "go" }, root_markers = { "go.mod" } })
 vim.lsp.enable("codexsentinel")
 ```
+
+Helix (`languages.toml`):
+
+```toml
+[language-server.codexsentinel]
+command = "codex-cli"
+args = ["lsp"]
+
+[[language]]
+name = "go"
+language-servers = ["gopls", "codexsentinel"]
+```
+
+VS Code and Zed start additional language servers through extensions: with a
+generic language client extension, set the server command to `codex-cli lsp`
+and the document language to `go`.
 
 `codex-cli mcp` is a Model Context Protocol server on stdio with five tools:
 
@@ -616,7 +724,7 @@ make docs-generate  # regenerate docs/rules after changing a rule
 go vet ./...
 ```
 
-At the time of writing, `go test -cover ./...` reports 72.6% total statement
+At the time of writing, `go test -cover ./...` reports 78.9% total statement
 coverage. See [CONTRIBUTING.md](CONTRIBUTING.md) for the architecture overview
 and how to write and test rules. Report vulnerabilities as described in
 [SECURITY.md](SECURITY.md).
