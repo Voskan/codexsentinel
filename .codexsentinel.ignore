@@ -18,3 +18,6 @@
 
 # Test fixtures contain intentionally vulnerable code
 **/testdata/
+
+# Benchmark corpora contain intentionally vulnerable code
+/benchmarks/corpus/

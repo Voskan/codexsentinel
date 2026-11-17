@@ -1,0 +1,23 @@
+{
+  "description": "Ground truth for vulnerable-app. Every defect must be reported at the given line; additional findings are real consequences of the same code and are expected too. Any other finding counts as a false positive.",
+  "defects": [
+    {"class": "Interprocedural SQL injection (handler -> service -> repo)", "rule": "sql-injection", "file": "internal/repo/repo.go", "line": 19},
+    {"class": "Interprocedural SSRF (handler -> service -> http.Get)", "rule": "ssrf", "file": "internal/service/service.go", "line": 53},
+    {"class": "Path traversal without os.Root", "rule": "path-traversal", "file": "internal/handler/handler.go", "line": 57},
+    {"class": "Secret field written to logs", "rule": "sensitive-data-in-logs", "file": "internal/handler/handler.go", "line": 67},
+    {"class": "Password hash in a JSON response (BOPLA)", "rule": "api-excessive-data-exposure", "file": "internal/handler/handler.go", "line": 78},
+    {"class": "Mass assignment of is_admin", "rule": "api-mass-assignment", "file": "internal/handler/handler.go", "line": 83},
+    {"class": "Network call inside a SQL transaction", "rule": "tx-network-io", "file": "internal/service/service.go", "line": 72},
+    {"class": "Transaction not rolled back on early return", "rule": "sql-tx-missing-rollback", "file": "internal/service/service.go", "line": 65},
+    {"class": "HTTP response body never closed", "rule": "http-body-unclosed", "file": "internal/service/service.go", "line": 53},
+    {"class": "defer inside a loop keeps files open", "rule": "defer-in-loop", "file": "internal/service/service.go", "line": 102},
+    {"class": "http.Server without timeouts", "rule": "http-server-missing-timeout", "file": "cmd/api/main.go", "line": 22},
+    {"class": "TLS certificate verification disabled", "rule": "tls-insecure-config", "file": "internal/service/service.go", "line": 32},
+    {"class": "Zip Slip while extracting an archive", "rule": "archive-zip-slip", "file": "internal/service/service.go", "line": 131},
+    {"class": "Secret token compared in non-constant time", "rule": "auth-non-constant-time-compare", "file": "internal/handler/handler.go", "line": 93}
+  ],
+  "additional": [
+    {"rule": "xss", "file": "internal/handler/handler.go", "line": 62, "reason": "the client chooses which file's content is written to the response"},
+    {"rule": "context-propagation-missing", "file": "internal/service/service.go", "line": 53, "reason": "http.Get ignores the ctx the function receives"}
+  ]
+}

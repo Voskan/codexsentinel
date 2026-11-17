@@ -50,6 +50,7 @@ coverage.out
 # Tracked sources that match the report patterns above
 !report/template/report.html
 !.codexsentinel.caps.json
+!benchmarks/corpus/*/manifest.json
 
 # Temporary files
 *.tmp

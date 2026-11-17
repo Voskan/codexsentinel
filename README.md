@@ -26,6 +26,7 @@ Findings are written as SARIF 2.1.0, JSON, HTML or Markdown.
 - [CI integration](#ci-integration)
 - [Editors and MCP clients](#editors-and-mcp-clients)
 - [golangci-lint and go/analysis](#golangci-lint-and-goanalysis)
+- [Benchmarks](#benchmarks)
 - [Development](#development)
 - [License](#license)
 
@@ -598,6 +599,13 @@ documentation for the registration snippet and the supported settings
 The analyzers run per package. Interprocedural taint, dependency, architecture
 and metrics analyses need the whole program and are only available in
 `codex-cli scan`.
+
+## Benchmarks
+
+On a four-layer service with 14 known defects, CodexSentinel reports all 14
+and nothing else, and on the same service written safely it reports nothing;
+see [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for the corpora, the comparison
+with gosec and govulncheck, timings, and how to reproduce them.
 
 ## Development
 

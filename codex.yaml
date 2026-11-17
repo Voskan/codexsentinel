@@ -4,7 +4,7 @@ scan:
   include_tests: false
   include_vendor: false
   include_generated: false
-  excluded_paths: [vendor, testdata, node_modules, .git]
+  excluded_paths: [vendor, testdata, node_modules, .git, benchmarks/corpus] # The corpora are intentionally vulnerable.
   max_file_size_bytes: 10485760
   supported_extensions: [.go]
   concurrency: 0 # Use the available CPUs.
