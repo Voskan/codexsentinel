@@ -50,7 +50,7 @@ func NewScanCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&opts.path, "path", "p", ".", "Target directory or file to scan")
-	cmd.Flags().StringVarP(&opts.format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json, agent")
+	cmd.Flags().StringVarP(&opts.format, "format", "f", "sarif", "Output report format: sarif, html, markdown, json, agent, github, gitlab")
 	cmd.Flags().StringVarP(&opts.outPath, "out", "o", "", "Path to write the output report to")
 	cmd.Flags().BoolVar(&opts.strict, "strict", false, "Exit with code 1 if issues are found")
 	cmd.Flags().StringVar(&opts.ignoreFile, "ignore-file", ".codexsentinel.ignore", "Path to ignore file (default: suppression.ignore_file from the config, relative to the project root)")
@@ -61,6 +61,8 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.baseline, "baseline", "", "Report only findings that are not recorded in this baseline file")
 	cmd.Flags().StringVar(&opts.diffRef, "diff", "", "Report only findings on lines changed since this git reference (e.g. origin/main)")
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Do not read or write the analysis cache")
+	cmd.Flags().StringVar(&opts.githubSummary, "github-summary", "",
+		"Append a Markdown summary to this file (default with --format github: $GITHUB_STEP_SUMMARY)")
 	cmd.Flags().BoolVar(&opts.forbidSuppressions, "forbid-new-suppressions", false,
 		"Fail when the changes since --diff (default HEAD) add inline ignores, ignore-file entries or weaker settings; "+
 			git.AllowSuppressionsEnv+"=1 approves them")
@@ -84,6 +86,8 @@ type scanOptions struct {
 	noCache    bool
 	// forbidSuppressions reports suppressions added since diffRef.
 	forbidSuppressions bool
+	// githubSummary is the file that receives a Markdown job summary.
+	githubSummary string
 }
 
 // runScan handles the main scan logic
@@ -113,6 +117,9 @@ func runScan(ctx context.Context, opts scanOptions) error {
 		return err
 	}
 	cfg.Scan.EnableCache = cfg.Scan.EnableCache && !opts.noCache
+	if outPath == "" && format == "github" {
+		outPath = "-" // workflow commands only work on stdout
+	}
 	if outPath == "" && cfg.Report.OutputDir != "" {
 		outPath = filepath.Join(cfg.Report.OutputDir, defaultOutputPath(format))
 	}
@@ -148,22 +155,44 @@ func runScan(ctx context.Context, opts scanOptions) error {
 	}
 
 	all := append(guard, results...)
-	if err := generateReport(all, format, outPath, gitMetadata, logger); err != nil {
-		return fmt.Errorf("failed to generate report: %w", err)
+	if err := publishResults(all, format, outPath, opts.githubSummary, gitMetadata, logger); err != nil {
+		return err
 	}
-
-	// Display result summary
-	summaryOutput := io.Writer(os.Stdout)
-	if outPath == "-" {
-		summaryOutput = os.Stderr
-	}
-	printSummary(summaryOutput, all)
 
 	// Exit code control: added suppressions always fail the scan.
 	if count := len(guard) + failingIssues(results, strict, cfg.Report.FailOnSeverity); count > 0 {
 		return &IssuesFoundError{Count: count}
 	}
 	return nil
+}
+
+// publishResults writes the report, prints the summary (to stderr when the
+// report goes to stdout) and appends the job summary.
+func publishResults(all []result.Issue, format, outPath, githubSummary string, gitMetadata *report.GitMetadata, logger *zap.SugaredLogger) error {
+	if err := generateReport(all, format, outPath, gitMetadata, logger); err != nil {
+		return fmt.Errorf("failed to generate report: %w", err)
+	}
+	summaryOutput := io.Writer(os.Stdout)
+	if outPath == "-" {
+		summaryOutput = os.Stderr
+	}
+	printSummary(summaryOutput, all)
+	if err := writeGitHubSummary(githubSummary, format, all); err != nil {
+		return fmt.Errorf("failed to write job summary: %w", err)
+	}
+	return nil
+}
+
+// writeGitHubSummary appends the Markdown job summary to the given file, or
+// to $GITHUB_STEP_SUMMARY for the github format.
+func writeGitHubSummary(path, format string, results []result.Issue) error {
+	if path == "" && format == "github" {
+		path = os.Getenv("GITHUB_STEP_SUMMARY")
+	}
+	if path == "" {
+		return nil
+	}
+	return formats.AppendGitHubStepSummary(report.FromResults(results), path)
 }
 
 // checkNewSuppressions reports suppressions added since the diff reference
@@ -463,6 +492,10 @@ func defaultOutputPath(format string) string {
 		return "codex-report.json"
 	case "agent":
 		return "codex-report.agent.txt"
+	case "github":
+		return "codex-report.github.txt"
+	case "gitlab":
+		return "gl-code-quality-report.json"
 	case "sarif":
 		fallthrough
 	default:
@@ -494,6 +527,10 @@ func writeReport(results []result.Issue, format, outPath string, gitMetadata *re
 		return formats.WriteSARIFReport(reportIssues, outPath, gitMetadata)
 	case "agent":
 		return formats.WriteAgentReport(reportIssues, outPath, gitMetadata)
+	case "github":
+		return formats.WriteGitHubReport(reportIssues, outPath, gitMetadata)
+	case "gitlab":
+		return formats.WriteGitLabReport(reportIssues, outPath, gitMetadata)
 	default:
 		return fmt.Errorf("unsupported format: %s", format)
 	}

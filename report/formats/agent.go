@@ -24,6 +24,20 @@ func AgentReport(issues []report.Issue) string {
 	if len(issues) == 0 {
 		return "STATUS: PASS (0 issues)\n"
 	}
+	sorted := sortedIssues(issues)
+	s := report.ComputeSummary(issues)
+	var b strings.Builder
+	fmt.Fprintf(&b, "STATUS: FAIL (%d issues: critical=%d high=%d medium=%d low=%d info=%d)\n",
+		len(issues), s.Critical, s.High, s.Medium, s.Low, s.Info)
+	for _, is := range sorted {
+		writeAgentIssue(&b, is)
+	}
+	return b.String()
+}
+
+// sortedIssues returns a copy of issues ordered by severity, most severe
+// first, then by location and rule.
+func sortedIssues(issues []report.Issue) []report.Issue {
 	sorted := append([]report.Issue(nil), issues...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		a, b := sorted[i], sorted[j]
@@ -41,14 +55,7 @@ func AgentReport(issues []report.Issue) string {
 		}
 		return a.RuleID < b.RuleID
 	})
-	s := report.ComputeSummary(issues)
-	var b strings.Builder
-	fmt.Fprintf(&b, "STATUS: FAIL (%d issues: critical=%d high=%d medium=%d low=%d info=%d)\n",
-		len(issues), s.Critical, s.High, s.Medium, s.Low, s.Info)
-	for _, is := range sorted {
-		writeAgentIssue(&b, is)
-	}
-	return b.String()
+	return sorted
 }
 
 func writeAgentIssue(b *strings.Builder, is report.Issue) {

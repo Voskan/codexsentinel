@@ -117,6 +117,8 @@ codex-cli scan ./... --format json --out report.json
 codex-cli scan . --format html --out report.html
 codex-cli scan . --format markdown --out report.md
 codex-cli scan . --format agent --out -            # compact remediation report on stdout
+codex-cli scan . --format github                   # GitHub Actions annotations and job summary
+codex-cli scan . --format gitlab                   # GitLab Code Quality report
 codex-cli scan . --format json --out -             # write the report to stdout
 codex-cli scan . --severity high                   # only high and critical findings
 codex-cli scan . --strict                          # exit code 1 when findings remain
@@ -439,14 +441,19 @@ entry.
 
 ## CI integration
 
-GitHub Actions with code scanning:
+### GitHub Action
+
+The action installs a release binary (verified against the release's
+`checksums.txt`, or built from source with `version: source`), scans the
+module and, with the default `github` format, annotates the findings' lines in
+the pull request and writes a job summary. Annotations work in private
+repositories without code scanning.
 
 ```yaml
 name: CodexSentinel
 on: [push, pull_request]
 permissions:
   contents: read
-  security-events: write
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -454,15 +461,72 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: Voskan/codexsentinel@v2
         with:
-          go-version: '1.24.x'
-      - run: go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+          severity: medium
+          diff: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+          forbid-new-suppressions: ${{ github.event_name == 'pull_request' }}
+```
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `version` | `latest` | Release tag, `latest`, or `source` to build the action's revision (needs Go) |
+| `path` | `.` | Module directory |
+| `severity` | `medium` | Minimum severity |
+| `diff` | | Report only lines changed since this reference |
+| `strict` | `true` | Fail the step when findings remain |
+| `forbid-new-suppressions` | `false` | Fail when the change adds suppressions |
+| `caps-verify` | `true` | Run `caps verify` when `.codexsentinel.caps.json` exists |
+| `format` | `github` | `github`, `gitlab`, `sarif`, `json`, `markdown`, `html` or `agent` |
+| `output` | | Report file for formats other than `github` |
+| `args` | | Extra `scan` arguments |
+
+`--format github` prints GitHub workflow commands (`::error` for critical and
+high, `::warning` for medium, `::notice` for low findings) to stdout and
+appends a Markdown summary to `$GITHUB_STEP_SUMMARY`; `--github-summary FILE`
+writes that summary for any format. GitHub shows at most 10 annotations of
+each level per step and 50 per job, and the summary lists the 200 most severe
+findings.
+
+With GitHub Advanced Security, upload SARIF to code scanning instead:
+
+```yaml
       - run: codex-cli scan . --strict --severity high --format sarif --out results.sarif
       - if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
+```
+
+### GitLab
+
+`--format gitlab` writes a Code Quality report that merge request widgets
+display on every GitLab tier:
+
+```yaml
+codexsentinel:
+  image: golang:1.24
+  script:
+    - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+    - codex-cli scan . --format gitlab --out gl-code-quality-report.json --strict
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+```
+
+Severities map to `blocker` (critical), `critical` (high), `major` (medium),
+`minor` (low) and `info`.
+
+### pre-commit
+
+```yaml
+repos:
+  - repo: https://github.com/Voskan/codexsentinel
+    rev: v2.0.0
+    hooks:
+      - id: codexsentinel-scan   # codex-cli scan . --strict --severity high
+      - id: codexsentinel-caps   # codex-cli caps verify . when go.mod, go.sum or the lock file change
 ```
 
 For pull requests, scan only the changed lines with

@@ -1,0 +1,15 @@
+# Hooks for the pre-commit framework (https://pre-commit.com).
+- id: codexsentinel-scan
+  name: CodexSentinel scan
+  description: Fail the commit on high and critical findings in the Go module.
+  entry: codex-cli scan . --strict --severity high
+  language: golang
+  pass_filenames: false
+  types: [go]
+- id: codexsentinel-caps
+  name: CodexSentinel capability lock
+  description: Fail the commit when a dependency gained capabilities missing from .codexsentinel.caps.json.
+  entry: codex-cli caps verify .
+  language: golang
+  pass_filenames: false
+  files: '(^|/)(go\.mod|go\.sum|\.codexsentinel\.caps\.json)$'

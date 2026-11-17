@@ -1,0 +1,135 @@
+name: "CodexSentinel Go Security & Architecture Scanner"
+description: "Static security, reliability, architecture and dependency analysis for Go modules, with pull request annotations."
+author: "Voskan Voskanyan"
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  version:
+    description: "Release tag to install (for example v2.0.0), \"latest\", or \"source\" to build the action's own revision with Go"
+    required: false
+    default: "latest"
+  path:
+    description: "Module directory to scan"
+    required: false
+    default: "."
+  severity:
+    description: "Report findings at or above this severity: low, medium, high or critical"
+    required: false
+    default: "medium"
+  diff:
+    description: "Report only findings on lines changed since this git reference, for example origin/main (check out with fetch-depth: 0)"
+    required: false
+    default: ""
+  strict:
+    description: "Fail the step when findings remain"
+    required: false
+    default: "true"
+  forbid-new-suppressions:
+    description: "Fail when the changes add //codex:ignore, //nolint or #nosec comments, ignore-file entries or weaker settings; set CODEX_ALLOW_SUPPRESSIONS=1 to approve them"
+    required: false
+    default: "false"
+  caps-verify:
+    description: "Also run caps verify when .codexsentinel.caps.json exists"
+    required: false
+    default: "true"
+  format:
+    description: "Report format: github (annotations and job summary), gitlab, sarif, json, markdown, html or agent"
+    required: false
+    default: "github"
+  output:
+    description: "Report file for formats other than github (default: the format's file name in scan_reports/)"
+    required: false
+    default: ""
+  args:
+    description: "Additional arguments for codex-cli scan, separated by spaces"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install codex-cli
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        case "$(uname -s)" in
+          Linux) os=linux ;;
+          Darwin) os=darwin ;;
+          *) echo "::error::unsupported runner OS $(uname -s)"; exit 1 ;;
+        esac
+        case "$(uname -m)" in
+          x86_64 | amd64) arch=amd64 ;;
+          aarch64 | arm64) arch=arm64 ;;
+          *) echo "::error::unsupported runner architecture $(uname -m)"; exit 1 ;;
+        esac
+        bin_dir="${RUNNER_TEMP}/codexsentinel-bin"
+        mkdir -p "$bin_dir"
+        asset="codex-cli-${os}-${arch}"
+        installed=false
+        if [ "$INPUT_VERSION" != "source" ]; then
+          if [ "$INPUT_VERSION" = "latest" ]; then
+            base="https://github.com/Voskan/codexsentinel/releases/latest/download"
+          else
+            base="https://github.com/Voskan/codexsentinel/releases/download/${INPUT_VERSION}"
+          fi
+          if curl -fsSL --retry 3 -o "${bin_dir}/${asset}" "${base}/${asset}" &&
+            curl -fsSL --retry 3 -o "${bin_dir}/checksums.txt" "${base}/checksums.txt"; then
+            expected="$(awk -v f="$asset" '$2 == f || $2 == "*" f { print $1 }' "${bin_dir}/checksums.txt")"
+            if command -v sha256sum >/dev/null; then
+              actual="$(sha256sum "${bin_dir}/${asset}" | awk '{ print $1 }')"
+            else
+              actual="$(shasum -a 256 "${bin_dir}/${asset}" | awk '{ print $1 }')"
+            fi
+            if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+              echo "::error::checksum verification of ${asset} failed"
+              exit 1
+            fi
+            mv "${bin_dir}/${asset}" "${bin_dir}/codex-cli"
+            chmod +x "${bin_dir}/codex-cli"
+            installed=true
+          else
+            echo "::warning::release ${INPUT_VERSION} has no ${asset}; building from source"
+          fi
+        fi
+        if [ "$installed" != true ]; then
+          if ! command -v go >/dev/null; then
+            echo "::error::building codex-cli needs Go; add actions/setup-go before this action"
+            exit 1
+          fi
+          (cd "$ACTION_PATH" && CGO_ENABLED=0 go build -trimpath -o "${bin_dir}/codex-cli" ./cmd/codex-cli)
+        fi
+        echo "$bin_dir" >> "$GITHUB_PATH"
+        "${bin_dir}/codex-cli" version
+
+    - name: Run codex-cli scan
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_SEVERITY: ${{ inputs.severity }}
+        INPUT_DIFF: ${{ inputs.diff }}
+        INPUT_STRICT: ${{ inputs.strict }}
+        INPUT_FORBID: ${{ inputs.forbid-new-suppressions }}
+        INPUT_CAPS_VERIFY: ${{ inputs.caps-verify }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_ARGS: ${{ inputs.args }}
+      run: |
+        set -uo pipefail
+        args=(scan "$INPUT_PATH" --format "$INPUT_FORMAT")
+        if [ -n "$INPUT_SEVERITY" ]; then args+=(--severity "$INPUT_SEVERITY"); fi
+        if [ -n "$INPUT_DIFF" ]; then args+=(--diff "$INPUT_DIFF"); fi
+        if [ "$INPUT_STRICT" = "true" ]; then args+=(--strict); fi
+        if [ "$INPUT_FORBID" = "true" ]; then args+=(--forbid-new-suppressions); fi
+        if [ -n "$INPUT_OUTPUT" ]; then args+=(--out "$INPUT_OUTPUT"); fi
+        read -r -a extra <<< "$INPUT_ARGS"
+        status=0
+        codex-cli "${args[@]}" ${extra[@]+"${extra[@]}"} || status=$?
+        if [ "$INPUT_CAPS_VERIFY" = "true" ] && [ -f "${INPUT_PATH}/.codexsentinel.caps.json" ]; then
+          codex-cli caps verify "$INPUT_PATH" || status=1
+        fi
+        exit "$status"

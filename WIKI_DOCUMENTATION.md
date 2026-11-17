@@ -48,7 +48,7 @@ key, suppression mechanism and report format. For a first run, start with the
 
 | Flag | Meaning |
 | --- | --- |
-| `-f, --format` | `sarif` (default), `json`, `html`, `markdown` or `agent` |
+| `-f, --format` | `sarif` (default), `json`, `html`, `markdown`, `agent`, `github` or `gitlab` |
 | `-o, --out` | Report path; `-` writes the report to stdout. Default: `report.output_dir` (`scan_reports/`) |
 | `--severity` | Keep findings at or above `low`, `medium`, `high` or `critical` |
 | `--strict` | Exit with code 1 when findings remain after filtering |
@@ -60,6 +60,7 @@ key, suppression mechanism and report format. For a first run, start with the
 | `--config FILE` | Use this configuration file |
 | `--ignore-file FILE` | Use this ignore file instead of `suppression.ignore_file` |
 | `--no-cache` | Do not read or write the analysis cache |
+| `--github-summary FILE` | Append a Markdown job summary to FILE (with `--format github`, `$GITHUB_STEP_SUMMARY` by default) |
 
 Exit code 0 means the scan completed without failing findings. Exit code 1
 means one of the following:
@@ -560,6 +561,8 @@ when the pull request carries a label that security reviewers apply.
 | JSON | `summary` (counts per severity and category), `issues`, `generated_at`, `git` |
 | HTML | A single page with summary cards, findings by category and per-finding details including traces. Icons load from cdnjs. |
 | Markdown | Repository information, summary, tables per severity, details and remediation |
+| GitHub | Workflow commands (`::error`, `::warning`, `::notice` with file, line, column and title) that annotate pull requests; written to stdout by default, plus a Markdown job summary with severity counts, the findings and their data-flow traces |
+| GitLab | Code Quality JSON array (`description`, `check_name`, `fingerprint`, `severity` blocker/critical/major/minor/info, `location.path`, `location.lines.begin`); `[]` when there are no findings. Default file `gl-code-quality-report.json` |
 | Agent | Plain text for automated remediation: a status line, then per finding `ISSUE`, `WHY`, `FLOW`, `FIX` and `PATCH` lines, sorted by severity and location |
 
 Example of the `agent` format:

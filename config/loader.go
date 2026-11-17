@@ -117,7 +117,7 @@ func Validate(cfg *Config) error {
 	}
 	for _, format := range cfg.Report.Formats {
 		switch format {
-		case "json", "sarif", "markdown", "html", "agent":
+		case "json", "sarif", "markdown", "html", "agent", "github", "gitlab":
 		default:
 			return fmt.Errorf("unsupported report format %q", format)
 		}
