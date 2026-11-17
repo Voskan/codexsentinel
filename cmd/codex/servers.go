@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Voskan/codexsentinel/analyzer/engine"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/config"
 	"github.com/Voskan/codexsentinel/internal/lsp"
@@ -31,7 +32,10 @@ func NewLSPCmd() *cobra.Command {
 		Long: `Run a Language Server Protocol server on stdin/stdout. Editors receive
 findings as diagnostics when a Go file is opened or saved, with CWE, OWASP
 and data flow in the message, and code actions that apply a fix or add a
-suppression comment. The configuration is read from the workspace root.`,
+suppression comment. Findings of the package-level rules for the saved file's
+packages are published first; the complete findings, including taint
+tracking and architecture checks, replace them when the analysis finishes.
+The configuration is read from the workspace root.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger, logOut, closeLog, err := serverLogger(logFile)
@@ -40,12 +44,13 @@ suppression comment. The configuration is read from the workspace root.`,
 			}
 			defer closeLog()
 			srv := &lsp.Server{
-				Analyze: func(ctx context.Context, root string) ([]result.Issue, error) {
-					cfg, err := configForTarget(root)
+				Analyze: func(ctx context.Context, req lsp.Request) ([]result.Issue, error) {
+					cfg, err := configForTarget(req.Root)
 					if err != nil {
 						return nil, err
 					}
-					return runFullAnalysis(ctx, root, "", cfg, "", logger)
+					opts := engine.Options{Focus: req.Files, Early: req.Early}
+					return runAnalysis(ctx, req.Root, "", cfg, "", logger, opts)
 				},
 				SuppressionsForbidden: func(root string) bool {
 					cfg, err := configForTarget(root)

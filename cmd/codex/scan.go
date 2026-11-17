@@ -340,6 +340,13 @@ func runDependencyAnalysis(ctx context.Context, targetPath string, cfg *config.C
 
 // runFullAnalysis performs the complete analysis workflow
 func runFullAnalysis(ctx context.Context, targetPath, ignoreFile string, cfg *config.Config, severity string, logger *zap.SugaredLogger) ([]result.Issue, error) {
+	return runAnalysis(ctx, targetPath, ignoreFile, cfg, severity, logger, engine.Options{})
+}
+
+// runAnalysis is runFullAnalysis with per-run engine options. The YAML rules
+// and the cache are filled in, and early findings are filtered by severity
+// like the final ones.
+func runAnalysis(ctx context.Context, targetPath, ignoreFile string, cfg *config.Config, severity string, logger *zap.SugaredLogger, runOpts engine.Options) ([]result.Issue, error) {
 	if ignoreFile != "" {
 		abs, err := filepath.Abs(ignoreFile)
 		if err != nil {
@@ -350,7 +357,12 @@ func runFullAnalysis(ctx context.Context, targetPath, ignoreFile string, cfg *co
 	}
 
 	// Run analysis; suppressions are applied by the engine
-	runOpts := engine.Options{Rules: loadYAMLRules(cfg, logger), Cache: openCache(cfg, logger)}
+	runOpts.Rules, runOpts.Cache = loadYAMLRules(cfg, logger), openCache(cfg, logger)
+	if early := runOpts.Early; early != nil {
+		runOpts.Early = func(issues []result.Issue, files []string) {
+			early(filterResults(issues, severity, logger), files)
+		}
+	}
 	results, err := engine.RunWithOptions(ctx, targetPath, cfg, runOpts)
 	if err != nil {
 		return nil, fmt.Errorf("analysis failed: %w", err)

@@ -39,6 +39,18 @@ type Options struct {
 	// Cache, when set, stores package results instead of the directory from
 	// the configuration. It is used only while scan.enable_cache is true.
 	Cache *cache.Cache
+	// Focus lists files, by absolute path, whose packages are analyzed
+	// before the others. It is used only together with Early.
+	Focus []string
+	// Early, when set and at least one package contains a Focus file,
+	// receives the findings of the package-level rules (built-in, YAML and
+	// metrics) for those packages as soon as they are known, before the
+	// remaining packages and the whole-program analyses run. The findings
+	// are filtered and suppressed like the final ones and are complete for
+	// files, the selected files of those packages; both use paths relative
+	// to the workspace root. Findings of whole-program analyses, such as
+	// taint tracking and architecture checks, are only in the final result.
+	Early func(issues []result.Issue, files []string)
 }
 
 // Run loads a workspace once and analyzes its packages with bounded concurrency.
@@ -60,11 +72,27 @@ func RunWithOptions(ctx context.Context, path string, cfg *config.Config, opts O
 		return nil, err
 	}
 	ruleSet := packageRules(opts.Rules)
-	issues, err := runPackageRules(ctx, ws, cfg, ruleSet, openPackageCache(cfg, opts, ruleSet))
+	pc := openPackageCache(cfg, opts, ruleSet)
+	pkgs := ws.Packages
+	var issues []result.Issue
+	if opts.Early != nil {
+		focus, rest := splitFocus(ws, opts.Focus)
+		if len(focus) > 0 {
+			found, err := runPackageRules(ctx, ws, cfg, ruleSet, pc, focus)
+			if err != nil {
+				return nil, err
+			}
+			files := packageFiles(ws, focus)
+			opts.Early(earlyIssues(ws, cfg, found, files), files)
+			issues, pkgs = found, rest
+		}
+	}
+	found, err := runPackageRules(ctx, ws, cfg, ruleSet, pc, pkgs)
 	if err != nil {
 		return nil, err
 	}
-	found, err := runWorkspaceAnalyses(ctx, ws, cfg)
+	issues = append(issues, found...)
+	found, err = runWorkspaceAnalyses(ctx, ws, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +119,89 @@ func packageRules(extra []*rules.Rule) []*rules.Rule {
 	return out
 }
 
-// runPackageRules runs the built-in rules and ruleSet on every package.
-func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, ruleSet []*rules.Rule, pc *packageCache) ([]result.Issue, error) {
+// splitFocus separates the packages containing one of the focus files from
+// the others, keeping the workspace order. Paths are compared as given and,
+// when none matches, with symbolic links resolved.
+func splitFocus(ws *workspace.Workspace, focus []string) (in, out []*packages.Package) {
+	if len(focus) == 0 {
+		return nil, ws.Packages
+	}
+	want := map[string]bool{}
+	for _, f := range focus {
+		want[filepath.Clean(f)] = true
+	}
+	in, out = partitionPackages(ws, func(name string) bool { return want[name] })
+	if len(in) > 0 {
+		return in, out
+	}
+	resolved := map[string]bool{}
+	for _, f := range focus {
+		if r, err := filepath.EvalSymlinks(f); err == nil {
+			resolved[r] = true
+		}
+	}
+	return partitionPackages(ws, func(name string) bool {
+		r, err := filepath.EvalSymlinks(name)
+		return err == nil && resolved[r]
+	})
+}
+
+// partitionPackages separates the packages with a file for which match is
+// true from the others.
+func partitionPackages(ws *workspace.Workspace, match func(filename string) bool) (in, out []*packages.Package) {
+	for _, pkg := range ws.Packages {
+		matched := false
+		for _, file := range ws.Files(pkg) {
+			if match(ws.Fset.Position(file.Pos()).Filename) {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			in = append(in, pkg)
+		} else {
+			out = append(out, pkg)
+		}
+	}
+	return in, out
+}
+
+// packageFiles returns the selected files of pkgs relative to the workspace
+// root, sorted and without duplicates.
+func packageFiles(ws *workspace.Workspace, pkgs []*packages.Package) []string {
+	seen := map[string]bool{}
+	var files []string
+	for _, pkg := range pkgs {
+		for _, file := range ws.Files(pkg) {
+			name := relativePath(ws.RootDir, ws.Fset.Position(file.Pos()).Filename)
+			if !seen[name] {
+				seen[name] = true
+				files = append(files, name)
+			}
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
+// earlyIssues post-processes the package-level findings of the focus
+// packages and keeps those located in files.
+func earlyIssues(ws *workspace.Workspace, cfg *config.Config, found []result.Issue, files []string) []result.Issue {
+	covered := map[string]bool{}
+	for _, f := range files {
+		covered[f] = true
+	}
+	var out []result.Issue
+	for _, issue := range postProcess(ws, cfg, found) {
+		if covered[issue.Location.File] {
+			out = append(out, issue)
+		}
+	}
+	return out
+}
+
+// runPackageRules runs the built-in rules and ruleSet on pkgs.
+func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, ruleSet []*rules.Rule, pc *packageCache, pkgs []*packages.Package) ([]result.Issue, error) {
 	workers := cfg.Scan.Concurrency
 	if workers <= 0 {
 		workers = runtime.NumCPU()
@@ -101,7 +210,7 @@ func runPackageRules(ctx context.Context, ws *workspace.Workspace, cfg *config.C
 	group.SetLimit(workers)
 	var mu sync.Mutex
 	var issues []result.Issue
-	for _, pkg := range ws.Packages {
+	for _, pkg := range pkgs {
 		group.Go(func() error {
 			found, err := pc.analyze(ws, pkg, func() ([]result.Issue, error) {
 				return analyzePackage(groupCtx, ws, pkg, cfg, ruleSet)

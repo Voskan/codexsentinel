@@ -21,10 +21,10 @@ import (
 
 const insecure = "package main\n\nimport \"crypto/tls\"\n\nfunc main() {\n\tcfg := &tls.Config{InsecureSkipVerify: true}\n\t_ = cfg\n}\n"
 
-func analyze(ctx context.Context, root string) ([]result.Issue, error) {
+func analyze(ctx context.Context, req Request) ([]result.Issue, error) {
 	cfg := config.NewDefaultConfig()
 	cfg.Scan.EnableCache = false
-	return engine.Run(ctx, root, &cfg)
+	return engine.RunWithOptions(ctx, req.Root, &cfg, engine.Options{Focus: req.Files, Early: req.Early})
 }
 
 // client drives a server over pipes.
@@ -169,7 +169,12 @@ func TestLanguageServerLifecycle(t *testing.T) {
 	c.notify("initialized", map[string]any{})
 	c.notify("textDocument/didOpen", map[string]any{"textDocument": map[string]any{"uri": uri, "languageId": "go", "version": 1, "text": insecure}})
 
+	// The package-level findings come first, then the complete ones.
+	early := c.diagnosticsFor(uri)
 	diags := c.diagnosticsFor(uri)
+	if !hasCode(early, "tls-insecure-config") {
+		t.Fatalf("early diagnostics without tls-insecure-config: %+v", early)
+	}
 	var tlsDiag *diagnostic
 	for i := range diags {
 		if diags[i].Code == "tls-insecure-config" {
@@ -324,5 +329,209 @@ func TestSuppressionPolicyFollowsProject(t *testing.T) {
 	defer mu.Unlock()
 	if len(asked) != 1 || asked[0] != dir {
 		t.Fatalf("policy asked for %v, want [%s]", asked, dir)
+	}
+}
+
+func hasCode(diags []diagnostic, code string) bool {
+	for _, d := range diags {
+		if d.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func codes(diags []diagnostic) []string {
+	out := make([]string, len(diags))
+	for i, d := range diags {
+		out[i] = d.Code
+	}
+	return out
+}
+
+// publication is one textDocument/publishDiagnostics notification.
+type publication struct {
+	uri   string
+	codes []string
+}
+
+func (c *client) nextPublication() publication {
+	c.t.Helper()
+	for {
+		m := c.read()
+		if m.Method != "textDocument/publishDiagnostics" {
+			continue
+		}
+		var p publishDiagnosticsParams
+		if err := json.Unmarshal(m.Params, &p); err != nil {
+			c.t.Fatal(err)
+		}
+		if p.Diagnostics == nil {
+			c.t.Fatal("diagnostics must be an array, not null")
+		}
+		return publication{uri: p.URI, codes: codes(p.Diagnostics)}
+	}
+}
+
+func (c *client) expectPublications(want ...publication) {
+	c.t.Helper()
+	for i, w := range want {
+		got := c.nextPublication()
+		if got.uri != w.uri || strings.Join(got.codes, ",") != strings.Join(w.codes, ",") {
+			c.t.Fatalf("publication %d = %+v, want %+v", i, got, w)
+		}
+	}
+}
+
+// twoFileModule writes a module with main.go and util.go and returns their
+// paths.
+func twoFileModule(t *testing.T) (dir, mainPath, utilPath string) {
+	t.Helper()
+	dir = t.TempDir()
+	mainPath, utilPath = filepath.Join(dir, "main.go"), filepath.Join(dir, "util", "util.go")
+	if err := os.MkdirAll(filepath.Dir(utilPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{
+		filepath.Join(dir, "go.mod"): "module example.test/lsp\n\ngo 1.24\n",
+		mainPath:                     "package main\n\nfunc main() {}\n",
+		utilPath:                     "package util\n",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir, mainPath, utilPath
+}
+
+func finding(id, file string, line int) result.Issue {
+	return result.Issue{ID: id, Severity: result.SeverityMedium, Location: result.Location{File: file, Line: line}}
+}
+
+// The package-level findings of the saved file are published before the
+// analysis finishes and are replaced by its complete findings. Files outside
+// the early set keep their diagnostics until then.
+func TestEarlyDiagnosticsAreReplaced(t *testing.T) {
+	dir, mainPath, utilPath := twoFileModule(t)
+	mainURI, utilURI := pathToURI(mainPath), pathToURI(utilPath)
+	type call struct {
+		files   []string
+		release chan struct{}
+	}
+	calls := make(chan call, 2)
+	run := 0
+	c, _ := startWith(t, &Server{Analyze: func(ctx context.Context, req Request) ([]result.Issue, error) {
+		run++
+		release := make(chan struct{})
+		calls <- call{files: req.Files, release: release}
+		if run == 1 {
+			req.Early([]result.Issue{finding("pkg-rule", "main.go", 3)}, []string{"main.go"})
+			<-release
+			return []result.Issue{finding("pkg-rule", "main.go", 3), finding("taint-rule", "main.go", 3), finding("arch-rule", utilPath, 1)}, nil
+		}
+		// The package-level finding is gone; the early publication clears
+		// it while util.go keeps its diagnostics.
+		req.Early(nil, []string{mainPath})
+		<-release
+		return []result.Issue{finding("taint-rule", "main.go", 3)}, nil
+	}})
+	c.response(c.request("initialize", map[string]any{"rootUri": pathToURI(dir), "capabilities": map[string]any{}}))
+
+	c.notify("textDocument/didOpen", map[string]any{"textDocument": map[string]any{"uri": mainURI, "languageId": "go", "version": 1, "text": ""}})
+	first := <-calls
+	if len(first.files) != 1 || first.files[0] != mainPath {
+		t.Fatalf("request files = %v, want [%s]", first.files, mainPath)
+	}
+	c.expectPublications(publication{mainURI, []string{"pkg-rule"}})
+	close(first.release)
+	c.expectPublications(
+		publication{mainURI, []string{"pkg-rule", "taint-rule"}},
+		publication{utilURI, []string{"arch-rule"}},
+	)
+
+	c.notify("textDocument/didSave", map[string]any{"textDocument": map[string]any{"uri": mainURI}})
+	second := <-calls
+	c.expectPublications(publication{mainURI, []string{}})
+	close(second.release)
+	c.expectPublications(
+		publication{utilURI, []string{}},
+		publication{mainURI, []string{"taint-rule"}},
+	)
+}
+
+// A newer save cancels both phases of the analysis it supersedes, and the
+// documents of the cancelled analysis are passed to the next one.
+func TestNewerSaveCancelsBothPhases(t *testing.T) {
+	dir, mainPath, utilPath := twoFileModule(t)
+	mainURI, utilURI := pathToURI(mainPath), pathToURI(utilPath)
+	started := make(chan []string, 2)
+	superseded := make(chan struct{})
+	run := 0
+	c, _ := startWith(t, &Server{Analyze: func(ctx context.Context, req Request) ([]result.Issue, error) {
+		run++
+		started <- req.Files
+		if run == 1 {
+			// An analyzer that notices the cancellation late must not
+			// publish anything.
+			<-ctx.Done()
+			defer close(superseded)
+			req.Early([]result.Issue{finding("stale-early", "main.go", 1)}, []string{"main.go"})
+			return []result.Issue{finding("stale-final", "main.go", 1)}, nil
+		}
+		req.Early([]result.Issue{finding("fresh-early", "util/util.go", 1)}, []string{"util/util.go"})
+		return []result.Issue{finding("fresh-final", "util/util.go", 1)}, nil
+	}})
+	c.response(c.request("initialize", map[string]any{"rootUri": pathToURI(dir), "capabilities": map[string]any{}}))
+
+	c.notify("textDocument/didSave", map[string]any{"textDocument": map[string]any{"uri": mainURI}})
+	if files := <-started; len(files) != 1 || files[0] != mainPath {
+		t.Fatalf("first request files = %v", files)
+	}
+	c.notify("textDocument/didSave", map[string]any{"textDocument": map[string]any{"uri": utilURI}})
+	if files := <-started; len(files) != 2 || files[0] != mainPath || files[1] != utilPath {
+		t.Fatalf("second request files = %v, want [%s %s]", files, mainPath, utilPath)
+	}
+	c.expectPublications(
+		publication{utilURI, []string{"fresh-early"}},
+		publication{utilURI, []string{"fresh-final"}},
+	)
+	<-superseded
+	id := c.request("shutdown", nil)
+	for {
+		m := c.read()
+		if m.Method == "textDocument/publishDiagnostics" {
+			t.Fatalf("superseded analysis published %s", m.Params)
+		}
+		if m.ID != nil && *m.ID == id {
+			break
+		}
+	}
+}
+
+// An analysis with a debounce is cancelled by a save during the wait, before
+// either phase starts.
+func TestDebounceMergesSaves(t *testing.T) {
+	dir, mainPath, utilPath := twoFileModule(t)
+	mainURI, utilURI := pathToURI(mainPath), pathToURI(utilPath)
+	var mu sync.Mutex
+	var requests [][]string
+	c, _ := startWith(t, &Server{Debounce: 500 * time.Millisecond, Analyze: func(ctx context.Context, req Request) ([]result.Issue, error) {
+		mu.Lock()
+		requests = append(requests, req.Files)
+		mu.Unlock()
+		req.Early([]result.Issue{finding("early", "main.go", 1)}, []string{"main.go"})
+		return []result.Issue{finding("final", "main.go", 1)}, nil
+	}})
+	c.response(c.request("initialize", map[string]any{"rootUri": pathToURI(dir), "capabilities": map[string]any{}}))
+	c.notify("textDocument/didSave", map[string]any{"textDocument": map[string]any{"uri": mainURI}})
+	c.notify("textDocument/didSave", map[string]any{"textDocument": map[string]any{"uri": utilURI}})
+	c.expectPublications(
+		publication{mainURI, []string{"early"}},
+		publication{mainURI, []string{"final"}},
+	)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requests) != 1 || len(requests[0]) != 2 {
+		t.Fatalf("requests = %v, want one with both files", requests)
 	}
 }
