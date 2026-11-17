@@ -2,17 +2,19 @@
 
 # CodexSentinel Rules
 
-CodexSentinel reports 75 rules. Each page explains what a rule detects, why it matters in Go, a problematic and a safe example, and how to configure or suppress it. `codex-cli explain <rule>` prints the same information.
+CodexSentinel reports 85 rules. Each page explains what a rule detects, why it matters in Go, a problematic and a safe example, and how to configure or suppress it. `codex-cli explain <rule>` prints the same information.
 
 | Category | Rules |
 | --- | ---: |
-| [Security](#security) | 47 |
+| [Security](#security) | 51 |
 | [Reliability & Concurrency](#reliability--concurrency) | 7 |
 | [Supply Chain & Provenance](#supply-chain--provenance) | 9 |
-| [Architecture](#architecture) | 4 |
+| [Architecture](#architecture) | 6 |
 | [License](#license) | 1 |
 | [Code Metrics](#code-metrics) | 6 |
 | [Suppression Policy](#suppression-policy) | 1 |
+| [Style](#style) | 3 |
+| [Correctness](#correctness) | 1 |
 
 ## Security
 
@@ -65,6 +67,10 @@ CodexSentinel reports 75 rules. Each page explains what a rule detects, why it m
 | CS045 | [`security-err-ignored`](security-err-ignored.md) | HIGH | CWE-252 / A10:2025 | No | The error of a call whose failure leaves the program insecure is dropped. |
 | CS056 | [`high-entropy-string`](high-entropy-string.md) | MEDIUM | CWE-798 / A07:2025 | No | Vendored dependency code contains a string that looks like a secret. |
 | CS075 | [`unauthorized-suppression-added`](unauthorized-suppression-added.md) | CRITICAL | CWE-693 / A06:2025 | No | A change adds an inline ignore, an ignore-file entry or a setting that hides findings. |
+| CS076 | [`go.security.plaintext-http-request`](go.security.plaintext-http-request.md) | MEDIUM | CWE-319 / A04:2025 | No | http.Get is called with a constant http:// URL of a host other than localhost. |
+| CS077 | [`go.security.plaintext-http-request-new`](go.security.plaintext-http-request-new.md) | MEDIUM | CWE-319 / A04:2025 | No | http.NewRequestWithContext is called with a constant http:// URL of a host other than localhost. |
+| CS084 | [`template-injection`](template-injection.md) | HIGH | CWE-1336 / A05:2025 | No | Template source text is built from untrusted data. |
+| CS085 | [`nosql-injection`](nosql-injection.md) | HIGH | CWE-943 / A05:2025 | No | Database-side code is built from untrusted data: a Redis Lua script or MongoDB $where, $function or $accumulator JavaScript. |
 
 ## Reliability & Concurrency
 
@@ -100,6 +106,8 @@ CodexSentinel reports 75 rules. Each page explains what a rule detects, why it m
 | CS065 | [`arch-import-cycle`](arch-import-cycle.md) | HIGH | - | No | Packages of the module import each other in a cycle. |
 | CS066 | [`arch-god-struct`](arch-god-struct.md) | LOW | - | No | A struct has too many methods, or many fields combined with behavior. |
 | CS067 | [`arch-boundary-type-leak`](arch-boundary-type-leak.md) | MEDIUM | - | No | A layer's exported API exposes types of a layer it should hide. |
+| CS078 | [`go.architecture.sql-in-transport-layer`](go.architecture.sql-in-transport-layer.md) | LOW | - | No | A package named handler, api, transport, web, http or controller calls methods of *sql.DB or *sql.Tx directly. |
+| CS079 | [`go.architecture.http-in-data-layer`](go.architecture.http-in-data-layer.md) | LOW | - | No | A package named repository, dao, model, store or storage registers HTTP handlers with http.HandleFunc. |
 
 ## License
 
@@ -123,3 +131,17 @@ CodexSentinel reports 75 rules. Each page explains what a rule detects, why it m
 | Code | Rule ID | Severity | CWE / OWASP | Auto-Fix | Summary |
 | --- | --- | --- | --- | --- | --- |
 | CS074 | [`ignore-missing-reason`](ignore-missing-reason.md) | LOW | - | No | A suppression gives no reason while suppression.require_ignore_reason is set. |
+
+## Style
+
+| Code | Rule ID | Severity | CWE / OWASP | Auto-Fix | Summary |
+| --- | --- | --- | --- | --- | --- |
+| CS080 | [`go.style.strings-replace-all`](go.style.strings-replace-all.md) | INFO | - | Yes | strings.Replace is called with n = -1. |
+| CS081 | [`go.style.time-since`](go.style.time-since.md) | INFO | - | Yes | time.Now().Sub(t) computes the elapsed time. |
+| CS082 | [`go.style.bytes-equal`](go.style.bytes-equal.md) | INFO | - | Yes | bytes.Compare(a, b) == 0 tests two byte slices for equality. |
+
+## Correctness
+
+| Code | Rule ID | Severity | CWE / OWASP | Auto-Fix | Summary |
+| --- | --- | --- | --- | --- | --- |
+| CS083 | [`go.correctness.self-assignment`](go.correctness.self-assignment.md) | LOW | - | No | A variable or field is assigned to itself. |

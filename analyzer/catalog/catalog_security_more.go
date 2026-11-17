@@ -107,4 +107,45 @@ if _, err := rand.Read(key); err != nil {
 }`,
 		References: []string{cweURL + "252.html"},
 	},
+	{
+		ID: "template-injection", Code: "CS084", Title: "Template Injection", Category: CategorySecurity, DefaultSeverity: high,
+		CWE: "CWE-1336", OWASP: "A05:2025",
+		Summary: "Template source text is built from untrusted data.",
+		Explanation: "Template actions in the parsed text can call any exported method and field of the data passed to Execute, read other templates and, with text/template, write raw markup. " +
+			"html/template escapes values, not the template itself, so parsing untrusted text is unsafe with both packages. " +
+			"The taint engine reports untrusted data that reaches Template.Parse.",
+		BadExample: `func greet(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := template.New("greet").Parse("<p>Hello " + r.FormValue("name") + "</p>")
+	if err != nil {
+		return
+	}
+	_ = tmpl.Execute(w, user)
+}`,
+		GoodExample: `var greetPage = template.Must(template.New("greet").Parse("<p>Hello {{.}}</p>"))
+
+func greet(w http.ResponseWriter, r *http.Request) {
+	_ = greetPage.Execute(w, r.FormValue("name"))
+}`,
+		References: []string{cweURL + "1336.html", "https://pkg.go.dev/html/template"},
+	},
+	{
+		ID: "nosql-injection", Code: "CS085", Title: "NoSQL Injection", Category: CategorySecurity, DefaultSeverity: high,
+		CWE: "CWE-943", OWASP: "A05:2025",
+		Summary: "Database-side code is built from untrusted data: a Redis Lua script or MongoDB $where, $function or $accumulator JavaScript.",
+		Explanation: "Redis EVAL and MongoDB $where run the given text as code on the database server, so input concatenated into it can read or change any key or document the connection can reach. " +
+			"The taint engine follows request data to go-redis Eval, EvalRO, ScriptLoad and NewScript across functions; MongoDB query documents (bson.M, bson.D or a map) are checked within the function that builds them. " +
+			"Ordinary filter values such as bson.M{\"name\": name} are not reported: the driver sends them as data.",
+		BadExample: `func count(w http.ResponseWriter, r *http.Request) {
+	field := r.FormValue("field")
+	rdb.Eval(r.Context(), "return redis.call('HGET', KEYS[1], '"+field+"')", []string{"stats"})
+	coll.Find(r.Context(), bson.M{"$where": "this.owner == '" + r.FormValue("owner") + "'"})
+}`,
+		GoodExample: `var hget = redis.NewScript("return redis.call('HGET', KEYS[1], ARGV[1])")
+
+func count(w http.ResponseWriter, r *http.Request) {
+	hget.Run(r.Context(), rdb, []string{"stats"}, r.FormValue("field"))
+	coll.Find(r.Context(), bson.M{"owner": r.FormValue("owner")})
+}`,
+		References: []string{cweURL + "943.html", "https://www.mongodb.com/docs/manual/reference/operator/query/where/", "https://redis.io/docs/latest/develop/interact/programmability/eval-intro/"},
+	},
 }

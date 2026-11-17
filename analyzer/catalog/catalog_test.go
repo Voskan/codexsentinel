@@ -12,7 +12,11 @@ import (
 
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/catalog"
+	"github.com/Voskan/codexsentinel/analyzer/flow"
+	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
+	"github.com/Voskan/codexsentinel/analyzer/rules/yaml"
+	"github.com/Voskan/codexsentinel/assets"
 	"github.com/Voskan/codexsentinel/deps"
 	"github.com/Voskan/codexsentinel/internal/git"
 )
@@ -35,6 +39,57 @@ func TestEveryBuiltinRuleIsDocumented(t *testing.T) {
 	}
 }
 
+// The pattern rules embedded in the binary report findings in every scan,
+// so they must be documented like the built-in rules.
+func TestEmbeddedYAMLRulesAreDocumented(t *testing.T) {
+	compiled, err := yaml.LoadFromFS(assets.BuiltinRulesFS, "rules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := 0
+	for _, c := range yaml.Registrations(compiled) {
+		if !c.Enabled {
+			continue
+		}
+		enabled++
+		doc, ok := catalog.Lookup(c.ID)
+		if !ok {
+			t.Errorf("embedded rule %s is not in the catalog", c.ID)
+			continue
+		}
+		if doc.Title != c.Title || doc.DefaultSeverity != result.ParseSeverity(c.Severity) || doc.Category != c.Category {
+			t.Errorf("%s: catalog %q/%s/%s, rule %q/%s/%s", c.ID, doc.Title, doc.DefaultSeverity, doc.Category, c.Title, c.Severity, c.Category)
+		}
+		if doc.HasAutoFix != compiledHasFix(compiled, c.ID) {
+			t.Errorf("%s: catalog autofix %v does not match the rule", c.ID, doc.HasAutoFix)
+		}
+	}
+	if enabled == 0 {
+		t.Fatal("no embedded rules")
+	}
+}
+
+func compiledHasFix(compiled []*yaml.CompiledRule, id string) bool {
+	for _, c := range compiled {
+		if c.Rule.ID == id {
+			return c.Rule.Fix != ""
+		}
+	}
+	return false
+}
+
+func TestCategoriesCoverCatalog(t *testing.T) {
+	known := map[string]bool{}
+	for _, c := range catalog.Categories() {
+		known[c] = true
+	}
+	for _, d := range catalog.All() {
+		if !known[d.Category] {
+			t.Errorf("%s: category %q is not listed by Categories", d.ID, d.Category)
+		}
+	}
+}
+
 func TestEngineRulesAreDocumented(t *testing.T) {
 	ids := []string{
 		"open-redirect", "tx-network-io", "lock-blocking-io",
@@ -45,6 +100,9 @@ func TestEngineRulesAreDocumented(t *testing.T) {
 		"high-complexity", "large-function", "large-file", "code-duplication", "global-variable", "dead-code",
 		"ignore-missing-reason",
 		git.SuppressionRuleID,
+	}
+	for category := range flow.DefaultRegistry().Categories {
+		ids = append(ids, category)
 	}
 	for _, id := range ids {
 		if _, ok := catalog.Lookup(id); !ok {

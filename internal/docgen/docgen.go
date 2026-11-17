@@ -23,6 +23,8 @@ var categoryNames = []struct{ id, name string }{
 	{catalog.CategoryLicense, "License"},
 	{catalog.CategoryMetrics, "Code Metrics"},
 	{catalog.CategorySuppression, "Suppression Policy"},
+	{catalog.CategoryStyle, "Style"},
+	{catalog.CategoryCorrectness, "Correctness"},
 }
 
 func categoryName(id string) string {

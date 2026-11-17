@@ -7,7 +7,7 @@ func sinkSpec(pkg, recv, fn, category, desc string, args ...int) SinkSpec {
 // builtinSinks lists security-sensitive calls. Argument indexes never count the receiver.
 func builtinSinks() []SinkSpec {
 	var out []SinkSpec
-	for _, group := range [][]SinkSpec{sqlSinks(), commandSinks(), pathSinks(), ssrfSinks(), xssSinks()} {
+	for _, group := range [][]SinkSpec{sqlSinks(), commandSinks(), pathSinks(), ssrfSinks(), xssSinks(), templateSinks(), noSQLSinks()} {
 		out = append(out, group...)
 	}
 	return append(out, sinkSpec("net/http", "", "Redirect", "open-redirect", "an HTTP redirect location", 2))
@@ -118,6 +118,38 @@ func xssSinks() []SinkSpec {
 	out = append(out, tpl("Execute", 1), tpl("ExecuteTemplate", 2))
 	for _, typ := range []string{"HTML", "HTMLAttr", "JS", "JSStr", "CSS", "URL", "Srcset"} {
 		out = append(out, SinkSpec{Package: "html/template", Function: typ, Conversion: true, WriterArg: -1, Category: "xss", Description: "a trusted html/template." + typ + " value"})
+	}
+	return out
+}
+
+// templateSinks are calls that compile template source. Untrusted template
+// text can call any exported method of the data passed to Execute and, with
+// text/template, write unescaped markup.
+func templateSinks() []SinkSpec {
+	const desc = "template source text"
+	return []SinkSpec{
+		sinkSpec("text/template", "Template", "Parse", "template-injection", desc, 0),
+		sinkSpec("html/template", "Template", "Parse", "template-injection", desc, 0),
+	}
+}
+
+// redisModules are the import paths of the go-redis client.
+var redisModules = []string{"github.com/redis/go-redis/v9", "github.com/go-redis/redis/v8"}
+
+// noSQLSinks are calls that run untrusted text as database code: Lua scripts
+// on a Redis server.
+func noSQLSinks() []SinkSpec {
+	const desc = "a Redis Lua script"
+	var out []SinkSpec
+	for _, pkg := range redisModules {
+		// Eval is declared on the unexported cmdable type and promoted to
+		// the clients; calls through an interface name the interface.
+		for _, recv := range []string{"cmdable", "Cmdable", "UniversalClient", "Scripter", "Pipeliner", "StatefulCmdable", "ScriptingFunctionsCmdable"} {
+			for _, m := range []string{"Eval", "EvalRO", "ScriptLoad"} {
+				out = append(out, sinkSpec(pkg, recv, m, "nosql-injection", desc, 1))
+			}
+		}
+		out = append(out, sinkSpec(pkg, "", "NewScript", "nosql-injection", desc, 0))
 	}
 	return out
 }

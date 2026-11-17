@@ -13,6 +13,7 @@ func RegisterAll(ctx *analyzer.AnalyzerContext) {
 		RegisterDataIntegrityRule,
 		RegisterLoggingMonitoringRule,
 		RegisterSSRFRule,
+		RegisterNoSQLInjectionRule,
 		RegisterCSRFRule,
 		RegisterPathTraversalRule,
 		RegisterCryptoWeakRule,

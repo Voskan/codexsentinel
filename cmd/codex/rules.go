@@ -3,6 +3,7 @@ package codex
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/Voskan/codexsentinel/analyzer/catalog"
 	"github.com/spf13/cobra"
@@ -35,7 +36,7 @@ func NewRulesCmd() *cobra.Command {
 			return fmt.Errorf("unknown format %q (want table, json or markdown)", format)
 		},
 	}
-	cmd.Flags().StringVar(&category, "category", "", "Only rules of this category (security, reliability, supply-chain, architecture, metrics, license, suppression)")
+	cmd.Flags().StringVar(&category, "category", "", "Only rules of this category ("+strings.Join(catalog.Categories(), ", ")+")")
 	cmd.Flags().StringVar(&severity, "severity", "", "Only rules at or above this default severity")
 	cmd.Flags().StringVar(&format, "format", "table", "Output format: table, json or markdown")
 	return cmd

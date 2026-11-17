@@ -1,5 +1,7 @@
 package mcp
 
+import "github.com/Voskan/codexsentinel/analyzer/catalog"
+
 // tool describes one tool and its input schema.
 type tool struct {
 	name        string
@@ -50,7 +52,7 @@ var tools = []tool{
 		name:        "list_rules",
 		description: "List the available rules with code, ID, default severity, category, CWE and title.",
 		properties: map[string]map[string]any{
-			"category": {"type": "string", "enum": []string{"security", "reliability", "supply-chain", "architecture", "metrics", "license", "suppression"}, "description": "Only rules of this category"},
+			"category": {"type": "string", "enum": catalog.Categories(), "description": "Only rules of this category"},
 		},
 	},
 }

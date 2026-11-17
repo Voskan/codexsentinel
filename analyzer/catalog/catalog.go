@@ -62,6 +62,7 @@ func allDocs() []RuleDoc {
 	out = append(out, supplyChainDocs...)
 	out = append(out, architectureDocs...)
 	out = append(out, metricsDocs...)
+	out = append(out, yamlDocs...)
 	return out
 }
 
@@ -91,6 +92,14 @@ func Lookup(idOrCode string) (RuleDoc, bool) {
 		d.References = append([]string(nil), d.References...)
 	}
 	return d, ok
+}
+
+// Categories returns the rule categories in display order.
+func Categories() []string {
+	return []string{
+		CategorySecurity, CategoryReliability, CategorySupplyChain, CategoryArchitecture,
+		CategoryLicense, CategoryMetrics, CategorySuppression, CategoryStyle, CategoryCorrectness,
+	}
 }
 
 // ByCategory returns the rules of one category sorted by code.
