@@ -2,7 +2,7 @@
 
 ## 1. Install
 
-With Go 1.24 or newer:
+With Go 1.26 or newer:
 
 ```bash
 go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
@@ -194,7 +194,7 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: Voskan/codexsentinel@v2

@@ -4,10 +4,10 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/Voskan/codexsentinel.svg)](https://pkg.go.dev/github.com/Voskan/codexsentinel)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-CodexSentinel is an interprocedural static analyzer for modern Go (Go 1.24
-through 1.26 and newer). It loads a module once with full type information,
-builds SSA and a VTA call graph, and follows untrusted data across functions
-and packages to report security flaws with a source-to-sink trace. The same
+CodexSentinel is an interprocedural static analyzer for modern Go (code
+written for Go 1.24 and newer). It loads a module once with full type
+information, builds SSA and a VTA call graph, and follows untrusted data across
+functions and packages to report security flaws with a source-to-sink trace. The same
 pass finds production reliability bugs (network calls inside transactions,
 leaked bodies, rows and goroutines), architecture violations, and
 supply-chain risks: reachable vulnerabilities, risky module provenance and
@@ -168,7 +168,7 @@ list the 85 rules and explain one, with a vulnerable and a safe example.
 
 ## Installation
 
-Build from source with Go 1.24 or newer. The analyzer type-checks your code
+Build from source with Go 1.26 or newer. The analyzer type-checks your code
 with the Go version it was built with, so build it with the newest Go release
 to analyze modules that use the latest language version; release binaries and
 the container image are built that way.
@@ -597,7 +597,7 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: Voskan/codexsentinel@v2
@@ -632,7 +632,7 @@ With GitHub Advanced Security, upload SARIF to code scanning instead:
 ```yaml
       - run: codex-cli scan . --strict --severity high --format sarif --out results.sarif
       - if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
 ```

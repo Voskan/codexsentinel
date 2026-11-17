@@ -5,7 +5,7 @@ environment, how the analyzer is organized, and how to add and test a rule.
 
 ## Development environment
 
-- Go 1.24 or newer (the version in `go.mod` is the minimum).
+- Go 1.26 or newer (the version in `go.mod` is the minimum).
 - git (the diff mode and several tests run `git`).
 - Optional: [golangci-lint](https://golangci-lint.run) v2 for `make lint`, Docker for `make docker-build`.
 
