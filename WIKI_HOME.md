@@ -14,7 +14,7 @@ report.
 | [Documentation](WIKI_DOCUMENTATION.md) | The scan pipeline, how each analysis works, cache, suppressions, report formats, language and MCP servers, configuration reference |
 | [Examples](WIKI_EXAMPLES.md) | Vulnerable and fixed code for the main rules; CI pipelines for GitHub, GitLab and pre-commit; custom YAML rules and taint specifications; OpenVEX with Trivy and Grype |
 | [API Reference](WIKI_API_REFERENCE.md) | Every command and flag, exit codes, report formats, and the Go API: engine, catalog, reports, `go/analysis` analyzers and the golangci-lint plugin |
-| [Rule reference](docs/rules/README.md) | One page per rule (CS001 to CS075), generated from the rule catalog |
+| [Rule reference](docs/rules/README.md) | One page per rule (CS001 to CS085), generated from the rule catalog |
 | [Benchmarks](docs/BENCHMARKS.md) | Precision, recall and speed on reproducible corpora, compared with gosec and govulncheck |
 
 ## Commands at a glance

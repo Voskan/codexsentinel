@@ -38,15 +38,15 @@ pattern ending in `/...` or a single `.go` file.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `-f, --format` | `sarif` | `sarif`, `json`, `html`, `markdown`, `agent`, `github` or `gitlab` |
-| `-o, --out` | `report.output_dir` (`scan_reports/`) with the format's file name | Report file; `-` writes to stdout (default for `github`; not available for `html`) |
+| `-f, --format` | `report.formats` (`sarif`) | `sarif`, `json`, `html`, `markdown`, `agent`, `github` or `gitlab` |
+| `-o, --out` | `report.output_dir` (`scan_reports/`) with the format's file name | Report file for a single format; `-` writes to stdout (default for `github`; not available for `html`) |
 | `--severity` | all | Keep findings at or above `low`, `medium`, `high` or `critical` |
 | `--strict` | `false` | Exit with code 1 when findings remain |
 | `--diff REF` | | Only findings on lines changed since a git reference; untracked files count as changed |
 | `--baseline FILE` | | Hide findings recorded in a baseline file |
 | `--forbid-new-suppressions` | `false` | Report suppressions added since `--diff` (default `HEAD`) as critical findings; `CODEX_ALLOW_SUPPRESSIONS=1` approves them |
 | `--fix` | `false` | Apply the findings' suggested fixes to the source files |
-| `--deps` | `false` | Run only the dependency audit (needs network access) |
+| `--deps` | `false` | Run only the dependency audit (needs network access); `--severity` applies |
 | `--ignore-file FILE` | `suppression.ignore_file` | Ignore file to use |
 | `--no-cache` | `false` | Do not read or write the analysis cache |
 | `--github-summary FILE` | `$GITHUB_STEP_SUMMARY` with `--format github` | Append a Markdown summary of the findings |
@@ -120,8 +120,8 @@ The servers are described in the
 | --- | --- | --- |
 | `sarif` | `codex-report.sarif` | SARIF 2.1.0 with rule help links, CWE and OWASP tags, `security-severity`, `codeFlows`, `fixes` and fingerprints |
 | `json` | `codex-report.json` | Summary counts and the findings with traces, fixes and fingerprints |
-| `html` | `codex-report.html` | A single page with summary cards and finding details |
-| `markdown` | `codex-report.md` | Summary and tables per severity |
+| `html` | `codex-report.html` | A self-contained page with severity and category charts, a severity filter and per-finding CWE, OWASP, trace, fix and patch |
+| `markdown` | `codex-report.md` | Summary, tables per severity, and per finding its CWE and OWASP classification, trace, fix and patch |
 | `agent` | `codex-report.agent.txt` | Plain text for automated remediation: `STATUS`, then `ISSUE`, `WHY`, `FLOW`, `FIX` and `PATCH` per finding |
 | `github` | stdout | GitHub workflow commands that annotate pull requests, plus a job summary |
 | `gitlab` | `gl-code-quality-report.json` | GitLab Code Quality report |

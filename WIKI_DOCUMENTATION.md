@@ -48,15 +48,15 @@ key, suppression mechanism and report format. For a first run, start with the
 
 | Flag | Meaning |
 | --- | --- |
-| `-f, --format` | `sarif` (default), `json`, `html`, `markdown`, `agent`, `github` or `gitlab` |
-| `-o, --out` | Report path; `-` writes the report to stdout. Default: `report.output_dir` (`scan_reports/`) |
+| `-f, --format` | `sarif`, `json`, `html`, `markdown`, `agent`, `github` or `gitlab`. Default: every format in `report.formats` (`sarif`) |
+| `-o, --out` | Report path for a single format; `-` writes the report to stdout. Default: the format's file in `report.output_dir` (`scan_reports/`) |
 | `--severity` | Keep findings at or above `low`, `medium`, `high` or `critical` |
 | `--strict` | Exit with code 1 when findings remain after filtering |
 | `--diff REF` | Report only findings on lines changed since the git reference |
 | `--baseline FILE` | Hide findings recorded in the baseline |
 | `--forbid-new-suppressions` | Fail with critical `unauthorized-suppression-added` findings when the changes since `--diff` (default `HEAD`) add suppressions; `CODEX_ALLOW_SUPPRESSIONS=1` approves them (see [Suppression policy in CI](#suppression-policy-in-ci)) |
 | `--fix` | Apply the suggested fixes of the reported findings to the source files |
-| `--deps` | Run only the dependency audit |
+| `--deps` | Run only the dependency audit; `--severity` applies to its findings |
 | `--config FILE` | Use this configuration file |
 | `--ignore-file FILE` | Use this ignore file instead of `suppression.ignore_file` |
 | `--no-cache` | Do not read or write the analysis cache |
@@ -82,6 +82,7 @@ Workspace: go/packages with syntax and type information
 ```
 
 1. **Load.** `go/packages` loads the target packages with syntax and type information (`analyzer/workspace`).
+   - A target outside any module but inside a go.work workspace loads every workspace module below it as one program; see [Go workspaces](#go-workspaces).
    - Files under `scan.excluded_paths`, generated files and test files are excluded from the analysis unless enabled. Excluded files still take part in type checking and SSA construction.
 2. **Package rules.** The built-in rules, the YAML rules and the per-file metrics (complexity, function and file size) run on every package, in parallel up to `scan.concurrency`. Their results are cached; see [Analysis cache](#analysis-cache).
 3. **Whole-program analyses.** These share one SSA program and one VTA call graph (`analyzer/ssa`):
@@ -93,12 +94,39 @@ Workspace: go/packages with syntax and type information
 4. **Post-processing** (`analyzer/engine`):
    1. Rule selection and severity overrides.
    2. The `suppression.min_confidence` threshold.
-   3. File paths relative to the module root.
+   3. File paths relative to the module root (the workspace directory for a go.work scan).
    4. Inline directives.
    5. The ignore file.
    6. Deduplication by file, line and rule, preferring the finding with the longer trace and then the higher confidence.
    7. Fingerprints.
    8. Ordering by severity, file, line and rule.
+
+### Go workspaces
+
+When the scanned directory is not inside a module but is governed by a
+`go.work` file (as `go env GOWORK` reports it), `codex-cli scan` loads every
+module of the workspace located below that directory, with one SSA program
+and call graph:
+
+- taint flows across modules are reported, for example request input in
+  `svc/api` that reaches a query in `lib`;
+- findings, traces and architecture layer paths are relative to the
+  workspace directory;
+- requirements on workspace modules are left out of the `go.sum`, typosquatting,
+  policy and vulnerability checks, because the go command builds them from
+  their directories;
+- `--deps`, the dependency audit and `go.mod` hygiene run on the `go.mod` of
+  each module;
+- the configuration file and capability lock file are read from the
+  workspace directory;
+- `codex-cli init` combines the requirements of all modules; `codex-cli sbom`
+  describes a single module and lists the module directories when run on the
+  workspace.
+
+Scanning one module of the workspace analyzes that module only, with the other
+workspace modules as dependencies. This includes a module in the workspace
+directory itself (`use .`): as with `go list ./...`, its scan does not include
+the nested modules. `GOWORK=off` disables workspaces.
 
 ## Analysis cache
 
@@ -140,7 +168,7 @@ severity, CWE and OWASP category. Notable behavior:
 
 | Area | Rules | Notes |
 | --- | --- | --- |
-| Injection | `sql-injection`, `command-injection`, `xss` | Report queries, commands and HTML built from non-constant data. The taint engine adds interprocedural flows. Supports `database/sql`, sqlx, pgx and gorm. |
+| Injection | `sql-injection`, `command-injection`, `xss`, `template-injection`, `nosql-injection` | Report queries, commands and HTML built from non-constant data. The taint engine adds interprocedural flows. Supports `database/sql`, sqlx, pgx and gorm. `template-injection` reports untrusted text parsed as a template; `nosql-injection` reports go-redis Lua scripts and MongoDB `$where`, `$function` and `$accumulator` JavaScript built from request input. |
 | Files | `path-traversal`, `archive-zip-slip`, `archive-decompression-bomb`, `insecure-file-permissions` | Access through `*os.Root` (Go 1.24) is confined and never reported. `filepath.Join` with request input is reported with a hint to use `os.OpenRoot`. |
 | Web | `csrf-missing-protection`, `cors-wildcard-credentials`, `websocket-origin-bypass`, `cookie-*`, `debug-endpoint-exposed` | `csrf-missing-protection` reports state-changing routes that use cookie sessions without cross-origin protection. These count as protection: `http.NewCrossOriginProtection` (Go 1.25), gorilla/csrf, justinas/nosurf, gin-csrf, the fiber CSRF middleware, and echo's `middleware.CSRF`. |
 | gRPC | `grpc-insecure-credentials`, `grpc-server-missing-limits` | `insecure.NewCredentials()` and `grpc.WithInsecure()` are not reported when every dial target in the function is a constant loopback, `bufnet` or Unix socket address. `grpc.NewServer` is reported when its options set neither `MaxConcurrentStreams` nor an interceptor, or allow messages over 64 MiB; options built in another function are not judged. |
@@ -247,6 +275,8 @@ the normal behavior of a command-line tool.
 | `ssrf` | High | `http.Get`/`Post`/`Head`/`PostForm`, `http.NewRequest[WithContext]`, `http.Client` methods, `net.Dial[Timeout]` |
 | `xss` | High | `http.ResponseWriter.Write`, `fmt.Fprint*` and `io.WriteString` to a response, `text/template` execution to a response, `html/template.HTML` and the other trusted-type conversions |
 | `open-redirect` | Medium | `http.Redirect` |
+| `template-injection` | High | `Template.Parse` of `text/template` and `html/template` |
+| `nosql-injection` | High | go-redis v8/v9 `Eval`, `EvalRO` and `ScriptLoad` scripts and `redis.NewScript` |
 
 ### Sanitizers
 
@@ -570,7 +600,7 @@ when the pull request carries a label that security reviewers apply.
 | --- | --- |
 | SARIF 2.1.0 | Rules with CWE/OWASP tags and `security-severity`, results with `codeFlows`, `fixes` and `partialFingerprints.primaryLocationLineHash`, git metadata |
 | JSON | `summary` (counts per severity and category), `issues`, `generated_at`, `git` |
-| HTML | A single page with summary cards, findings by category and per-finding details including traces. Icons load from cdnjs. |
+| HTML | A self-contained page (inline styles, no network requests, light and dark themes) with charts by severity and category, a severity filter, and per finding its location, rule link, CWE, OWASP, confidence, reachability, data-flow trace, fix and patch |
 | Markdown | Repository information, summary, tables per severity, details and remediation |
 | GitHub | Workflow commands (`::error`, `::warning`, `::notice` with file, line, column and title) that annotate pull requests; written to stdout by default, plus a Markdown job summary with severity counts, the findings and their data-flow traces |
 | GitLab | Code Quality JSON array (`description`, `check_name`, `fingerprint`, `severity` blocker/critical/major/minor/info, `location.path`, `location.lines.begin`); `[]` when there are no findings. Default file `gl-code-quality-report.json` |
@@ -634,10 +664,16 @@ analysis is returned as a result with `isError: true`.
 
 ## Configuration reference
 
-The configuration file is found in the current directory as
-`.codexsentinel.yaml`, `.codexsentinel.yml`, `codex.yaml` or `.codex.yml`, in
-that order. It can also be given with `--config`. Unknown keys and invalid
-values are errors. Omitted keys keep their defaults.
+The configuration file is named `.codexsentinel.yaml`, `.codexsentinel.yml`,
+`codex.yaml` or `.codex.yml`, checked in that order in each directory. It is
+looked for in the root of the scanned module (or go.work workspace), then in
+its parent directories up to the repository root (the directory containing
+`.git`), and finally in the current directory. It can also be given with
+`--config`. Relative `rules.rule_paths` and `rules.rule_files` are resolved
+against the directory of the configuration file. The language server applies
+the same lookup to each workspace it analyzes, so
+`suppression.forbid_new_suppressions` follows the project being edited.
+Unknown keys and invalid values are errors. Omitted keys keep their defaults.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -678,6 +714,6 @@ values are errors. Omitted keys keep their defaults.
 | `suppression.require_ignore_reason` | `false` | Report directives without a reason |
 | `suppression.min_confidence` | `0.5` | Drop findings below this confidence |
 | `suppression.forbid_new_suppressions` | `false` | Fail scans whose changes add suppressions, as `--forbid-new-suppressions` does |
-| `report.formats` | `[sarif]` | Default report format |
+| `report.formats` | `[sarif]` | Formats written when `--format` is not given, each to its file in `report.output_dir` |
 | `report.output_dir` | `scan_reports` | Default report directory |
 | `report.fail_on_severity` | `""` | Exit with code 1 when findings at or above this severity remain |

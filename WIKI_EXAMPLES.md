@@ -11,9 +11,14 @@ that it does not. The findings are the actual output of
 - [Path traversal and os.Root](#path-traversal-and-osroot)
 - [Server-side request forgery](#server-side-request-forgery)
 - [Cross-site scripting](#cross-site-scripting)
+- [Template injection](#template-injection)
+- [NoSQL injection](#nosql-injection)
+- [gRPC requests](#grpc-requests)
 - [CSRF and http.CrossOriginProtection](#csrf-and-httpcrossoriginprotection)
 - [Secrets in logs](#secrets-in-logs)
 - [Server timeouts](#server-timeouts)
+- [Network calls inside a transaction](#network-calls-inside-a-transaction)
+- [Excessive data exposure and mass assignment](#excessive-data-exposure-and-mass-assignment)
 - [Automatic fixes](#automatic-fixes)
 - [Architecture layers](#architecture-layers)
 - [Custom taint sinks](#custom-taint-sinks)
@@ -155,6 +160,102 @@ func HelloSafe(w http.ResponseWriter, r *http.Request) {
 xssx/xssx.go:10 xss HIGH  Untrusted data flows into an HTTP response (untrusted input returned by (net/http.Request).FormValue)
 ```
 
+## Template injection
+
+```go
+var greeting = template.Must(template.New("greet").Parse("<p>Hello {{.}}</p>"))
+
+func Greet(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := template.New("greet").Parse("<p>Hello " + r.FormValue("name") + "</p>")
+	if err != nil {
+		return
+	}
+	_ = tmpl.Execute(w, nil)
+}
+
+func GreetSafe(w http.ResponseWriter, r *http.Request) {
+	_ = greeting.Execute(w, r.FormValue("name"))
+}
+```
+
+```text
+pages/pages.go:11 template-injection HIGH  Untrusted data flows into template source text (untrusted input returned by (net/http.Request).FormValue)
+  source  pages/pages.go:11  untrusted input returned by (net/http.Request).FormValue
+  sink    pages/pages.go:11  reaches (html/template.Template).Parse
+```
+
+`html/template` escapes the data passed to `Execute`, not the template text:
+input parsed as a template can call methods of the data and emit any markup.
+`GreetSafe` parses a constant template once and passes the name as data.
+
+## NoSQL injection
+
+```go
+var hget = redis.NewScript("return redis.call('HGET', KEYS[1], ARGV[1])")
+
+func (h *Handler) Counter(w http.ResponseWriter, r *http.Request) {
+	field := r.FormValue("field")
+	h.rdb.Eval(r.Context(), "return redis.call('HGET', 'stats', '"+field+"')", nil)
+	hget.Run(r.Context(), h.rdb, []string{"stats"}, field)
+}
+
+func (h *Handler) Orders(w http.ResponseWriter, r *http.Request) {
+	owner := r.FormValue("owner")
+	_, _ = h.orders.CountDocuments(bson.M{"$where": "this.owner == '" + owner + "'"})
+	_, _ = h.orders.CountDocuments(bson.M{"owner": owner})
+}
+```
+
+```text
+stats/stats.go:23 nosql-injection HIGH  Untrusted data flows into a Redis Lua script (untrusted input returned by (net/http.Request).FormValue)
+  source  stats/stats.go:22  untrusted input returned by (net/http.Request).FormValue
+  sink    stats/stats.go:23  reaches (github.com/redis/go-redis/v9.cmdable).Eval
+stats/stats.go:29 nosql-injection HIGH  MongoDB $where runs JavaScript built from HTTP request input on the database server.
+```
+
+The script loaded once with `redis.NewScript` receives the field in `ARGV`,
+and `bson.M{"owner": owner}` sends the owner as a value, so neither is
+reported.
+
+## gRPC requests
+
+Request messages of gRPC and Connect handlers are untrusted input. The
+generated getters are followed like any other function:
+
+```go
+type Server struct {
+	userpb.UnimplementedUserServiceServer
+	DB *sql.DB
+}
+
+func (s *Server) GetUser(ctx context.Context, req *userpb.GetUserRequest) (*userpb.UserResponse, error) {
+	var resp userpb.UserResponse
+	err := s.find(ctx, req.GetFilter()).Scan(&resp.Name)
+	return &resp, err
+}
+
+func (s *Server) find(ctx context.Context, filter string) *sql.Row {
+	return s.DB.QueryRowContext(ctx, "SELECT name FROM users WHERE "+filter)
+}
+```
+
+```text
+usersvc/server.go:22 sql-injection HIGH  Untrusted data flows into a SQL query (untrusted input received by Server.GetUser as parameter req)
+  source  usersvc/server.go:15  untrusted input received by Server.GetUser as parameter req
+  call    usersvc/server.go:17  passed to GetUserRequest.GetFilter
+  param   userpb/user_grpc.pb.go:12  parameter x of GetUserRequest.GetFilter
+  return  usersvc/server.go:17  returned from GetUserRequest.GetFilter
+  call    usersvc/server.go:17  passed to Server.find
+  param   usersvc/server.go:21  parameter filter of Server.find
+  sink    usersvc/server.go:22  reaches (database/sql.DB).QueryRowContext
+```
+
+An exported method is treated as a handler when its receiver embeds a
+generated `Unimplemented...Server` or `Unsafe...Server` type, or when it has
+the shape of a unary handler, `func(context.Context, *pb.Request)
+(*pb.Response, error)`. Request messages received on server streams are
+untrusted as well.
+
 ## CSRF and http.CrossOriginProtection
 
 ```go
@@ -230,6 +331,84 @@ func ServeSafe(h http.Handler) error {
 
 ```text
 srvx/srvx.go:9 http-server-missing-timeout HIGH  http.ListenAndServe starts a server without read timeouts (Slowloris).
+```
+
+## Network calls inside a transaction
+
+```go
+func (s *Service) Pay(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "UPDATE orders SET status = 'paid' WHERE id = $1", id); err != nil {
+		return err
+	}
+	if err := s.payments.Charge(ctx, id); err != nil { // POST to the payment provider
+		return err
+	}
+	return tx.Commit()
+}
+```
+
+```text
+orders/orders.go:38 tx-network-io HIGH  HTTP request (Payments.Charge -> (net/http.Client).Do) runs while the transaction opened at line 30 is held; the transaction keeps its connection and row locks until the remote call returns.
+  source  orders/orders.go:30  the transaction starts here
+  call    orders/orders.go:38  calls Payments.Charge
+  sink    orders/orders.go:17  HTTP request: (net/http.Client).Do
+```
+
+The HTTP call is two functions away from the transaction. Charging before
+`BeginTx`, or after `Commit`, is not reported.
+
+## Excessive data exposure and mass assignment
+
+```go
+type User struct {
+	ID           int64  `json:"id" db:"id"`
+	Email        string `json:"email" db:"email"`
+	PasswordHash string `json:"password_hash" db:"password_hash"`
+	IsAdmin      bool   `json:"is_admin" db:"is_admin"`
+}
+
+func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	var u User
+	_ = json.NewEncoder(w).Encode(u)
+}
+
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	var u User
+	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	_, _ = h.db.ExecContext(r.Context(), "UPDATE users SET email = $1, is_admin = $2 WHERE id = $3", u.Email, u.IsAdmin, u.ID)
+}
+```
+
+```text
+users/users.go:20 api-excessive-data-exposure HIGH  Type 'users.User' serialized to HTTP JSON response exposes sensitive field 'User.PasswordHash' without json:"-" tag.
+users/users.go:25 api-mass-assignment HIGH  Client input is decoded directly into database model 'User' whose fields 'IsAdmin' the client can then set.
+```
+
+Responding with a type that lists only `ID` and `Email`, and decoding into a
+request type with only the editable `Email`, is not reported:
+
+```go
+func (h *Handler) GetSafe(w http.ResponseWriter, r *http.Request) {
+	var u User
+	_ = json.NewEncoder(w).Encode(UserResponse{ID: u.ID, Email: u.Email})
+}
+
+func (h *Handler) UpdateSafe(w http.ResponseWriter, r *http.Request) {
+	var req UpdateEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	_, _ = h.db.ExecContext(r.Context(), "UPDATE users SET email = $1 WHERE id = $2", req.Email, currentUserID(r))
+}
 ```
 
 ## Automatic fixes

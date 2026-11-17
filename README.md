@@ -118,12 +118,12 @@ codex-cli rules
 codex-cli explain sql-injection
 ```
 
-list the 75 rules and explain one, with a vulnerable and a safe example.
+list the 85 rules and explain one, with a vulnerable and a safe example.
 
 ## Features
 
 **Interprocedural taint analysis.**
-- Untrusted data is tracked from sources to sinks on SSA form. Sources are HTTP requests, environment variables, command-line arguments and similar inputs. Sinks are SQL queries, commands, file paths, outbound URLs, HTML responses and redirects.
+- Untrusted data is tracked from sources to sinks on SSA form. Sources are HTTP requests, environment variables, command-line arguments and similar inputs. Sinks are SQL queries, commands, file paths, outbound URLs, HTML responses, redirects, template source text and Redis Lua scripts.
 - Function summaries carry taint across calls, closures, struct fields and interface calls. Calls are resolved through a VTA call graph.
 - Sanitizers can clear taint for specific categories only.
 - Every taint finding includes a source-to-sink trace, which the SARIF output emits as `codeFlows` so code scanning UIs show the path.
@@ -168,7 +168,10 @@ list the 75 rules and explain one, with a vulnerable and a safe example.
 
 ## Installation
 
-Build from source with Go 1.24 or newer:
+Build from source with Go 1.24 or newer. The analyzer type-checks your code
+with the Go version it was built with, so build it with the newest Go release
+to analyze modules that use the latest language version; release binaries and
+the container image are built that way.
 
 ```bash
 go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
@@ -202,7 +205,7 @@ docker run --rm -v "$PWD:/workspace" codexsentinel scan . --format sarif --out r
 ## Usage
 
 ```bash
-codex-cli init                                     # write .codexsentinel.yaml for this module
+codex-cli init                                     # write .codexsentinel.yaml for this module or workspace
 codex-cli scan .                                   # SARIF report in scan_reports/
 codex-cli scan ./... --format json --out report.json
 codex-cli scan . --format html --out report.html
@@ -213,7 +216,7 @@ codex-cli scan . --format gitlab                   # GitLab Code Quality report
 codex-cli scan . --format json --out -             # write the report to stdout
 codex-cli scan . --severity high                   # only high and critical findings
 codex-cli scan . --strict                          # exit code 1 when findings remain
-codex-cli scan . --deps                            # dependency audit only
+codex-cli scan . --deps                            # dependency audit only (--severity applies)
 codex-cli scan . --no-cache                        # ignore the analysis cache
 codex-cli cache status                             # cache location and size
 codex-cli cache clean                              # remove cached results
@@ -243,6 +246,15 @@ packages it imports, the configuration and the analyzer are unchanged.
 
 The target may be a module directory, a package pattern ending in `/...`, or a
 single `.go` file. Findings are reported relative to the module root.
+
+In a go.work workspace, scanning a directory that is not itself a module, such
+as the workspace directory, analyzes the workspace modules below it together, so taint
+flows from one module into another are found; findings are relative to the
+workspace directory and architecture layers match paths from there. Requirements
+on modules of the workspace are not reported as missing from `go.sum`, and
+`--deps` audits the `go.mod` of each module. `sbom` describes one module, so run
+it in a module directory. `GOWORK=off` disables workspaces as it does for the
+go command.
 
 ### Pull requests and legacy code
 
@@ -341,7 +353,9 @@ catalog with `make docs-generate`, and a test fails when it is out of date.
 | `jwt-weak-secret` | High | CWE-326 | A04 |
 | `tls-insecure-config` | High | CWE-295 | A04 |
 | `command-injection` | High | CWE-78 | A05 |
+| `nosql-injection` | High | CWE-943 | A05 |
 | `sql-injection` | High | CWE-89 | A05 |
+| `template-injection` | High | CWE-1336 | A05 |
 | `xss` | High | CWE-79 | A05 |
 | `archive-decompression-bomb` | Medium | CWE-409 | A06 |
 | `context-propagation-missing` | Medium | CWE-400 | A06 |
@@ -386,7 +400,12 @@ findings use the `reliability` category.
 ### Taint analysis
 
 The taint engine reports `sql-injection`, `command-injection`,
-`path-traversal`, `ssrf`, `xss` and `open-redirect` findings with a trace.
+`path-traversal`, `ssrf`, `xss`, `open-redirect`, `template-injection`
+(untrusted text passed to `Template.Parse`) and `nosql-injection` (untrusted
+text in a go-redis `Eval`, `EvalRO`, `ScriptLoad` or `NewScript` script)
+findings with a trace. `nosql-injection` also covers MongoDB `$where`,
+`$function` and `$accumulator` JavaScript built from request input in the
+function that builds the query document.
 Custom sources, sinks and sanitizers are configured under `taint` (see
 [Configuration](#configuration)). When a built-in rule and the taint engine
 report the same line, the finding with the longer trace is kept.
@@ -438,11 +457,29 @@ fix: "strings.ReplaceAll($S, $OLD, $NEW)"
 restrict a metavariable by type or require it to be non-constant. See
 [assets/rules](assets/rules) for complete examples.
 
+The default YAML rules:
+
+| Rule ID | Severity | Reported when |
+| --- | --- | --- |
+| `go.security.plaintext-http-request` | Medium | `http.Get` is called with an `http://` URL to a non-local host |
+| `go.security.plaintext-http-request-new` | Medium | A request is built for an `http://` URL to a non-local host |
+| `go.architecture.sql-in-transport-layer` | Low | A handler, API or transport package calls `*sql.DB` or `*sql.Tx` directly |
+| `go.architecture.http-in-data-layer` | Low | A repository, model or storage package registers HTTP handlers |
+| `go.correctness.self-assignment` | Low | An expression is assigned to itself |
+| `go.style.strings-replace-all` | Info | `strings.Replace(s, old, new, -1)` can be `strings.ReplaceAll` (autofix) |
+| `go.style.time-since` | Info | `time.Now().Sub(t)` can be `time.Since(t)` (autofix) |
+| `go.style.bytes-equal` | Info | `bytes.Compare(a, b) == 0` can be `bytes.Equal(a, b)` (autofix) |
+
 ## Configuration
 
 `codex-cli` looks for `.codexsentinel.yaml`, `.codexsentinel.yml`,
-`codex.yaml` or `.codex.yml` in the current directory. Pass `--config` to use
-another file. Unknown keys and invalid values are rejected. The defaults are:
+`codex.yaml` or `.codex.yml` in the root of the scanned module (or go.work
+workspace), then in its parent directories up to the repository root (the
+directory with `.git`), and finally in the current directory. Pass `--config`
+to use another file. Relative paths in `rules.rule_paths` and
+`rules.rule_files` are resolved against the directory of the configuration
+file, so a scan gives the same result from any working directory. Unknown keys
+and invalid values are rejected. The defaults are:
 
 ```yaml
 version: 1
@@ -503,10 +540,15 @@ suppression:
   min_confidence: 0.5            # findings below this confidence are dropped
   forbid_new_suppressions: false # like --forbid-new-suppressions
 report:
-  formats: [sarif]
+  formats: [sarif]               # every listed format is written when --format is not given
   output_dir: scan_reports
   fail_on_severity: ""           # e.g. high: exit 1 on high or critical findings
 ```
+
+Without `--format`, `scan` writes one report per entry of `report.formats`
+into `report.output_dir`; `github` writes annotations to standard output.
+`--format` overrides the list. `--out` names a single report file, so it needs
+exactly one format.
 
 [codex.yaml](codex.yaml) is the configuration this repository uses for its own scan.
 

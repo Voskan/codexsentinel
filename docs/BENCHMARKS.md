@@ -68,23 +68,31 @@ fixes it. It complements a code scanner rather than competing with one.
 
 ## Speed
 
-Measured on an Apple M5 Max (18 cores), Go 1.27.3:
+Measured on an Apple M5 Max (18 cores), Go 1.27.3, as the median of three
+runs of `/usr/bin/time -l` (`codex-cli scan . --no-cache`; golangci-lint
+reuses its own cache):
 
 | Tool | Corpus | Time (s) | Peak memory (MiB) |
 | --- | --- | ---: | ---: |
-| codex-cli | vulnerable-app | 1.45 | 938 |
-| codex-cli | safe-app | 1.01 | 837 |
-| gosec (golangci-lint) | vulnerable-app | 0.44 | 103 |
-| gosec (golangci-lint) | safe-app | 0.24 | 106 |
-| govulncheck | vulnerable-app | 2.39 | 762 |
-| govulncheck | safe-app | 1.88 | 824 |
+| codex-cli | vulnerable-app | 0.81 | 756 |
+| codex-cli | safe-app | 0.81 | 800 |
+| gosec (golangci-lint) | vulnerable-app | 0.21 | 96 |
+| gosec (golangci-lint) | safe-app | 0.21 | 98 |
+| govulncheck | vulnerable-app | 1.88 | 790 |
+| govulncheck | safe-app | 1.87 | 781 |
 
 `go test -run '^$' -bench=BenchmarkFullEngineScan -benchmem ./benchmarks/`:
 
 | Benchmark | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| `BenchmarkFullEngineScan/cold` | 1,003,075,542 | 1,468,990,448 | 22,052,523 |
-| `BenchmarkFullEngineScan/warm-cache` | 1,020,802,458 | 1,465,230,184 | 21,971,940 |
+| `BenchmarkFullEngineScan/cold` | 774,203,188 | 1,206,113,568 | 16,453,806 |
+| `BenchmarkFullEngineScan/warm-cache` | 791,480,792 | 1,205,706,180 | 16,461,258 |
+
+Building the VTA call graph only from the functions reachable in the initial
+call graph, instead of from the whole program, and sorting functions without
+formatting their names in every comparison cut the time by about 23%, memory
+allocated by 18% and the number of allocations by 25%, from 1.00 s, 1.47 GB
+and 22.1 million allocations per scan.
 
 codex-cli is slower and uses more memory than gosec because it loads the
 whole program with type information and builds SSA and a call graph for the

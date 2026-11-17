@@ -15,6 +15,8 @@ cd codexsentinel
 make build        # builds build/codex-cli
 make test         # go test -race ./...
 make lint         # golangci-lint run
+make scan         # scan this repository as CI does
+make docs         # regenerate docs/rules from the rule catalog
 ```
 
 Before opening a pull request, run:
@@ -101,7 +103,7 @@ Guidelines:
 - Attach a `result.SuggestedFix` when the fix is mechanical.
 - Add the registration function to `RegisterAll` in `analyzer/rules/builtin/registry.go`.
 - Document the rule in `analyzer/catalog` with the next free code (the
-  highest is `CS075`), an explanation and a problematic and a safe example
+  highest is `CS085`), an explanation and a problematic and a safe example
   that parse as Go, then run `make docs-generate` to update `docs/rules`.
   Tests fail when a registered rule is missing from the catalog or the
   reference is out of date.
