@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 var sensitiveLogMeta = ruleMeta{ID: "sensitive-data-in-logs", Title: "Sensitive Data in Logs", Severity: result.SeverityHigh, CWE: "CWE-532", OWASP: "A09:2025", Confidence: 0.85,

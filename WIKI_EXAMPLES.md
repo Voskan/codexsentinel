@@ -635,7 +635,7 @@ codexsentinel:
   variables:
     GIT_DEPTH: 0
   script:
-    - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+    - go install github.com/Voskan/codexsentinel/v2/cmd/codex-cli@latest
     - codex-cli scan . --format gitlab --out gl-code-quality-report.json --strict --severity medium
   artifacts:
     when: always

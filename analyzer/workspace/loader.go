@@ -15,8 +15,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/config"
-	"github.com/Voskan/codexsentinel/internal/matcher"
+	"github.com/Voskan/codexsentinel/v2/config"
+	"github.com/Voskan/codexsentinel/v2/internal/matcher"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
 )

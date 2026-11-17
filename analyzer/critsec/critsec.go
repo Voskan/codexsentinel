@@ -11,9 +11,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	codessa "github.com/Voskan/codexsentinel/v2/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
 	"golang.org/x/tools/go/ssa"
 )
 

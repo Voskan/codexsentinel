@@ -11,9 +11,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
-	"github.com/Voskan/codexsentinel/analyzer/testutil"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	codessa "github.com/Voskan/codexsentinel/v2/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/v2/analyzer/testutil"
 )
 
 const testGoMod = `module example.com/app

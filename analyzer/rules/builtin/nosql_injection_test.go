@@ -3,7 +3,7 @@ package builtin
 import (
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/testutil"
+	"github.com/Voskan/codexsentinel/v2/analyzer/testutil"
 )
 
 func TestNoSQLInjectionMongoJavaScript(t *testing.T) {

@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/flow"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/v2/analyzer/flow"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	codessa "github.com/Voskan/codexsentinel/v2/analyzer/ssa"
 )
 
 // AnalyzeTaint builds SSA for a fixture and runs the taint engine with reg

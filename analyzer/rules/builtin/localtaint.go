@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/Voskan/codexsentinel/analyzer/flow"
+	"github.com/Voskan/codexsentinel/v2/analyzer/flow"
 )
 
 var taintCatalog = flow.DefaultRegistry()

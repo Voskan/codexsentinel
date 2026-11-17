@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
-	"github.com/Voskan/codexsentinel/deps"
-	"github.com/Voskan/codexsentinel/internal/version"
+	codessa "github.com/Voskan/codexsentinel/v2/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/deps"
+	"github.com/Voskan/codexsentinel/v2/internal/version"
 	"github.com/spf13/cobra"
 )
 

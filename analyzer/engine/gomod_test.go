@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 func TestScanReportsGoModProblemsAtTheirLines(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/internal/version"
-	"github.com/Voskan/codexsentinel/report"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/internal/version"
+	"github.com/Voskan/codexsentinel/v2/report"
 )
 
 func tracedIssue() report.Issue {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer/catalog"
+	"github.com/Voskan/codexsentinel/v2/analyzer/catalog"
 	"github.com/spf13/cobra"
 )
 

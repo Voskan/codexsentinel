@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Voskan/codexsentinel/analyzer/baseline"
-	"github.com/Voskan/codexsentinel/internal/logx"
+	"github.com/Voskan/codexsentinel/v2/analyzer/baseline"
+	"github.com/Voskan/codexsentinel/v2/internal/logx"
 	"github.com/spf13/cobra"
 )
 

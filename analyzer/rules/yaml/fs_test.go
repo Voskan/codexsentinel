@@ -4,7 +4,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/Voskan/codexsentinel/analyzer/rules"
+	"github.com/Voskan/codexsentinel/v2/analyzer/rules"
 )
 
 func TestLoadFromFSSkipsExamplesAndDisabledRules(t *testing.T) {

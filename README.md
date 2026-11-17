@@ -1,7 +1,7 @@
 # CodexSentinel
 
 [![Go](https://github.com/Voskan/codexsentinel/actions/workflows/go.yml/badge.svg)](https://github.com/Voskan/codexsentinel/actions/workflows/go.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/Voskan/codexsentinel.svg)](https://pkg.go.dev/github.com/Voskan/codexsentinel)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Voskan/codexsentinel/v2.svg)](https://pkg.go.dev/github.com/Voskan/codexsentinel/v2)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 CodexSentinel is an interprocedural static analyzer for modern Go (code
@@ -73,7 +73,7 @@ curl -sSfL https://raw.githubusercontent.com/Voskan/codexsentinel/main/scripts/i
 ```
 
 ```bash
-go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+go install github.com/Voskan/codexsentinel/v2/cmd/codex-cli@latest
 ```
 
 ```bash
@@ -178,7 +178,7 @@ to analyze modules that use the latest language version; release binaries and
 the container image are built that way.
 
 ```bash
-go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+go install github.com/Voskan/codexsentinel/v2/cmd/codex-cli@latest
 ```
 
 On macOS and Linux (amd64 and arm64), Homebrew installs the release binary,
@@ -657,7 +657,7 @@ display on every GitLab tier, including Free:
 codexsentinel:
   image: golang:1.26
   script:
-    - go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+    - go install github.com/Voskan/codexsentinel/v2/cmd/codex-cli@latest
     - codex-cli scan . --format gitlab --out gl-code-quality-report.json --strict
   artifacts:
     when: always
@@ -752,7 +752,7 @@ and `--log-file` records detailed logs.
 package main
 
 import (
-	"github.com/Voskan/codexsentinel/pkg/codexlint"
+	"github.com/Voskan/codexsentinel/v2/pkg/codexlint"
 	"golang.org/x/tools/go/analysis/multichecker"
 )
 

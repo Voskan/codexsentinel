@@ -1,7 +1,7 @@
 package analyzer
 
 import (
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 	"sync"
 	"testing"
 )

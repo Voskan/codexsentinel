@@ -4,7 +4,7 @@ package report
 import (
 	"time"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 // SeverityLevel defines the level of issue severity.

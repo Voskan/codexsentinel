@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Voskan/codexsentinel/analyzer/engine"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/analyzer/engine"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 const insecure = "package main\n\nimport \"crypto/tls\"\n\nfunc main() {\n\tcfg := &tls.Config{InsecureSkipVerify: true}\n\t_ = cfg\n}\n"

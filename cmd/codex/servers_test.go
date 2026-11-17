@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/internal/git"
+	"github.com/Voskan/codexsentinel/v2/internal/git"
 )
 
 // runStdio runs a command with the given stdin and returns its stdout.

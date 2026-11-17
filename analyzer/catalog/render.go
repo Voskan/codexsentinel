@@ -6,7 +6,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 // UnknownRuleError describes a rule that is not in the catalog and suggests

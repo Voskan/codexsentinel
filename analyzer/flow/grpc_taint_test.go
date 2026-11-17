@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/flow"
-	"github.com/Voskan/codexsentinel/analyzer/testutil"
+	"github.com/Voskan/codexsentinel/v2/analyzer/flow"
+	"github.com/Voskan/codexsentinel/v2/analyzer/testutil"
 )
 
 const rpcGoMod = `module example.com/fixture

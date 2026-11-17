@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 func writeFiles(t *testing.T, root string, files map[string]string) {

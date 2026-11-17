@@ -25,7 +25,7 @@ func main() {
 		name += ".exe"
 	}
 	output := filepath.Join(dir, name)
-	pkg := "github.com/Voskan/codexsentinel/internal/version"
+	pkg := "github.com/Voskan/codexsentinel/v2/internal/version"
 	ldflags := fmt.Sprintf("-s -w -X %s.Version=%s -X %s.Commit=%s -X %s.BuildDate=%s",
 		pkg, gitOutput("describe", "--tags", "--always", "--dirty"), pkg, gitOutput("rev-parse", "HEAD"), pkg, time.Now().UTC().Format(time.RFC3339))
 	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", ldflags, "-o", output, "./cmd/codex-cli")

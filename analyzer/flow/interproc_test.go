@@ -3,8 +3,8 @@ package flow_test
 import (
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/flow"
-	"github.com/Voskan/codexsentinel/analyzer/testutil"
+	"github.com/Voskan/codexsentinel/v2/analyzer/flow"
+	"github.com/Voskan/codexsentinel/v2/analyzer/testutil"
 )
 
 var layeredFiles = map[string]string{

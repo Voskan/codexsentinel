@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 func write(t *testing.T, dir, name, content string) string {

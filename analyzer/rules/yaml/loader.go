@@ -19,9 +19,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/analyzer/rules"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/rules"
 	"gopkg.in/yaml.v3"
 )
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/Voskan/codexsentinel/internal/version"
+	"github.com/Voskan/codexsentinel/v2/internal/version"
 	"github.com/spf13/cobra"
 )
 

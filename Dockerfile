@@ -13,9 +13,9 @@ ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 RUN CGO_ENABLED=0 go build -trimpath \
       -ldflags="-s -w \
-        -X github.com/Voskan/codexsentinel/internal/version.Version=${VERSION} \
-        -X github.com/Voskan/codexsentinel/internal/version.Commit=${COMMIT} \
-        -X github.com/Voskan/codexsentinel/internal/version.BuildDate=${BUILD_DATE}" \
+        -X github.com/Voskan/codexsentinel/v2/internal/version.Version=${VERSION} \
+        -X github.com/Voskan/codexsentinel/v2/internal/version.Commit=${COMMIT} \
+        -X github.com/Voskan/codexsentinel/v2/internal/version.BuildDate=${BUILD_DATE}" \
       -o /out/codex-cli ./cmd/codex-cli
 
 # The runtime image keeps the Go toolchain and git: the scanner loads the

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/cache"
+	"github.com/Voskan/codexsentinel/v2/analyzer/cache"
 )
 
 func runCLIOutput(t *testing.T, args ...string) (string, error) {

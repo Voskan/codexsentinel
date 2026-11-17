@@ -5,7 +5,7 @@
 With Go 1.26 or newer:
 
 ```bash
-go install github.com/Voskan/codexsentinel/cmd/codex-cli@latest
+go install github.com/Voskan/codexsentinel/v2/cmd/codex-cli@latest
 ```
 
 Or with the install script. It verifies release binaries against the

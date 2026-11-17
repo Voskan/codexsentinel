@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/report"
+	"github.com/Voskan/codexsentinel/v2/report"
 )
 
 func TestGitLabEmptyReportIsArray(t *testing.T) {

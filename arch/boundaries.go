@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
 )
 
 // BoundaryLeak is an infrastructure type used in the API of a layer that

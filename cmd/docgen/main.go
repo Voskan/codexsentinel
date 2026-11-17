@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Voskan/codexsentinel/internal/docgen"
+	"github.com/Voskan/codexsentinel/v2/internal/docgen"
 )
 
 func main() {

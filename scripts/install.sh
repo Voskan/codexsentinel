@@ -18,7 +18,7 @@ set -eu
 
 REPO="Voskan/codexsentinel"
 APP_NAME="codex-cli"
-MODULE="github.com/Voskan/codexsentinel/cmd/codex-cli"
+MODULE="github.com/Voskan/codexsentinel/v2/cmd/codex-cli"
 
 VERSION="${CODEXSENTINEL_VERSION:-}"
 INSTALL_DIR="${INSTALL_DIR:-}"

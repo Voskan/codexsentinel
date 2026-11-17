@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 // ApplyFixes writes the suggested fixes of issues to disk. Relative edit paths

@@ -1,6 +1,6 @@
 package builtin
 
-import "github.com/Voskan/codexsentinel/analyzer"
+import "github.com/Voskan/codexsentinel/v2/analyzer"
 
 // RegisterAll registers every built-in rule on ctx.
 func RegisterAll(ctx *analyzer.AnalyzerContext) {

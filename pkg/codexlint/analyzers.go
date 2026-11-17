@@ -7,7 +7,7 @@
 //	package main
 //
 //	import (
-//		"github.com/Voskan/codexsentinel/pkg/codexlint"
+//		"github.com/Voskan/codexsentinel/v2/pkg/codexlint"
 //		"golang.org/x/tools/go/analysis/multichecker"
 //	)
 //
@@ -25,11 +25,11 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
-	"github.com/Voskan/codexsentinel/config"
-	"github.com/Voskan/codexsentinel/internal/matcher"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/rules/builtin"
+	"github.com/Voskan/codexsentinel/v2/config"
+	"github.com/Voskan/codexsentinel/v2/internal/matcher"
 	"golang.org/x/tools/go/analysis"
 )
 

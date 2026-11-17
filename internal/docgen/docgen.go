@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer/catalog"
+	"github.com/Voskan/codexsentinel/v2/analyzer/catalog"
 )
 
 // categoryNames orders and names the categories in the index.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 func writeModule(t *testing.T, goMod, goSum string) string {

@@ -5,8 +5,8 @@ package flow
 import (
 	"go/types"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	codessa "github.com/Voskan/codexsentinel/v2/analyzer/ssa"
 	"golang.org/x/tools/go/ssa"
 )
 

@@ -3,7 +3,7 @@ package flow
 import (
 	"strings"
 
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 // DefaultRegistry returns the built-in catalog of sources, sinks and sanitizers.

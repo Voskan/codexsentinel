@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/cache"
-	"github.com/Voskan/codexsentinel/analyzer/engine"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/analyzer/cache"
+	"github.com/Voskan/codexsentinel/v2/analyzer/engine"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 func writeModule(t *testing.T, files map[string]string) string {

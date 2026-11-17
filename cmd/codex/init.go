@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
-	"github.com/Voskan/codexsentinel/config"
-	"github.com/Voskan/codexsentinel/deps"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/config"
+	"github.com/Voskan/codexsentinel/v2/deps"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/modfile"
 )

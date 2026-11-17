@@ -1,6 +1,6 @@
 package catalog
 
-import "github.com/Voskan/codexsentinel/analyzer/result"
+import "github.com/Voskan/codexsentinel/v2/analyzer/result"
 
 const (
 	critical = result.SeverityCritical

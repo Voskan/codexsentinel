@@ -1,6 +1,6 @@
 package mcp
 
-import "github.com/Voskan/codexsentinel/analyzer/catalog"
+import "github.com/Voskan/codexsentinel/v2/analyzer/catalog"
 
 // tool describes one tool and its input schema.
 type tool struct {

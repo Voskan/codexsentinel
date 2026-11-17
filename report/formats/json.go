@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Voskan/codexsentinel/report"
+	"github.com/Voskan/codexsentinel/v2/report"
 )
 
 // WriteJSONReport serializes the provided issues into a pretty JSON format and writes them to a file.

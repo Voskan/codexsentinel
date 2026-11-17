@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Voskan/codexsentinel/analyzer/catalog"
-	"github.com/Voskan/codexsentinel/report"
-	reporttpl "github.com/Voskan/codexsentinel/report/template"
+	"github.com/Voskan/codexsentinel/v2/analyzer/catalog"
+	"github.com/Voskan/codexsentinel/v2/report"
+	reporttpl "github.com/Voskan/codexsentinel/v2/report/template"
 )
 
 // htmlBar is one row of a bar chart in the report.

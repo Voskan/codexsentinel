@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/critsec"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
-	"github.com/Voskan/codexsentinel/analyzer/testutil"
+	"github.com/Voskan/codexsentinel/v2/analyzer/critsec"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	codessa "github.com/Voskan/codexsentinel/v2/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/v2/analyzer/testutil"
 )
 
 func analyze(t *testing.T, files map[string]string) []result.Issue {

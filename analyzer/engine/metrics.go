@@ -1,12 +1,12 @@
 package engine
 
 import (
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
-	"github.com/Voskan/codexsentinel/config"
-	"github.com/Voskan/codexsentinel/metrics"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	codessa "github.com/Voskan/codexsentinel/v2/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/config"
+	"github.com/Voskan/codexsentinel/v2/metrics"
 )
 
 // runMetricsAnalysis computes the metrics that need the whole workspace, using

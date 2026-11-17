@@ -4,8 +4,8 @@ import (
 	"go/ast"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 var csrfMeta = ruleMeta{ID: "csrf-missing-protection", Title: "Missing CSRF Protection", Severity: result.SeverityMedium, CWE: "CWE-352", OWASP: "A01:2025", Confidence: 0.7,

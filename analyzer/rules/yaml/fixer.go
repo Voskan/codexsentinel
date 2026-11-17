@@ -5,8 +5,8 @@ import (
 	"go/token"
 	"regexp"
 
-	"github.com/Voskan/codexsentinel/analyzer/fixer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/fixer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 var fixVar = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)|\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}`)

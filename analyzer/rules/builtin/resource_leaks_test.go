@@ -3,8 +3,8 @@ package builtin
 import (
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/analyzer/testutil"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/testutil"
 )
 
 func leakFiles(app string) map[string]string {

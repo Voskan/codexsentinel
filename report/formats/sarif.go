@@ -3,13 +3,13 @@ package formats
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/Voskan/codexsentinel/analyzer/catalog"
+	"github.com/Voskan/codexsentinel/v2/analyzer/catalog"
 	"path/filepath"
 	"sort"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/internal/version"
-	"github.com/Voskan/codexsentinel/report"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/internal/version"
+	"github.com/Voskan/codexsentinel/v2/report"
 )
 
 // sarifReport defines the structure of a SARIF 2.1.0 log.

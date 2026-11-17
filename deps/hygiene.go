@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
 	"golang.org/x/mod/modfile"
 )
 

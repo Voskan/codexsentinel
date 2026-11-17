@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/report"
+	"github.com/Voskan/codexsentinel/v2/report"
 )
 
 // WriteGitHubReport writes GitHub Actions workflow commands that annotate the

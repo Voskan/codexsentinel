@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 func TestDedupPrefersTraceThenConfidence(t *testing.T) {

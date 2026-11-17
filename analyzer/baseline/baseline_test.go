@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Voskan/codexsentinel/analyzer/baseline"
-	"github.com/Voskan/codexsentinel/analyzer/engine"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/analyzer/baseline"
+	"github.com/Voskan/codexsentinel/v2/analyzer/engine"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 const handler = `package app

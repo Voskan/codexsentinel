@@ -5,7 +5,7 @@ import (
 	"go/types"
 	"sort"
 
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
 )
 
 // GodStruct is a struct type with too many methods or fields.

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/testutil"
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/testutil"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
 	"golang.org/x/tools/go/analysis"
 )
 

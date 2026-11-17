@@ -4,8 +4,8 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 var wsOriginMeta = ruleMeta{ID: "websocket-origin-bypass", Title: "WebSocket Origin Check Disabled", Severity: result.SeverityHigh, CWE: "CWE-346", OWASP: "A01:2025",

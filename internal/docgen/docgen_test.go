@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/catalog"
+	"github.com/Voskan/codexsentinel/v2/analyzer/catalog"
 )
 
 // TestCommittedReferenceIsCurrent fails when docs/rules differs from the

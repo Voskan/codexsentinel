@@ -3,8 +3,8 @@ package codex
 import (
 	"fmt"
 
-	"github.com/Voskan/codexsentinel/analyzer/cache"
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/analyzer/cache"
+	"github.com/Voskan/codexsentinel/v2/config"
 	"github.com/spf13/cobra"
 )
 

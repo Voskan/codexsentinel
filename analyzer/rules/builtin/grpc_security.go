@@ -7,8 +7,8 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 const grpcPkg = "google.golang.org/grpc"

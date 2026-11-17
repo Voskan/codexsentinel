@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer/catalog"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/internal/jsonrpc"
-	"github.com/Voskan/codexsentinel/report"
+	"github.com/Voskan/codexsentinel/v2/analyzer/catalog"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/internal/jsonrpc"
+	"github.com/Voskan/codexsentinel/v2/report"
 )
 
 // fileLines reads a file split into lines; a missing file yields none.

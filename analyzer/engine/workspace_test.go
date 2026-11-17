@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 func TestConcurrentWorkspaceAnalysis(t *testing.T) {

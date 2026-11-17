@@ -6,7 +6,7 @@ BUILD_DIR=build
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_COMMIT=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
-LDFLAGS=-trimpath -ldflags "-s -w -X github.com/Voskan/codexsentinel/internal/version.Version=$(VERSION) -X github.com/Voskan/codexsentinel/internal/version.BuildDate=$(BUILD_TIME) -X github.com/Voskan/codexsentinel/internal/version.Commit=$(GIT_COMMIT)"
+LDFLAGS=-trimpath -ldflags "-s -w -X github.com/Voskan/codexsentinel/v2/internal/version.Version=$(VERSION) -X github.com/Voskan/codexsentinel/v2/internal/version.BuildDate=$(BUILD_TIME) -X github.com/Voskan/codexsentinel/v2/internal/version.Commit=$(GIT_COMMIT)"
 
 # Default target
 .PHONY: all

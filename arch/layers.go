@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
-	"github.com/Voskan/codexsentinel/config"
+	codessa "github.com/Voskan/codexsentinel/v2/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/config"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 )

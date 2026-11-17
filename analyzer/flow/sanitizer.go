@@ -1,6 +1,6 @@
 package flow
 
-import "github.com/Voskan/codexsentinel/analyzer/result"
+import "github.com/Voskan/codexsentinel/v2/analyzer/result"
 
 func sanitizer(pkg, recv, fn string, categories ...string) SanitizerSpec {
 	return SanitizerSpec{Package: pkg, Receiver: recv, Function: fn, Categories: categories}

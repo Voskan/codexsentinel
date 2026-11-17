@@ -5,8 +5,8 @@ import (
 	"go/token"
 	"go/types"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 var jwtPackages = []string{"github.com/golang-jwt/jwt", "github.com/dgrijalva/jwt-go", "github.com/form3tech-oss/jwt-go"}

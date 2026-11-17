@@ -3,8 +3,8 @@ package assets_test
 import (
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/rules/yaml"
-	"github.com/Voskan/codexsentinel/assets"
+	"github.com/Voskan/codexsentinel/v2/analyzer/rules/yaml"
+	"github.com/Voskan/codexsentinel/v2/assets"
 )
 
 func TestBuiltinRulesCompile(t *testing.T) {

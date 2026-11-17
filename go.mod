@@ -1,4 +1,4 @@
-module github.com/Voskan/codexsentinel
+module github.com/Voskan/codexsentinel/v2
 
 go 1.26.0
 

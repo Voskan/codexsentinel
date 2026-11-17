@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/config"
-	"github.com/Voskan/codexsentinel/pkg/codexlint"
+	"github.com/Voskan/codexsentinel/v2/config"
+	"github.com/Voskan/codexsentinel/v2/pkg/codexlint"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/analysistest"
 )

@@ -11,7 +11,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/Voskan/codexsentinel/internal/version"
+	"github.com/Voskan/codexsentinel/v2/internal/version"
 	"golang.org/x/tools/go/packages"
 )
 

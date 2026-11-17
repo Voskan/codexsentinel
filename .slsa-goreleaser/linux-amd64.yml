@@ -10,6 +10,6 @@ main: ./cmd/codex-cli
 binary: codex-cli-{{ .Os }}-{{ .Arch }}
 ldflags:
   - "-s -w"
-  - "-X github.com/Voskan/codexsentinel/internal/version.Version={{ .Env.VERSION }}"
-  - "-X github.com/Voskan/codexsentinel/internal/version.Commit={{ .Env.COMMIT }}"
-  - "-X github.com/Voskan/codexsentinel/internal/version.BuildDate={{ .Env.BUILD_DATE }}"
+  - "-X github.com/Voskan/codexsentinel/v2/internal/version.Version={{ .Env.VERSION }}"
+  - "-X github.com/Voskan/codexsentinel/v2/internal/version.Commit={{ .Env.COMMIT }}"
+  - "-X github.com/Voskan/codexsentinel/v2/internal/version.BuildDate={{ .Env.BUILD_DATE }}"

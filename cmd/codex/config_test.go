@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/report"
+	"github.com/Voskan/codexsentinel/v2/report"
 )
 
 const sqlFixture = "package sample\n\nimport \"database/sql\"\n\nfunc query(db *sql.DB, input string) {\n\tdb.Query(\"SELECT * FROM users WHERE id = \" + input)\n}\n"

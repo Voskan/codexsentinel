@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/internal/jsonrpc"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/internal/jsonrpc"
 )
 
 // Analyzer analyzes the module at req.Root and returns findings whose file

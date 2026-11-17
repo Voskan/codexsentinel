@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 // DefaultFile is the conventional baseline file name.

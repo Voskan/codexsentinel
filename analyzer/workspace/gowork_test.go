@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 func goWorkspace(t *testing.T) string {

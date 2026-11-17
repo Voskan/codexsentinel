@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
 	"golang.org/x/tools/go/packages"
 )
 

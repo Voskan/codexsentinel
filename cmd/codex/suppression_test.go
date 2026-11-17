@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/internal/git"
+	"github.com/Voskan/codexsentinel/v2/internal/git"
 )
 
 func gitRepo(t *testing.T, dir string) {

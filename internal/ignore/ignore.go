@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Voskan/codexsentinel/internal/matcher"
+	"github.com/Voskan/codexsentinel/v2/internal/matcher"
 )
 
 // IgnoreRule represents a single parsed ignore rule.

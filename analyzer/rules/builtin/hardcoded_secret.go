@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"go/token"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/analyzer/secrets"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/secrets"
 )
 
 var hardcodedSecretMeta = ruleMeta{ID: "hardcoded-secret", Title: "Hardcoded Secret", Severity: result.SeverityHigh, CWE: "CWE-798", OWASP: "A07:2025", Confidence: 0.8,

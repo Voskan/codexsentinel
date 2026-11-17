@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 var idorMeta = ruleMeta{ID: "idor-unscoped-mutation", Title: "Unscoped Resource Mutation (IDOR)", Severity: result.SeverityMedium, CWE: "CWE-639", OWASP: "A01:2025", Confidence: 0.7,

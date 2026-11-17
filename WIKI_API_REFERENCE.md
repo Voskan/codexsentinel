@@ -3,9 +3,11 @@
 This page is the reference for the `codex-cli` command line and for the Go
 API: embedding the engine as a library, the rule catalog, the report writers,
 and the `go/analysis` analyzers. For every exported identifier, see the
-[package documentation](https://pkg.go.dev/github.com/Voskan/codexsentinel).
+[package documentation](https://pkg.go.dev/github.com/Voskan/codexsentinel/v2).
 
-Module path: `github.com/Voskan/codexsentinel`
+Module path: `github.com/Voskan/codexsentinel/v2`. Releases 1.x used
+`github.com/Voskan/codexsentinel`; code that imports its packages needs the
+`/v2` suffix in the import paths.
 
 ## Contents
 
@@ -134,8 +136,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Voskan/codexsentinel/analyzer/engine"
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/analyzer/engine"
+	"github.com/Voskan/codexsentinel/v2/config"
 )
 
 func main() {
@@ -337,7 +339,7 @@ Package `pkg/codexlint` exposes the built-in package-level rules as
 package main
 
 import (
-	"github.com/Voskan/codexsentinel/pkg/codexlint"
+	"github.com/Voskan/codexsentinel/v2/pkg/codexlint"
 	"golang.org/x/tools/go/analysis/multichecker"
 )
 
@@ -372,7 +374,7 @@ on golangci-lint. Register it in a small plugin module:
 package codexsentinelplugin
 
 import (
-	"github.com/Voskan/codexsentinel/pkg/codexlint"
+	"github.com/Voskan/codexsentinel/v2/pkg/codexlint"
 	"github.com/golangci/plugin-module-register/register"
 )
 

@@ -15,11 +15,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Voskan/codexsentinel/analyzer/catalog"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/internal/jsonrpc"
-	"github.com/Voskan/codexsentinel/report"
-	"github.com/Voskan/codexsentinel/report/formats"
+	"github.com/Voskan/codexsentinel/v2/analyzer/catalog"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/internal/jsonrpc"
+	"github.com/Voskan/codexsentinel/v2/report"
+	"github.com/Voskan/codexsentinel/v2/report/formats"
 )
 
 // SupportedProtocolVersions lists the protocol revisions the server speaks,

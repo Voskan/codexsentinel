@@ -3,7 +3,7 @@ package report
 import (
 	"fmt"
 
-	"github.com/Voskan/codexsentinel/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
 )
 
 // TraceLines renders a data-flow trace as numbered human-readable steps,

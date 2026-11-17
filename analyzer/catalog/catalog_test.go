@@ -10,15 +10,15 @@ import (
 
 	"golang.org/x/mod/modfile"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/catalog"
-	"github.com/Voskan/codexsentinel/analyzer/flow"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
-	"github.com/Voskan/codexsentinel/analyzer/rules/yaml"
-	"github.com/Voskan/codexsentinel/assets"
-	"github.com/Voskan/codexsentinel/deps"
-	"github.com/Voskan/codexsentinel/internal/git"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/catalog"
+	"github.com/Voskan/codexsentinel/v2/analyzer/flow"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/rules/builtin"
+	"github.com/Voskan/codexsentinel/v2/analyzer/rules/yaml"
+	"github.com/Voskan/codexsentinel/v2/assets"
+	"github.com/Voskan/codexsentinel/v2/deps"
+	"github.com/Voskan/codexsentinel/v2/internal/git"
 )
 
 func TestEveryBuiltinRuleIsDocumented(t *testing.T) {
