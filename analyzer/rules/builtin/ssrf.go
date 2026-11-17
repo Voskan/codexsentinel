@@ -29,6 +29,7 @@ func RegisterSSRFRule(ctx *analyzer.AnalyzerContext) {
 				validated := validatesHost(info, unit.Body)
 				lt := newLocalTaint(info, unit.Body)
 				assigns := lt.assigns
+				r.expandConstantLookups(assigns)
 				inspectShallow(unit.Body, func(n ast.Node) bool {
 					call, ok := n.(*ast.CallExpr)
 					if !ok {

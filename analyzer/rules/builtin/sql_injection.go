@@ -25,6 +25,7 @@ func RegisterSQLInjectionRule(ctx *analyzer.AnalyzerContext) {
 		for _, file := range r.pass.Files {
 			for _, unit := range funcUnits(file) {
 				assigns := assignments(info, unit.Body)
+				r.expandConstantLookups(assigns)
 				inspectShallow(unit.Body, func(n ast.Node) bool {
 					call, ok := n.(*ast.CallExpr)
 					if !ok {
@@ -166,7 +167,8 @@ func nonConstText(info *types.Info, e ast.Expr, assigns map[types.Object][]ast.E
 			}
 		}
 	}
-	return true
+	// A concatenation of constants and variables holding constants.
+	return !builtFromConstants(info, e, assigns, map[types.Object]bool{})
 }
 
 // builtFromConstants reports whether e is composed solely of constants and

@@ -157,9 +157,15 @@ func (m moduleIndex) rel(pkgPath string) (string, bool) {
 	return "", false
 }
 
+// layer returns the layer of a package. With the default layout, main
+// packages are composition roots that wire every layer together and belong to
+// none, even under a directory such as cmd/api.
 func (m moduleIndex) layer(l *Layering, pkgPath string) string {
 	rel, ok := m.rel(pkgPath)
 	if !ok {
+		return ""
+	}
+	if pkg := m.pkgs[pkgPath]; pkg != nil && pkg.Name == "main" && !l.Configured {
 		return ""
 	}
 	return l.LayerOf(rel)

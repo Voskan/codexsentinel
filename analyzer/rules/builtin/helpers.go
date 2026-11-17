@@ -41,6 +41,8 @@ type reporter struct {
 	ac   *analyzer.AnalyzerContext
 	pass *analysis.Pass
 	only string
+	// tables caches constantTables.
+	tables map[*types.Var][]ast.Expr
 }
 
 // registerRules registers one analyzer rule per ID. Every rule runs the shared

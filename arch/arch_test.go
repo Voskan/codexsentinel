@@ -177,3 +177,28 @@ func TestGodStructIgnoresDataRecords(t *testing.T) {
 		t.Fatalf("god structs = %+v", gods)
 	}
 }
+
+func TestArchMainPackageIsCompositionRoot(t *testing.T) {
+	t.Parallel()
+	fx := testutil.LoadFixture(t, map[string]string{
+		"go.mod":                "module example.com/app\n\ngo 1.24\n",
+		"internal/repo/repo.go": "package repo\n\nfunc New() int { return 1 }\n",
+		"internal/handler/h.go": "package handler\n\nfunc New(n int) int { return n }\n",
+		"cmd/api/main.go":       "package main\n\nimport (\n\t\"example.com/app/internal/handler\"\n\t\"example.com/app/internal/repo\"\n)\n\nfunc main() { _ = handler.New(repo.New()) }\n",
+		"api/client/client.go":  "package client\n\nimport \"example.com/app/internal/repo\"\n\nvar _ = repo.New\n",
+	}, nil)
+	bundle, err := codessa.BuildFromWorkspace(fx.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, i := range RunAll(fx.Workspace, bundle, config.NewDefaultConfig().Architecture) {
+		if i.ID == "arch-layer-violation" {
+			got = append(got, i.Location.PackagePath)
+		}
+	}
+	// The main package wires the layers; a library under api/ is still delivery.
+	if !reflect.DeepEqual(got, []string{"example.com/app/api/client"}) {
+		t.Fatalf("layer violations in %v", got)
+	}
+}
