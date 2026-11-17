@@ -3,6 +3,7 @@ package formats
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/Voskan/codexsentinel/analyzer/catalog"
 	"path/filepath"
 	"sort"
 
@@ -195,6 +196,15 @@ func sarifResultFor(i report.Issue) sarifResult {
 	return res
 }
 
+// ruleHelpURI links a rule to its reference page, or to the finding's first
+// reference for rules outside the catalog, such as custom YAML rules.
+func ruleHelpURI(i report.Issue) string {
+	if doc, ok := catalog.Lookup(i.RuleID); ok && doc.ID == i.RuleID {
+		return catalog.DocURL(doc.ID)
+	}
+	return i.Reference
+}
+
 // sarifRuleFor describes the rule that produced an issue.
 func sarifRuleFor(i report.Issue) sarifRule {
 	rule := sarifRule{
@@ -202,7 +212,7 @@ func sarifRuleFor(i report.Issue) sarifRule {
 		Name:      firstNonEmpty(i.Title, i.RuleID),
 		ShortDesc: sarifText{Text: firstNonEmpty(i.Title, i.RuleID)},
 		FullDesc:  sarifText{Text: firstNonEmpty(i.Description, i.Title, i.RuleID)},
-		HelpURI:   i.Reference,
+		HelpURI:   ruleHelpURI(i),
 	}
 	if i.Suggestion != "" {
 		rule.Help = &sarifText{Text: i.Suggestion}

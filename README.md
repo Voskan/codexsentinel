@@ -217,6 +217,12 @@ set `dependencies.check_capabilities: false` to turn it off.
 
 ## Rules
 
+The [rule reference](docs/rules/README.md) has a page for every rule: what it
+detects, why it matters in Go, a problematic and a safe example, CWE and OWASP
+mapping, and how to configure or suppress it. SARIF reports and editor
+diagnostics link to these pages. The reference is generated from the rule
+catalog with `make docs-generate`, and a test fails when it is out of date.
+
 ### Built-in security rules
 
 | Rule ID | Severity | CWE | OWASP 2025 |
@@ -598,6 +604,7 @@ and metrics analyses need the whole program and are only available in
 ```bash
 make build      # build/codex-cli
 make test       # go test -race ./...
+make docs-generate  # regenerate docs/rules after changing a rule
 go vet ./...
 ```
 

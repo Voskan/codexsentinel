@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/mod/modfile"
+
 	"github.com/Voskan/codexsentinel/analyzer"
 	"github.com/Voskan/codexsentinel/analyzer/catalog"
 	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
@@ -90,12 +92,19 @@ func TestCatalogEntriesAreComplete(t *testing.T) {
 // either as declarations or as statements inside a function.
 func TestExamplesParse(t *testing.T) {
 	for _, d := range catalog.All() {
-		if d.Category != catalog.CategorySecurity && d.Category != catalog.CategoryReliability {
-			continue
-		}
 		for kind, src := range map[string]string{"bad": d.BadExample, "good": d.GoodExample} {
-			if !parses(src) {
-				t.Errorf("%s: %s example does not parse:\n%s", d.ID, kind, src)
+			switch d.ExampleLang {
+			case "":
+				if !parses(src) {
+					t.Errorf("%s: %s example does not parse:\n%s", d.ID, kind, src)
+				}
+			case catalog.ExampleGoMod:
+				if _, err := modfile.Parse("go.mod", []byte(src), nil); err != nil {
+					t.Errorf("%s: %s go.mod example: %v", d.ID, kind, err)
+				}
+			case catalog.ExampleText:
+			default:
+				t.Errorf("%s: unknown example language %q", d.ID, d.ExampleLang)
 			}
 		}
 	}

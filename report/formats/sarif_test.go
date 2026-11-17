@@ -129,3 +129,12 @@ func TestMarkdownAndHTMLRenderTrace(t *testing.T) {
 		}
 	}
 }
+
+func TestRuleHelpURI(t *testing.T) {
+	if got := ruleHelpURI(report.Issue{RuleID: "sql-injection", Reference: "https://example.com"}); got != "https://github.com/Voskan/codexsentinel/blob/main/docs/rules/sql-injection.md" {
+		t.Errorf("catalog rule help URI = %q", got)
+	}
+	if got := ruleHelpURI(report.Issue{RuleID: "custom.yaml-rule", Reference: "https://example.com"}); got != "https://example.com" {
+		t.Errorf("custom rule help URI = %q", got)
+	}
+}

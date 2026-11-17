@@ -90,6 +90,10 @@ Guidelines:
 - Set `Confidence` honestly; findings below `suppression.min_confidence` are dropped.
 - Attach a `result.SuggestedFix` when the fix is mechanical.
 - Add the registration function to `RegisterAll` in `analyzer/rules/builtin/registry.go`.
+- Document the rule in `analyzer/catalog` with the next free code, an
+  explanation and a problematic and a safe example that parse as Go, then run
+  `make docs-generate` to update `docs/rules`. Tests fail when a registered
+  rule is missing from the catalog or the reference is out of date.
 
 ## Testing a rule
 

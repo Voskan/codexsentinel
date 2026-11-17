@@ -33,6 +33,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Check the rule reference
+        run: |
+          go run ./cmd/docgen -out docs/rules
+          git diff --exit-code -- docs/rules
+          test -z "$(git status --porcelain -- docs/rules)"
+
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
 

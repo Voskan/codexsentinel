@@ -92,6 +92,11 @@ docs:
 	@echo "Generating documentation..."
 	godoc -http=:6060
 
+# Regenerate the rule reference from the rule catalog
+.PHONY: docs-generate
+docs-generate:
+	go run ./cmd/docgen -out docs/rules
+
 # Clean build artifacts
 .PHONY: clean
 clean:
@@ -123,6 +128,7 @@ help:
 	@echo "  fmt            - Format the code"
 	@echo "  vet            - Vet the code"
 	@echo "  docs           - Generate documentation"
+	@echo "  docs-generate  - Regenerate the rule reference in docs/rules"
 	@echo "  clean          - Clean build artifacts"
 	@echo "  run            - Run the application"
 	@echo "  dev            - Development workflow (fmt + lint + test + build)"

@@ -91,6 +91,7 @@ func WriteCard(w io.Writer, d RuleDoc) {
 	fmt.Fprintf(w, "\nVulnerable example:\n\n%s\n", indent(d.BadExample))
 	fmt.Fprintf(w, "\nSafe pattern:\n\n%s\n", indent(d.GoodExample))
 	fmt.Fprintf(w, "\nSuppress a reviewed finding:\n\n    //codex:ignore %s -- <reason>\n", d.ID)
+	fmt.Fprintf(w, "\nDocumentation: %s\n", DocURL(d.ID))
 	if len(d.References) > 0 {
 		fmt.Fprintln(w, "\nReferences:")
 		for _, r := range d.References {

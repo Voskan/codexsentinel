@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Voskan/codexsentinel/analyzer/catalog"
 	"github.com/Voskan/codexsentinel/analyzer/result"
 	"github.com/Voskan/codexsentinel/internal/jsonrpc"
 	"github.com/Voskan/codexsentinel/report"
@@ -64,7 +65,9 @@ func diagnosticsFor(path string, issues []result.Issue) []diagnostic {
 			Source:   "codexsentinel",
 			Message:  diagnosticMessage(is),
 		}
-		if len(is.References) > 0 && is.References[0] != "" {
+		if doc, ok := catalog.Lookup(is.ID); ok && doc.ID == is.ID {
+			d.CodeDescription = &codeDescription{Href: catalog.DocURL(doc.ID)}
+		} else if len(is.References) > 0 && is.References[0] != "" {
 			d.CodeDescription = &codeDescription{Href: is.References[0]}
 		}
 		for _, step := range is.Trace {

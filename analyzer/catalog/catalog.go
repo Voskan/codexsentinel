@@ -37,7 +37,22 @@ type RuleDoc struct {
 	GoodExample     string          `json:"good_example"`
 	References      []string        `json:"references,omitempty"`
 	HasAutoFix      bool            `json:"has_autofix"`
+	// ExampleLang is the language of the examples: Go when empty, or
+	// ExampleGoMod or ExampleText.
+	ExampleLang string `json:"example_lang,omitempty"`
 }
+
+// Example languages other than Go.
+const (
+	ExampleGoMod = "go.mod"
+	ExampleText  = "text"
+)
+
+// DocsBaseURL is where the generated rule reference is published.
+const DocsBaseURL = "https://github.com/Voskan/codexsentinel/blob/main/docs/rules/"
+
+// DocURL returns the reference page of a rule.
+func DocURL(id string) string { return DocsBaseURL + id + ".md" }
 
 func allDocs() []RuleDoc {
 	var out []RuleDoc
