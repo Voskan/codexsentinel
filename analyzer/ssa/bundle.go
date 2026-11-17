@@ -2,12 +2,15 @@
 package ssa
 
 import (
+	"context"
 	"fmt"
 	"go/token"
 	"go/types"
+	"runtime"
 	"sort"
 
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/callgraph/cha"
 	"golang.org/x/tools/go/callgraph/vta"
@@ -29,6 +32,13 @@ type GraphBundle struct {
 // BuildFromWorkspace builds SSA for the workspace (including dependencies)
 // with generic instantiation and computes a VTA call graph.
 func BuildFromWorkspace(ws *workspace.Workspace) (*GraphBundle, error) {
+	return BuildFromWorkspaceContext(context.Background(), ws)
+}
+
+// BuildFromWorkspaceContext is BuildFromWorkspace that stops between
+// packages and between the call graph phases once ctx is cancelled and then
+// returns ctx.Err().
+func BuildFromWorkspaceContext(ctx context.Context, ws *workspace.Workspace) (*GraphBundle, error) {
 	if ws == nil {
 		return nil, fmt.Errorf("nil workspace")
 	}
@@ -39,32 +49,57 @@ func BuildFromWorkspace(ws *workspace.Workspace) (*GraphBundle, error) {
 			bundle.Packages = append(bundle.Packages, pkg)
 		}
 	}
-	if err := safeBuild(prog); err != nil {
+	if err := safeBuild(ctx, prog); err != nil {
 		bundle.Warnings = append(bundle.Warnings, err.Error())
 	}
-	if err := bundle.buildCallGraph(); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := bundle.buildCallGraph(ctx); err != nil {
 		return nil, err
 	}
 	return bundle, nil
 }
 
-func safeBuild(prog *ssa.Program) (err error) {
+func safeBuild(ctx context.Context, prog *ssa.Program) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("SSA build incomplete: %v", r)
 		}
 	}()
-	prog.Build()
+	buildPackages(ctx, prog)
 	return nil
 }
 
-func (g *GraphBundle) buildCallGraph() (err error) {
+// buildPackages builds the functions of every package of prog in parallel,
+// like ssa.Program.Build, but starts no package once ctx is cancelled.
+func buildPackages(ctx context.Context, prog *ssa.Program) {
+	var group errgroup.Group
+	group.SetLimit(runtime.GOMAXPROCS(0))
+	for _, pkg := range prog.AllPackages() {
+		if ctx.Err() != nil {
+			break
+		}
+		group.Go(func() error {
+			if ctx.Err() == nil {
+				pkg.Build()
+			}
+			return nil
+		})
+	}
+	_ = group.Wait()
+}
+
+func (g *GraphBundle) buildCallGraph(ctx context.Context) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("build call graph: %v", r)
 		}
 	}()
 	initial := cha.CallGraph(g.Program)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	g.CallGraph = vta.CallGraph(chaReachable(initial, g.TargetFunctions()), initial)
 	return nil
 }

@@ -2,17 +2,27 @@ package ssa
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
-	"github.com/Voskan/codexsentinel/config"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/config"
 	"golang.org/x/tools/go/ssa"
 )
 
 func buildBundle(t *testing.T, files map[string]string) *GraphBundle {
+	t.Helper()
+	bundle, err := BuildFromWorkspace(loadWorkspace(t, files))
+	if err != nil {
+		t.Fatalf("build bundle: %v", err)
+	}
+	return bundle
+}
+
+func loadWorkspace(t *testing.T, files map[string]string) *workspace.Workspace {
 	t.Helper()
 	dir := t.TempDir()
 	if _, ok := files["go.mod"]; !ok {
@@ -32,11 +42,19 @@ func buildBundle(t *testing.T, files map[string]string) *GraphBundle {
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
-	bundle, err := BuildFromWorkspace(ws)
-	if err != nil {
-		t.Fatalf("build bundle: %v", err)
+	return ws
+}
+
+func TestBuildFromWorkspaceStopsWhenCancelled(t *testing.T) {
+	ws := loadWorkspace(t, map[string]string{"main.go": "package main\n\nimport \"net/http\"\n\nfunc main() { _ = http.ListenAndServe(\":8080\", nil) }\n"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if bundle, err := BuildFromWorkspaceContext(ctx, ws); !errors.Is(err, context.Canceled) || bundle != nil {
+		t.Fatalf("BuildFromWorkspaceContext after cancel = %v, %v; want nil, context.Canceled", bundle, err)
 	}
-	return bundle
+	if _, err := BuildFromWorkspaceContext(context.Background(), ws); err != nil {
+		t.Fatalf("BuildFromWorkspaceContext = %v", err)
+	}
 }
 
 func findFunc(t *testing.T, g *GraphBundle, name string) *ssa.Function {

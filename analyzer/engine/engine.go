@@ -9,20 +9,20 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/cache"
-	"github.com/Voskan/codexsentinel/analyzer/critsec"
-	"github.com/Voskan/codexsentinel/analyzer/flow"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/analyzer/rules"
-	"github.com/Voskan/codexsentinel/analyzer/rules/builtin"
-	codessa "github.com/Voskan/codexsentinel/analyzer/ssa"
-	"github.com/Voskan/codexsentinel/analyzer/workspace"
-	"github.com/Voskan/codexsentinel/arch"
-	"github.com/Voskan/codexsentinel/config"
-	"github.com/Voskan/codexsentinel/deps"
-	"github.com/Voskan/codexsentinel/internal/matcher"
-	"github.com/Voskan/codexsentinel/metrics"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/cache"
+	"github.com/Voskan/codexsentinel/v2/analyzer/critsec"
+	"github.com/Voskan/codexsentinel/v2/analyzer/flow"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/rules"
+	"github.com/Voskan/codexsentinel/v2/analyzer/rules/builtin"
+	codessa "github.com/Voskan/codexsentinel/v2/analyzer/ssa"
+	"github.com/Voskan/codexsentinel/v2/analyzer/workspace"
+	"github.com/Voskan/codexsentinel/v2/arch"
+	"github.com/Voskan/codexsentinel/v2/config"
+	"github.com/Voskan/codexsentinel/v2/deps"
+	"github.com/Voskan/codexsentinel/v2/internal/matcher"
+	"github.com/Voskan/codexsentinel/v2/metrics"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
@@ -271,56 +271,93 @@ func analyzePackage(ctx context.Context, ws *workspace.Workspace, pkg *packages.
 
 // runWorkspaceAnalyses runs the analyses that need the whole program: taint
 // tracking, dependency audit, architecture, metrics and the capability lock.
-// The SSA program is built once and shared between them.
+// The SSA program is built once and shared between them. The run stops
+// between analyses once ctx is cancelled.
 func runWorkspaceAnalyses(ctx context.Context, ws *workspace.Workspace, cfg *config.Config) ([]result.Issue, error) {
-	needReachability := cfg.Dependencies.Enable && cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability
 	capsLock := capabilityLockPath(ws, cfg)
-	needDeadCode := cfg.Metrics.Enable && cfg.Metrics.EnableDeadCode
-	needCritsec := ruleEnabled(critsec.TxNetworkIO, cfg) || ruleEnabled(critsec.LockBlockingIO, cfg)
-	var bundle *codessa.GraphBundle
-	if (cfg.Taint.Enable || needReachability || needDeadCode || needCritsec || capsLock != "") && len(ws.Packages) > 0 {
-		var err error
-		if bundle, err = codessa.BuildFromWorkspace(ws); err != nil {
-			return nil, fmt.Errorf("build SSA: %w", err)
-		}
+	bundle, err := workspaceBundle(ctx, ws, cfg, capsLock)
+	if err != nil {
+		return nil, err
 	}
 	var issues []result.Issue
-	add := func(found []result.Issue, err error) error {
+	for _, step := range workspaceSteps(ws, cfg, bundle, capsLock) {
+		if !step.enabled {
+			continue
+		}
+		found, err := step.run(ctx)
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err != nil {
+			return nil, err
+		}
 		issues = append(issues, found...)
-		return err
-	}
-	if cfg.Taint.Enable && bundle != nil {
-		if err := add(runTaintAnalysis(ctx, ws, cfg, bundle)); err != nil {
-			return nil, err
-		}
-	}
-	if cfg.Dependencies.Enable && len(ws.GoModPaths) > 0 {
-		depBundle := bundle
-		if !needReachability {
-			depBundle = nil
-		}
-		if err := add(runDependencyAnalysis(ctx, ws, cfg, depBundle)); err != nil {
-			return nil, err
-		}
-	}
-	if !cfg.Dependencies.Enable && len(ws.GoModPaths) > 0 && (cfg.Dependencies.CheckHygiene || cfg.Dependencies.CheckProvenance) {
-		issues = append(issues, runModuleHygiene(ws, cfg)...)
-	}
-	if needCritsec && bundle != nil {
-		issues = append(issues, critsec.Analyze(ws, bundle, func(id string) bool { return ruleEnabled(id, cfg) })...)
-	}
-	if cfg.Architecture.Enable {
-		issues = append(issues, arch.RunAll(ws, bundle, cfg.Architecture)...)
-	}
-	if cfg.Metrics.Enable {
-		issues = append(issues, runMetricsAnalysis(ws, bundle, cfg)...)
-	}
-	if capsLock != "" && bundle != nil {
-		if err := add(runCapabilityCheck(ws, bundle, capsLock)); err != nil {
-			return nil, err
-		}
 	}
 	return issues, nil
+}
+
+// workspaceStep is one whole-program analysis.
+type workspaceStep struct {
+	enabled bool
+	run     func(ctx context.Context) ([]result.Issue, error)
+}
+
+func needsReachability(cfg *config.Config) bool {
+	return cfg.Dependencies.Enable && cfg.Dependencies.CheckVulnerabilities && cfg.Dependencies.CheckReachability
+}
+
+func needsCritsec(cfg *config.Config) bool {
+	return ruleEnabled(critsec.TxNetworkIO, cfg) || ruleEnabled(critsec.LockBlockingIO, cfg)
+}
+
+// workspaceBundle builds the SSA program and call graph when an enabled
+// analysis needs them, and returns nil otherwise.
+func workspaceBundle(ctx context.Context, ws *workspace.Workspace, cfg *config.Config, capsLock string) (*codessa.GraphBundle, error) {
+	needDeadCode := cfg.Metrics.Enable && cfg.Metrics.EnableDeadCode
+	if !(cfg.Taint.Enable || needsReachability(cfg) || needDeadCode || needsCritsec(cfg) || capsLock != "") || len(ws.Packages) == 0 {
+		return nil, nil
+	}
+	bundle, err := codessa.BuildFromWorkspaceContext(ctx, ws)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, fmt.Errorf("build SSA: %w", err)
+	}
+	return bundle, nil
+}
+
+// workspaceSteps lists the whole-program analyses in the order they run.
+func workspaceSteps(ws *workspace.Workspace, cfg *config.Config, bundle *codessa.GraphBundle, capsLock string) []workspaceStep {
+	hasModules := len(ws.GoModPaths) > 0
+	depBundle := bundle
+	if !needsReachability(cfg) {
+		depBundle = nil
+	}
+	deps := cfg.Dependencies
+	return []workspaceStep{
+		{cfg.Taint.Enable && bundle != nil, func(ctx context.Context) ([]result.Issue, error) {
+			return runTaintAnalysis(ctx, ws, cfg, bundle)
+		}},
+		{deps.Enable && hasModules, func(ctx context.Context) ([]result.Issue, error) {
+			return runDependencyAnalysis(ctx, ws, cfg, depBundle)
+		}},
+		{!deps.Enable && hasModules && (deps.CheckHygiene || deps.CheckProvenance), func(context.Context) ([]result.Issue, error) {
+			return runModuleHygiene(ws, cfg), nil
+		}},
+		{needsCritsec(cfg) && bundle != nil, func(context.Context) ([]result.Issue, error) {
+			return critsec.Analyze(ws, bundle, func(id string) bool { return ruleEnabled(id, cfg) }), nil
+		}},
+		{cfg.Architecture.Enable, func(context.Context) ([]result.Issue, error) {
+			return arch.RunAll(ws, bundle, cfg.Architecture), nil
+		}},
+		{cfg.Metrics.Enable, func(context.Context) ([]result.Issue, error) {
+			return runMetricsAnalysis(ws, bundle, cfg), nil
+		}},
+		{capsLock != "" && bundle != nil, func(context.Context) ([]result.Issue, error) {
+			return runCapabilityCheck(ws, bundle, capsLock)
+		}},
+	}
 }
 
 // runTaintAnalysis builds SSA once for the workspace and tracks untrusted data

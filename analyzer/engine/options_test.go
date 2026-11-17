@@ -2,13 +2,14 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/Voskan/codexsentinel/analyzer"
-	"github.com/Voskan/codexsentinel/analyzer/result"
-	"github.com/Voskan/codexsentinel/analyzer/rules"
+	"github.com/Voskan/codexsentinel/v2/analyzer"
+	"github.com/Voskan/codexsentinel/v2/analyzer/result"
+	"github.com/Voskan/codexsentinel/v2/analyzer/rules"
 )
 
 func countingRule(id, message string) *rules.Rule {
@@ -121,5 +122,33 @@ func TestEarlyFindingsCoverFocusPackages(t *testing.T) {
 	}
 	if earlyCalls != 0 {
 		t.Fatalf("Early called %d times for a focus outside every package", earlyCalls)
+	}
+}
+
+func TestCancelledRunStopsAfterEarlyFindings(t *testing.T) {
+	rules.Clear()
+	t.Cleanup(rules.Clear)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.test/m\n\ngo 1.24\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(mainPath, []byte("package main\n\nimport \"net/http\"\n\nfunc main() { _ = http.ListenAndServe(\":8080\", nil) }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The editor saves again while the whole-program analyses are pending.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var early bool
+	opts := Options{Focus: []string{mainPath}, Early: func([]result.Issue, []string) {
+		early = true
+		cancel()
+	}}
+	issues, err := RunWithOptions(ctx, dir, nil, opts)
+	if !early {
+		t.Fatal("Early was not called")
+	}
+	if !errors.Is(err, context.Canceled) || issues != nil {
+		t.Fatalf("RunWithOptions after cancel = %d findings, %v; want none, context.Canceled", len(issues), err)
 	}
 }
